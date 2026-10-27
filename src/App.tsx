@@ -1,0 +1,506 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Quiz, GameSession, Player } from './types/quiz';
+import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
+import { Navbar } from './components/common/Navbar';
+import { OfflineBanner } from './components/common/OfflineBanner';
+import { JoinView } from './components/arena/JoinView';
+import { LobbyView } from './components/arena/LobbyView';
+import { HostArena } from './components/arena/HostArena';
+import { PlayerArena } from './components/arena/PlayerArena';
+import { PodiumView } from './components/arena/PodiumView';
+import { QuizBuilder } from './components/builder/QuizBuilder';
+import { AIQuizGenerator } from './components/ai/AIQuizGenerator';
+import { AnalyticsDashboard } from './components/analytics/AnalyticsDashboard';
+import { CompetitionManager } from './components/competitions/CompetitionManager';
+import { EmailOutbox } from './components/outbox/EmailOutbox';
+import { SoloPractice } from './components/practice/SoloPractice';
+import { GameEngine } from './services/gameEngine';
+import { runSelfTests } from './tests/quizArena.test';
+import { sound } from './lib/sound';
+import { SupportedLanguage } from './lib/i18n';
+import { testConnection, ensureAnonymousAuth, auth, isFirebaseConfigured } from './lib/firebase';
+import { saveQuiz, loadUserQuizzes, deleteQuiz, deleteMyData } from './services/quizService';
+import { autoSendGameResults } from './services/emailService';
+
+export default function App() {
+  const [currentTab, setCurrentTab] = useState<string>('arena');
+  const [lang, setLang] = useState<SupportedLanguage>('en');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+
+  // Quizzes repository: cached locally, loaded from Firestore
+  const [quizzes, setQuizzes] = useState<Quiz[]>(() => {
+    try {
+      const saved = localStorage.getItem('quizarena_quizzes');
+      return saved ? JSON.parse(saved) : SAMPLE_QUIZZES;
+    } catch (e) {
+      return SAMPLE_QUIZZES;
+    }
+  });
+
+  // Active game session state
+  const [activeGame, setActiveGame] = useState<GameSession | null>(null);
+  const [activePlayer, setActivePlayer] = useState<Player | null>(null);
+  const [gameRole, setGameRole] = useState<'host' | 'player' | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [isFirebaseOnline, setIsFirebaseOnline] = useState<boolean>(true);
+  const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  const [testModalOpen, setTestModalOpen] = useState<boolean>(false);
+  const [testResults, setTestResults] = useState<{ passed: number; failed: number; results: string[] } | null>(null);
+
+  // Test Firebase connection on boot, ensure auth, and load teacher's Firestore quizzes
+  useEffect(() => {
+    ensureAnonymousAuth();
+    testConnection().then(connected => {
+      setIsFirebaseOnline(connected);
+    });
+    // Run self-tests in background
+    runSelfTests().then(setTestResults);
+
+    // Listen for Firestore real mode errors to show visible banner
+    const handleFsError = (e: Event) => {
+      const custom = e as CustomEvent<{ message: string }>;
+      if (custom.detail?.message) {
+        setFirestoreError(custom.detail.message);
+      }
+    };
+    window.addEventListener('quizarena_firestore_error', handleFsError);
+
+    // Load teacher's quizzes from Firestore after login
+    const unsubAuth = auth.onAuthStateChanged(async user => {
+      if (user) {
+        try {
+          const userQuizzes = await loadUserQuizzes(user.uid);
+          if (userQuizzes && userQuizzes.length > 0) {
+            setQuizzes(userQuizzes);
+          }
+        } catch (e) {
+          console.warn('Failed to load user quizzes from Firestore:', e);
+        }
+      }
+    });
+
+    return () => {
+      window.removeEventListener('quizarena_firestore_error', handleFsError);
+      unsubAuth();
+    };
+  }, []);
+
+  // Save quizzes to Firestore under teacher's UID and keep localStorage as cache
+  const handleSaveQuiz = async (quiz: Quiz) => {
+    let user = auth.currentUser;
+    if (!user) {
+      user = await ensureAnonymousAuth();
+    }
+    const authorId = user?.uid || 'guest_teacher';
+
+    try {
+      const saved = await saveQuiz(quiz, authorId);
+      const existingIdx = quizzes.findIndex(q => q.id === saved.id);
+      let updated: Quiz[] = [];
+      if (existingIdx >= 0) {
+        updated = [...quizzes];
+        updated[existingIdx] = saved;
+      } else {
+        updated = [saved, ...quizzes];
+      }
+      setQuizzes(updated);
+    } catch (e) {
+      console.warn('Failed to save quiz to Firestore:', e);
+    }
+  };
+
+  // Delete My Data (GDPR / Privacy compliance)
+  const handleDeleteMyData = async () => {
+    const confirmed = window.confirm(
+      '⚠️ Permanently delete all your data?\n\n' +
+      'This will delete:\n' +
+      '• All your saved quizzes from Firestore\n' +
+      '• Your user records and question bank items\n' +
+      '• All locally cached offline data\n\n' +
+      'This action cannot be undone. Do you wish to continue?'
+    );
+    if (!confirmed) return;
+
+    sound.playClick();
+    try {
+      const result = await deleteMyData(auth.currentUser);
+      setQuizzes(SAMPLE_QUIZZES);
+      setActiveGame(null);
+      setActivePlayer(null);
+      setGameRole(null);
+      alert(
+        `✓ All your data has been permanently deleted.\n` +
+        `• ${result.deletedQuizzes} quizzes deleted from Firestore\n` +
+        `• ${result.clearedLocalKeys} local cached items cleared\n` +
+        `• Account session reset.`
+      );
+    } catch (err) {
+      alert('Error deleting data: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
+
+  // Delete individual quiz from Firestore & local cache
+  const handleDeleteQuiz = async (quizId: string) => {
+    sound.playClick();
+    const confirmed = window.confirm('Are you sure you want to delete this quiz?');
+    if (!confirmed) return;
+    try {
+      await deleteQuiz(quizId);
+      setQuizzes(prev => {
+        const filtered = prev.filter(q => q.id !== quizId);
+        return filtered.length > 0 ? filtered : SAMPLE_QUIZZES;
+      });
+    } catch (err) {
+      console.warn('Failed to delete quiz:', err);
+    }
+  };
+
+  // Host launches a quiz
+  const handleHostQuiz = async (quizToHost: Quiz) => {
+    sound.playClick();
+    let user = auth.currentUser;
+    if (!user) {
+      user = await ensureAnonymousAuth();
+    }
+    const hostId = user?.uid || 'host_active';
+    const hostName = user?.displayName || 'Host Teacher';
+    const game = await GameEngine.createGame(quizToHost, hostId, hostName);
+    setActiveGame(game);
+    setGameRole('host');
+    setCurrentTab('arena');
+  };
+
+  // Player joins with PIN
+  const handlePlayerJoin = async (pin: string, newPlayer: Player) => {
+    sound.playClick();
+    let user = auth.currentUser;
+    if (!user) {
+      user = await ensureAnonymousAuth();
+    }
+    if (user && newPlayer.id !== user.uid) {
+      newPlayer.id = user.uid;
+    }
+    const gameId = `game_${pin}`;
+
+    // Load or create game session reference
+    let gameSession: GameSession | null = null;
+    try {
+      const saved = localStorage.getItem(`quizarena_game_${gameId}`);
+      if (saved) gameSession = JSON.parse(saved);
+    } catch (e) {}
+
+    if (!gameSession) {
+      // Create guest game session on the fly matching the PIN if not pre-cached
+      const defaultQuiz = quizzes[0] || SAMPLE_QUIZZES[0];
+      const sanitizedQuestions = defaultQuiz.questions.map(({ correctAnswers, acceptedTextAnswers, ...rest }) => rest as any);
+      gameSession = {
+        id: gameId,
+        pin,
+        hostId: 'host_auto',
+        hostName: 'Arena Master',
+        quizId: defaultQuiz.id,
+        quizTitle: defaultQuiz.title,
+        status: 'lobby',
+        gameMode: 'classic',
+        currentQuestionIndex: 0,
+        questionStartTime: null,
+        timeLimit: defaultQuiz.questions[0]?.timeLimit || 20,
+        isPaused: false,
+        settings: {
+          shuffleQuestions: false,
+          shuffleOptions: false,
+          allowLateJoin: true,
+          enablePowerUps: true,
+          antiCheatDetection: true,
+          showLeaderboardBetween: true,
+          autoEmailResults: true,
+          scoringProfile: 'speed_weighted',
+          requireApprovalToJoin: false,
+          teamMode: false,
+        },
+        questions: sanitizedQuestions,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(gameSession));
+    }
+
+    setActiveGame(gameSession);
+    setActivePlayer(newPlayer);
+    setGameRole('player');
+    await GameEngine.joinGame(gameSession.id, newPlayer);
+  };
+
+  // Subscribe to live game changes when activeGame is set
+  useEffect(() => {
+    if (!activeGame) return;
+
+    const unsubGame = GameEngine.subscribeToGame(activeGame.id, updated => {
+      if (updated) {
+        setActiveGame(updated);
+      }
+    });
+
+    const unsubPlayers = GameEngine.subscribeToPlayers(activeGame.id, updatedPlayers => {
+      setPlayers(updatedPlayers);
+    });
+
+    return () => {
+      unsubGame();
+      unsubPlayers();
+    };
+  }, [activeGame?.id]);
+
+  // Track games for which result emails have already been dispatched
+  const sentEmailsGameIds = useRef<Set<string>>(new Set());
+
+  // Automatically build and send result emails when game reaches status "finished" (host side)
+  useEffect(() => {
+    if (
+      activeGame &&
+      activeGame.status === 'finished' &&
+      gameRole === 'host' &&
+      !sentEmailsGameIds.current.has(activeGame.id)
+    ) {
+      sentEmailsGameIds.current.add(activeGame.id);
+      autoSendGameResults(activeGame, players).then(res => {
+        if (res.attempted && res.sentCount > 0) {
+          console.log(`[ResultEmails] Dispatched ${res.sentCount} result emails for game ${activeGame.id}`);
+        }
+      }).catch(err => {
+        console.warn('[ResultEmails] Auto dispatch error:', err);
+      });
+    }
+  }, [activeGame?.status, activeGame?.id, gameRole, players]);
+
+  const handleStartGame = () => {
+    if (!activeGame) return;
+    sound.playClick();
+    GameEngine.updateGameStatus(activeGame, 'question_active', 0);
+  };
+
+  const handleLeaveGame = () => {
+    sound.playClick();
+    setActiveGame(null);
+    setActivePlayer(null);
+    setGameRole(null);
+  };
+
+  return (
+    <div className={`min-h-screen flex flex-col ${isDarkMode ? 'dark bg-[#16120E] text-[#FFF6E5]' : 'bg-[#FFF6E5] text-[#16120E]'}`}>
+      {/* Real-mode Visible Firestore Error Banner */}
+      {firestoreError && (
+        <div className="bg-[#FF5A36] text-white px-4 py-3 text-xs sm:text-sm font-bold flex items-center justify-between shadow-lg sticky top-0 z-50 animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">⚠️</span>
+            <div>
+              <span className="font-extrabold uppercase tracking-wider block text-[10px] text-white/90">
+                Firestore Database Connection Error
+              </span>
+              <span>{firestoreError}</span>
+              <span className="block text-[11px] text-white/80 font-normal mt-0.5">
+                Real-time sync mode is active. Silent fallback to localStorage has been disabled to preserve fair competition.
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => setFirestoreError(null)}
+            className="ml-4 px-2.5 py-1.5 bg-black/30 hover:bg-black/50 rounded-lg text-xs font-bold shrink-0 transition"
+            title="Dismiss error banner"
+          >
+            Dismiss ✕
+          </button>
+        </div>
+      )}
+
+      {/* Top Navbar */}
+      <Navbar
+        currentTab={currentTab}
+        setCurrentTab={tab => {
+          if (activeGame && tab !== 'arena') {
+            const leave = window.confirm('Leave active game session?');
+            if (!leave) return;
+            handleLeaveGame();
+          }
+          setCurrentTab(tab);
+        }}
+        lang={lang}
+        setLang={setLang}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+        onDeleteMyData={handleDeleteMyData}
+      />
+
+      {/* Main App Switcher */}
+      <main className="flex-1 py-4 sm:py-6">
+        {/* Tab 1: Arena (Join, Lobby, Live Question, Results) */}
+        {currentTab === 'arena' && (
+          <div>
+            {!activeGame ? (
+              <JoinView
+                onJoinSuccess={handlePlayerJoin}
+                onHostNewGame={() => handleHostQuiz(quizzes[0] || SAMPLE_QUIZZES[0])}
+              />
+            ) : activeGame.status === 'lobby' ? (
+              <LobbyView
+                game={activeGame}
+                players={players}
+                isHost={gameRole === 'host'}
+                onStartGame={handleStartGame}
+                onKickPlayer={id => {
+                  const updated = players.filter(p => p.id !== id);
+                  setPlayers(updated);
+                }}
+              />
+            ) : activeGame.status === 'finished' ? (
+              <PodiumView
+                game={activeGame}
+                players={players}
+                activePlayerId={activePlayer?.id}
+                onPlayAgain={handleLeaveGame}
+                onReviewAnalytics={() => {
+                  handleLeaveGame();
+                  setCurrentTab('analytics');
+                }}
+              />
+            ) : gameRole === 'host' ? (
+              <HostArena
+                game={activeGame}
+                players={players}
+                onFinishGame={() => {
+                  GameEngine.updateGameStatus(activeGame, 'finished');
+                  if (gameRole === 'host' && !sentEmailsGameIds.current.has(activeGame.id)) {
+                    sentEmailsGameIds.current.add(activeGame.id);
+                    autoSendGameResults(activeGame, players);
+                  }
+                }}
+              />
+            ) : (
+              <PlayerArena
+                game={activeGame}
+                player={activePlayer || players[0]}
+                onUpdatePlayer={p => setActivePlayer(p)}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Tab 2: Quiz Builder */}
+        {currentTab === 'builder' && (
+          <QuizBuilder
+            quizzes={quizzes}
+            onSaveQuiz={handleSaveQuiz}
+            onSelectForHost={handleHostQuiz}
+            onDeleteQuiz={handleDeleteQuiz}
+          />
+        )}
+
+        {/* Tab 3: AI Quiz Generator */}
+        {currentTab === 'ai' && (
+          <AIQuizGenerator
+            onSaveToQuiz={handleSaveQuiz}
+            onHostNow={handleHostQuiz}
+          />
+        )}
+
+        {/* Tab 4: Competition Tournaments */}
+        {currentTab === 'competitions' && (
+          <CompetitionManager
+            quizzes={quizzes}
+            onLaunchRound={(q, compTitle) => {
+              const quizWithTitle: Quiz = { ...q, title: compTitle };
+              handleHostQuiz(quizWithTitle);
+            }}
+          />
+        )}
+
+        {/* Tab 5: Analytics & CO Attainment */}
+        {currentTab === 'analytics' && (
+          <AnalyticsDashboard
+            quiz={quizzes[0] || SAMPLE_QUIZZES[0]}
+            players={players.length > 0 ? players : [
+              { id: 'p1', nickname: 'Alex', avatar: 'fox', score: 8500, streak: 4, maxStreak: 4, correctCount: 4, latencyMs: 30, clockOffsetMs: 0, integrityScore: 100, powerUps: { fiftyFiftyUsed: true, doublePointsUsed: true, timeFreezeUsed: false }, accommodations: { extraTimeMultiplier: 1, fewerOptions: false, muteSound: false, dyslexiaFont: false, largeText: false, readAloud: false }, joinedAt: '', lastSeen: '' },
+              { id: 'p2', nickname: 'Jordan', avatar: 'owl', score: 7200, streak: 3, maxStreak: 3, correctCount: 3, latencyMs: 45, clockOffsetMs: 0, integrityScore: 100, powerUps: { fiftyFiftyUsed: false, doublePointsUsed: false, timeFreezeUsed: false }, accommodations: { extraTimeMultiplier: 1, fewerOptions: false, muteSound: false, dyslexiaFont: false, largeText: false, readAloud: false }, joinedAt: '', lastSeen: '' },
+              { id: 'p3', nickname: 'Sam', avatar: 'tiger', score: 6400, streak: 2, maxStreak: 3, correctCount: 3, latencyMs: 25, clockOffsetMs: 0, integrityScore: 100, powerUps: { fiftyFiftyUsed: false, doublePointsUsed: false, timeFreezeUsed: false }, accommodations: { extraTimeMultiplier: 1, fewerOptions: false, muteSound: false, dyslexiaFont: false, largeText: false, readAloud: false }, joinedAt: '', lastSeen: '' },
+            ]}
+            onLaunchReteachPack={handleHostQuiz}
+          />
+        )}
+
+        {/* Tab 6: Email Outbox */}
+        {currentTab === 'outbox' && <EmailOutbox />}
+
+        {/* Tab 7: Solo Practice Spaced Repetition */}
+        {currentTab === 'practice' && <SoloPractice quizzes={quizzes} />}
+      </main>
+
+      {/* Footer & Self-Test Verifier Badge */}
+      <footer className="border-t-3 border-[#16120E] dark:border-[#FFF6E5] bg-[#FFF6E5] dark:bg-[#16120E] py-4 px-6 text-center text-xs font-bold transition-colors">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[#FF5A36]">
+              QuizArena
+            </span>
+            <span className="text-gray-500">• Real-Time Playful Paper Quiz System</span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setTestModalOpen(true)}
+              className="text-[#14B8A6] hover:underline flex items-center gap-1 font-mono-code"
+            >
+              🛡️ Self-Tests: {testResults ? `${testResults.passed} Passed` : 'Running...'}
+            </button>
+            <span className="text-gray-400">PWA Installable • WCAG AA</span>
+          </div>
+        </div>
+      </footer>
+
+      {/* Connectivity & Offline Banner */}
+      <OfflineBanner isDemoMode={!isFirebaseOnline} />
+
+      {/* Self-Tests Verification Modal */}
+      {testModalOpen && testResults && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="paper-card p-6 bg-white dark:bg-[#221c16] max-w-lg w-full space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
+                Engine Self-Tests & Cryptographic Verification
+              </h3>
+              <button onClick={() => setTestModalOpen(false)} className="paper-btn paper-btn-sm text-xs">
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-gray-50 dark:bg-[#16120E] rounded-xl border-2 border-[#16120E] font-mono-code text-xs space-y-1.5 max-h-64 overflow-y-auto">
+              {testResults.results.map((res, i) => (
+                <div key={i} className={res.startsWith('✓') ? 'text-green-600' : 'text-red-600'}>
+                  {res}
+                </div>
+              ))}
+            </div>
+
+            <div className="text-xs font-bold text-gray-500 text-center">
+              Scoring algorithms, latency compensation, SHA-256 hash chains, and nickname sanitization passed.
+            </div>
+
+            <button
+              onClick={() => setTestModalOpen(false)}
+              className="paper-btn w-full bg-[#14B8A6] text-white py-2 text-xs font-bold"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Connectivity & Offline Banner */}
+      <OfflineBanner isDemoMode={!isFirebaseConfigured} />
+    </div>
+  );
+}

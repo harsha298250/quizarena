@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-paper: #FFF6E5;
+    --text-ink: #16120E;
+    --color-tomato: #FF5A36;
+    --color-sunshine: #FFC83D;
+    --color-teal: #14B8A6;
+    --color-sky: #4DA3FF;
+    --border-ink: #16120E;
+    --shadow-color: #16120E;
+  }
+
+  .dark {
+    --bg-paper: #16120E;
+    --text-ink: #FFF6E5;
+    --border-ink: #FFF6E5;
+    --shadow-color: #000000;
+  }
+
+  body {
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--bg-paper);
+    color: var(--text-ink);
+    min-height: 100vh;
+    touch-action: manipulation;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  .font-mono-code {
+    font-family: 'Space Mono', monospace;
+  }
+}
+
+/* Playful Paper Tactile Shadow Tokens */
+.paper-card {
+  background-color: #ffffff;
+  border: 3px solid var(--border-ink);
+  box-shadow: 4px 4px 0px var(--shadow-color);
+  border-radius: 16px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.paper-card-sunshine {
+  background-color: #FFFAEE;
+  border: 3px solid var(--border-ink);
+  box-shadow: 4px 4px 0px var(--shadow-color);
+  border-radius: 16px;
+}
+
+.paper-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-weight: 700;
+  border: 3px solid var(--border-ink);
+  box-shadow: 4px 4px 0px var(--shadow-color);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.paper-btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px var(--shadow-color);
+}
+
+.paper-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px var(--shadow-color);
+}
+
+.paper-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: 2px 2px 0px var(--shadow-color);
+}
+
+.paper-btn-sm {
+  font-size: 0.875rem;
+  padding: 0.4rem 0.85rem;
+  border-width: 2.5px;
+  border-radius: 10px;
+  box-shadow: 3px 3px 0px var(--shadow-color);
+}
+
+.paper-btn-sm:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px var(--shadow-color);
+}
+
+.paper-btn-sm:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px var(--shadow-color);
+}
+
+/* Sticker badges */
+.sticker-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 800;
+  border: 2px solid var(--border-ink);
+  border-radius: 9999px;
+  box-shadow: 2px 2px 0px var(--shadow-color);
+}
+
+.sticker-rot-1 {
+  transform: rotate(-1.5deg);
+}
+
+.sticker-rot-2 {
+  transform: rotate(2deg);
+}
+
+.sticker-rot-3 {
+  transform: rotate(-2.5deg);
+}
+
+/* Paper Grain Texture */
+.paper-grain {
+  background-image: radial-gradient(rgba(22, 18, 14, 0.04) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Dyslexia Friendly Mode */
+.dyslexia-font {
+  font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif !important;
+  letter-spacing: 0.05em;
+  line-height: 1.6;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 3px solid #FF5A36;
+  outline-offset: 2px;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "QuizArena - Real-Time Multiplayer Quiz & Competition Platform",
+  "description": "Real-time multiplayer quiz arena, competition manager, AI quiz generator with PDF extraction, and live classroom engagement system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

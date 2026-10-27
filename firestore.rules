@@ -1,0 +1,167 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Anonymous players MUST NOT count for administrative/teacher collections
+    function isNonAnonymous() {
+      return isSignedIn() &&
+        (!('firebase' in request.auth.token) ||
+         request.auth.token.firebase.sign_in_provider != 'anonymous');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isNonAnonymousOwner(userId) {
+      return isNonAnonymous() && request.auth.uid == userId;
+    }
+
+    function isGameHost(gameId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/games/$(gameId)) &&
+        get(/databases/$(database)/documents/games/$(gameId)).data.hostId == request.auth.uid;
+    }
+
+    function isCompetitionOrganizer(competitionId) {
+      return isNonAnonymous() &&
+        exists(/databases/$(database)/documents/competitions/$(competitionId)) &&
+        get(/databases/$(database)/documents/competitions/$(competitionId)).data.organizerId == request.auth.uid;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // Quizzes collection: teacher-owned with uid (no public-read fallback for quizzes without authorId)
+    match /quizzes/{quizId} {
+      allow read: if isSignedIn() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
+    }
+
+    // Question Bank: non-anonymous teacher owner only
+    match /questionBank/{questionId} {
+      allow read: if isNonAnonymous() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
+      allow create: if isNonAnonymous() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isNonAnonymous() && resource.data.authorId == request.auth.uid;
+    }
+
+    // Games collection and subcollections
+    match /games/{gameId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.hostId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.hostId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.hostId == request.auth.uid;
+
+      // Host-only subcollection for correct answer keys
+      match /secrets/{secretId} {
+        allow read, write: if isGameHost(gameId);
+      }
+
+      // Guest emails subcollection: host and owning player only
+      match /guestEmails/{playerId} {
+        allow read: if (isSignedIn() && request.auth.uid == playerId) || isGameHost(gameId);
+        allow create, update: if isSignedIn() && request.auth.uid == playerId;
+        allow delete: if (isSignedIn() && request.auth.uid == playerId) || isGameHost(gameId);
+      }
+
+      // Players subcollection (server-protected scoring, power-ups, latency, and kick status)
+      match /players/{playerId} {
+        allow read: if true;
+        allow create: if (
+          isSignedIn() &&
+          request.auth.uid == playerId &&
+          (!('score' in request.resource.data) || request.resource.data.score == 0) &&
+          (!('streak' in request.resource.data) || request.resource.data.streak == 0) &&
+          (!('maxStreak' in request.resource.data) || request.resource.data.maxStreak == 0) &&
+          (!('correctCount' in request.resource.data) || request.resource.data.correctCount == 0) &&
+          (!('isKicked' in request.resource.data) || request.resource.data.isKicked == false) &&
+          (!('usedPowerUps' in request.resource.data))
+        );
+        allow update: if (
+          (isSignedIn() && request.auth.uid == playerId &&
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'score', 'streak', 'maxStreak', 'correctCount',
+              'powerUps', 'usedPowerUps', 'latencyMs', 'status', 'isKicked'
+            ])) ||
+          isGameHost(gameId)
+        );
+        allow delete: if (
+          (isSignedIn() && request.auth.uid == playerId) ||
+          isGameHost(gameId)
+        );
+      }
+
+      // Answers subcollection: players cannot write answers directly (server writes via Admin SDK)
+      match /answers/{answerId} {
+        allow read: if true;
+        allow create, update: if false;
+        allow delete: if isGameHost(gameId);
+      }
+
+      // Flags subcollection: only the host can read live flags, player can create their own flag
+      match /flags/{flagId} {
+        allow read: if isGameHost(gameId);
+        allow create: if isSignedIn() && request.resource.data.playerId == request.auth.uid;
+        allow update, delete: if isGameHost(gameId);
+      }
+
+      // Live Q&A subcollection: author or host can manage, participants can read
+      match /questionsQA/{qaId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+        allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isGameHost(gameId);
+        allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isGameHost(gameId);
+      }
+    }
+
+    // Competitions collection
+    match /competitions/{competitionId} {
+      allow read: if true;
+      allow create: if isNonAnonymous();
+      allow update, delete: if isCompetitionOrganizer(competitionId);
+
+      // Rounds: only competition organizer can write
+      match /rounds/{roundId} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if isCompetitionOrganizer(competitionId);
+      }
+
+      // Appeals: appellant and organizer only
+      match /appeals/{appealId} {
+        allow read: if (isSignedIn() && resource.data.playerId == request.auth.uid) || isCompetitionOrganizer(competitionId);
+        allow create: if isSignedIn() && request.resource.data.playerId == request.auth.uid;
+        allow update, delete: if isCompetitionOrganizer(competitionId);
+      }
+    }
+
+    // Mail queue: non-anonymous owner or recipient only
+    match /mail/{mailId} {
+      allow read: if isNonAnonymous() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.to == request.auth.token.email
+      );
+      allow create: if isNonAnonymous() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isNonAnonymous() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // Email templates: non-anonymous teacher owner only
+    match /emailTemplates/{templateId} {
+      allow read: if isNonAnonymous() && (resource.data.ownerId == request.auth.uid || resource.data.isPublic == true);
+      allow create: if isNonAnonymous() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isNonAnonymous() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}

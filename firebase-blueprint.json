@@ -1,0 +1,160 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account information and preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string", "maxLength": 80 },
+        "avatar": { "type": "string" },
+        "role": { "type": "string", "enum": ["host", "player", "admin"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "displayName"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Quiz metadata and questions list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 500 },
+        "authorId": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "mode": { "type": "string" },
+        "tags": { "type": "array" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["title", "authorId", "questions"]
+    },
+    "GameSession": {
+      "title": "GameSession",
+      "description": "Live multiplayer quiz arena game session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "pin": { "type": "string", "maxLength": 8 },
+        "hostId": { "type": "string" },
+        "quizId": { "type": "string" },
+        "quizTitle": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["lobby", "question_active", "reveal", "leaderboard", "paused", "finished"]
+        },
+        "gameMode": { "type": "string" },
+        "currentQuestionIndex": { "type": "number" },
+        "questionStartTime": { "type": "string" },
+        "timeLimit": { "type": "number" },
+        "isPaused": { "type": "boolean" },
+        "settings": { "type": "object" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["pin", "hostId", "status"]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "Player in an active game session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nickname": { "type": "string", "maxLength": 40 },
+        "avatar": { "type": "string" },
+        "email": { "type": "string" },
+        "emailConsent": { "type": "boolean" },
+        "team": { "type": "string" },
+        "score": { "type": "number" },
+        "streak": { "type": "number" },
+        "correctCount": { "type": "number" },
+        "latencyMs": { "type": "number" },
+        "integrityScore": { "type": "number" },
+        "accommodations": { "type": "object" },
+        "joinedAt": { "type": "string" },
+        "lastSeen": { "type": "string" }
+      },
+      "required": ["id", "nickname"]
+    },
+    "Answer": {
+      "title": "Answer",
+      "description": "Player submitted answer for a question",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "playerId": { "type": "string" },
+        "questionIndex": { "type": "number" },
+        "selectedOption": { "type": "string" },
+        "isCorrect": { "type": "boolean" },
+        "pointsAwarded": { "type": "number" },
+        "responseTimeMs": { "type": "number" },
+        "clientTimestamp": { "type": "string" },
+        "prevHash": { "type": "string" },
+        "hash": { "type": "string" }
+      },
+      "required": ["playerId", "questionIndex"]
+    },
+    "Competition": {
+      "title": "Competition",
+      "description": "Multi-round tournament/competition",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string" },
+        "organizerId": { "type": "string" },
+        "status": { "type": "string" },
+        "rules": { "type": "string" },
+        "rounds": { "type": "array" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "organizerId"]
+    },
+    "MailQueue": {
+      "title": "MailQueue",
+      "description": "Outgoing email queue item",
+      "type": "object",
+      "properties": {
+        "to": { "type": "string" },
+        "template": { "type": "object" },
+        "message": { "type": "object" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["to"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "UserProfile" },
+      "description": "User profiles"
+    },
+    "/quizzes/{quizId}": {
+      "schema": { "$ref": "Quiz" },
+      "description": "Quizzes created by hosts"
+    },
+    "/games/{gameId}": {
+      "schema": { "$ref": "GameSession" },
+      "description": "Active multiplayer game sessions"
+    },
+    "/games/{gameId}/players/{playerId}": {
+      "schema": { "$ref": "Player" },
+      "description": "Players in a game session"
+    },
+    "/games/{gameId}/answers/{answerId}": {
+      "schema": { "$ref": "Answer" },
+      "description": "Recorded answers from players"
+    },
+    "/competitions/{competitionId}": {
+      "schema": { "$ref": "Competition" },
+      "description": "Tournament competitions"
+    },
+    "/mail/{mailId}": {
+      "schema": { "$ref": "MailQueue" },
+      "description": "Queued email notifications"
+    }
+  }
+}

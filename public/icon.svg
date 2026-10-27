@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="128" fill="#FF5A36"/>
+  <!-- Paper sticker shadow -->
+  <rect x="76" y="76" width="360" height="360" rx="40" fill="#16120E"/>
+  <!-- Paper sticker main -->
+  <rect x="70" y="70" width="360" height="360" rx="40" fill="#FFF6E5" stroke="#16120E" stroke-width="14"/>
+  <!-- Arena geometric shapes in the 4 corners -->
+  <!-- Triangle (Tomato) -->
+  <polygon points="120,180 150,130 180,180" fill="#FF5A36" stroke="#16120E" stroke-width="6"/>
+  <!-- Diamond (Sunshine) -->
+  <polygon points="362,125 392,155 362,185 332,155" fill="#FFC83D" stroke="#16120E" stroke-width="6"/>
+  <!-- Circle (Teal) -->
+  <circle cx="150" cy="340" r="26" fill="#14B8A6" stroke="#16120E" stroke-width="6"/>
+  <!-- Square (Sky) -->
+  <rect x="335" y="315" width="52" height="52" rx="10" fill="#4DA3FF" stroke="#16120E" stroke-width="6"/>
+  <!-- Center 'Q' with crown/trophy spark -->
+  <circle cx="256" cy="245" r="75" fill="#FFC83D" stroke="#16120E" stroke-width="14"/>
+  <circle cx="256" cy="245" r="32" fill="#FFF6E5" stroke="#16120E" stroke-width="10"/>
+  <path d="M 285 275 L 325 315" stroke="#16120E" stroke-width="18" stroke-linecap="round"/>
+  <!-- Lightning bolt spark in Q -->
+  <polygon points="260,195 240,240 258,240 248,275 275,230 255,230" fill="#FF5A36" stroke="#16120E" stroke-width="4"/>
+</svg>
