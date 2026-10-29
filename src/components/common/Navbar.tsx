@@ -40,6 +40,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const t = translations[lang];
 
   useEffect(() => {
@@ -111,8 +113,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Desktop Navigation Links (Collapses to Drawer below 1280px) */}
-        <nav className="hidden xl:flex items-center gap-1 2xl:gap-1.5" aria-label="Main Navigation">
+        {/* Desktop Navigation Links (Collapses to Drawer below 1200px) */}
+        <nav className="hidden min-[1200px]:flex items-center gap-1 min-[1300px]:gap-1.5" aria-label="Main Navigation">
           {navItems.map(item => {
             const active = currentTab === item.id;
             return (
@@ -120,7 +122,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={item.id}
                 data-tab={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className={`px-2.5 2xl:px-3 py-1.5 text-xs font-bold font-['Bricolage_Grotesque'] rounded-lg transition-all border-2 flex items-center gap-1 2xl:gap-1.5 ${
+                className={`px-2.5 min-[1300px]:px-3 py-1.5 text-xs font-bold font-['Bricolage_Grotesque'] rounded-lg transition-all border-2 flex items-center gap-1 min-[1300px]:gap-1.5 whitespace-nowrap ${
                   active
                     ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)]'
                     : 'border-transparent text-[var(--text)] hover:border-[var(--border)] hover:bg-[var(--surface-2)]'
@@ -133,8 +135,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
 
-        {/* Controls: Language, Sound, PWA, Dark Mode, Auth */}
-        <div className="flex items-center gap-2">
+        {/* Controls: Language, Sound, Theme, PWA, Settings, Auth */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Language Selector */}
           <div className="relative">
             <select
@@ -179,20 +181,56 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* In-App PWA Install */}
           <PWAInstallButton />
 
-          {/* Delete My Data (Privacy / GDPR) */}
-          {onDeleteMyData && (
+          {/* Settings & Privacy Menu Toggle */}
+          <div className="relative">
             <button
               onClick={() => {
                 sound.playClick();
-                onDeleteMyData();
+                setSettingsOpen(!settingsOpen);
               }}
-              className="paper-btn paper-btn-sm paper-btn-danger text-xs px-2 py-1 flex items-center gap-1 shadow-[2px_2px_0px_var(--shadow)]"
-              title="Delete my data (GDPR / Privacy Data Removal)"
+              aria-label="Settings and Privacy"
+              title="Settings and Privacy"
+              className="p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)] transition-transform active:translate-y-0.5"
             >
-              <span aria-hidden="true">🗑️</span>
-              <span className="hidden xl:inline font-bold">Delete My Data</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
             </button>
-          )}
+
+            {/* Settings Dropdown Popover */}
+            {settingsOpen && (
+              <div className="absolute right-0 mt-2 w-64 rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] p-3 shadow-[4px_4px_0px_var(--shadow)] z-50 space-y-3 animate-fadeIn">
+                <div className="border-b border-[var(--border)]/20 pb-2">
+                  <div className="text-xs font-bold text-[var(--text)]">Settings & Profile</div>
+                  <div className="text-[11px] text-[var(--text-muted)] truncate">
+                    {currentUser ? currentUser.email || currentUser.displayName || 'Signed In' : 'Guest / Player Mode'}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Privacy & Data</div>
+                  <button
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      setDeleteConfirmOpen(true);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 text-xs font-bold rounded-lg border border-red-500 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 hover:bg-red-100 flex items-center gap-2 transition-colors"
+                  >
+                    <span aria-hidden="true">🗑️</span>
+                    <span>Delete My Data (GDPR)</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setSettingsOpen(false)}
+                  className="paper-btn paper-btn-sm w-full py-1 text-xs font-bold"
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* User Sign In / Profile */}
           {currentUser ? (
@@ -221,11 +259,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
 
-          {/* Mobile hamburger menu toggle (Active below 1280px) */}
+          {/* Mobile hamburger menu toggle (Active below 1200px) */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle mobile navigation menu"
-            className="xl:hidden p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] shadow-[2px_2px_0px_var(--shadow)]"
+            className="min-[1200px]:hidden p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] shadow-[2px_2px_0px_var(--shadow)]"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6h16M4 12h16m-7 6h7" />
@@ -234,9 +272,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Drawer (Collapses below 1280px) */}
+      {/* Mobile Drawer (Collapses below 1200px) */}
       {mobileMenuOpen && (
-        <div className="xl:hidden border-t-2 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] px-4 py-3 space-y-1.5 animate-fadeIn">
+        <div className="min-[1200px]:hidden border-t-2 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] px-4 py-3 space-y-1.5 animate-fadeIn">
           {navItems.map(item => (
             <button
               key={item.id}
@@ -253,20 +291,57 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           ))}
 
-          {onDeleteMyData && (
-            <div className="pt-2 border-t border-[var(--border)]/20">
+          <div className="pt-2 border-t border-[var(--border)]/20">
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setDeleteConfirmOpen(true);
+              }}
+              className="w-full text-left px-3 py-2 text-sm font-bold rounded-lg border-2 border-[var(--border)] bg-red-600 text-white shadow-[2px_2px_0px_var(--shadow)] flex items-center gap-2"
+            >
+              <span aria-hidden="true">🗑️</span>
+              <span>Settings & Delete My Data (GDPR)</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog for Delete My Data */}
+      {deleteConfirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-confirm-title"
+        >
+          <div className="paper-card p-6 max-w-md w-full space-y-4 bg-[var(--surface)] border-3 border-[var(--border)] shadow-[6px_6px_0px_var(--shadow)]">
+            <h2 id="delete-confirm-title" className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--accent)] flex items-center gap-2">
+              <span>⚠️</span> Delete My Stored Data
+            </h2>
+            <p className="text-sm font-medium text-[var(--text)]">
+              This action will permanently delete all your saved quizzes, custom avatars, question drafts, and offline cached sessions.
+            </p>
+            <div className="p-3 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] text-xs text-[var(--text-muted)]">
+              This action complies with GDPR / Privacy standards and cannot be reversed.
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setDeleteConfirmOpen(false)}
+                className="paper-btn paper-btn-sm bg-[var(--surface)] text-[var(--text)] text-xs font-bold px-4 py-2"
+              >
+                Cancel
+              </button>
               <button
                 onClick={() => {
-                  setMobileMenuOpen(false);
-                  onDeleteMyData();
+                  setDeleteConfirmOpen(false);
+                  if (onDeleteMyData) onDeleteMyData();
                 }}
-                className="w-full text-left px-3 py-2 text-sm font-bold rounded-lg border-2 border-[var(--border)] bg-red-600 text-white shadow-[2px_2px_0px_var(--shadow)] flex items-center gap-2"
+                className="paper-btn paper-btn-sm paper-btn-danger text-xs font-bold px-4 py-2 shadow-[2px_2px_0px_var(--shadow)]"
               >
-                <span aria-hidden="true">🗑️</span>
-                <span>Delete My Data (GDPR)</span>
+                Confirm Delete
               </button>
             </div>
-          )}
+          </div>
         </div>
       )}
 

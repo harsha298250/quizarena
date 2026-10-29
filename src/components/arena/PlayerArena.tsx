@@ -308,9 +308,9 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
             strokeWidth={5}
           />
         </div>
-        <h2 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)] leading-snug">
+        <h1 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)] leading-snug">
           {currentQuestion.text}
-        </h2>
+        </h1>
       </div>
 
       {/* Question Locked Banner if Strike 3 locked the round */}

@@ -76,9 +76,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           {/* PIN & Title */}
           <div className="text-center md:text-left space-y-3">
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
-              <span className="sticker-badge sticker-badge-sunshine sticker-rot-1">
+              <h1 className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--text)] tracking-tight">
                 {game.quizTitle}
-              </span>
+              </h1>
               {/* Sound / Music Controls in Lobby */}
               <button
                 onClick={handleToggleSound}

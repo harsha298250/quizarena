@@ -29,6 +29,10 @@
     --color-sunshine: var(--accent-2);
     --color-teal: var(--ok);
     --color-sky: var(--info);
+    /* Typography stacks with complete locale fallbacks */
+    --font-body: 'DM Sans', 'Noto Sans Tamil', 'Noto Sans Devanagari', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-heading: 'Bricolage Grotesque', 'DM Sans', 'Noto Sans Tamil', 'Noto Sans Devanagari', sans-serif;
+    --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 
   .dark {
@@ -60,21 +64,23 @@
   }
 
   body {
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--font-body);
     background-color: var(--bg-page);
     color: var(--text);
     min-height: 100vh;
     touch-action: manipulation;
+    line-height: 1.5;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Bricolage Grotesque', sans-serif;
+    font-family: var(--font-heading);
     letter-spacing: -0.02em;
     color: inherit;
+    font-weight: 800;
   }
 
   .font-mono-code {
-    font-family: 'Space Mono', monospace;
+    font-family: var(--font-mono);
   }
 }
 

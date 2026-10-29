@@ -217,7 +217,7 @@ export default function App() {
     try {
       const saved = localStorage.getItem(`quizarena_game_${gameId}`);
       if (saved) gameSession = JSON.parse(saved);
-    } catch (e) {}
+    } catch (e) { }
 
     if (!gameSession) {
       // Create guest game session on the fly matching the PIN if not pre-cached
@@ -474,9 +474,6 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Connectivity & Offline Banner */}
-      <OfflineBanner isDemoMode={!isFirebaseOnline} />
-
       {/* Self-Tests Verification Modal */}
       {testModalOpen && testResults && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -512,8 +509,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Connectivity & Offline Banner */}
-      <OfflineBanner isDemoMode={!isFirebaseConfigured} />
+      {/* Single Accurate Connectivity & Offline Banner */}
+      <OfflineBanner
+        isDemoMode={!isFirebaseConfigured}
+        isFirebaseOnline={isFirebaseOnline}
+        isSignedIn={Boolean(auth.currentUser && !auth.currentUser.isAnonymous)}
+      />
 
       {/* Global Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />

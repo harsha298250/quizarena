@@ -200,11 +200,29 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
         </div>
       )}
 
+      {/* Studio Header */}
+      <div className="paper-card p-5 sm:p-6 bg-[var(--bg-page)] border-3 shadow-[4px_4px_0px_var(--shadow)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="sticker-badge sticker-badge-sunshine text-xs">Authoring Studio</span>
+            <span className="text-xs font-bold text-[var(--ok)]">7 Question Types Supported</span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)]">
+            Quiz Studio & Assessment Builder
+          </h1>
+          <p className="text-xs font-semibold text-[var(--text-muted)] mt-1">
+            Design interactive questions, Bloom's levels, Course Outcomes, and export to JSON.
+          </p>
+        </div>
+      </div>
+
       {/* Top Bar: Selector, Actions, Host Button */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b-2 border-[var(--border)] pb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-black uppercase text-[var(--text)]">Active Quiz:</label>
+          <label htmlFor="activeQuizSelect" className="text-xs font-black uppercase text-[var(--text)]">Active Quiz:</label>
           <select
+            id="activeQuizSelect"
+            aria-label="Active Quiz"
             value={selectedQuiz.id}
             onChange={e => {
               const q = quizzes.find(item => item.id === e.target.value) || SAMPLE_QUIZZES[0];
@@ -275,8 +293,9 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
       <div className="paper-card p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2 space-y-1">
-            <label className="text-xs font-bold uppercase text-[var(--text)]">Quiz Title</label>
+            <label htmlFor="quizTitleInput" className="text-xs font-bold uppercase text-[var(--text)]">Quiz Title</label>
             <input
+              id="quizTitleInput"
               type="text"
               value={selectedQuiz.title}
               onChange={e => handleUpdateQuizMeta('title', e.target.value)}
@@ -286,8 +305,10 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase text-[var(--text)]">Default Game Mode</label>
+            <label htmlFor="defaultGameModeSelect" className="text-xs font-bold uppercase text-[var(--text)]">Default Game Mode</label>
             <select
+              id="defaultGameModeSelect"
+              aria-label="Default Game Mode"
               value={selectedQuiz.gameMode}
               onChange={e => handleUpdateQuizMeta('gameMode', e.target.value)}
               className="paper-select w-full rounded-xl border-2 border-[var(--border)] px-3 py-2 font-bold text-sm shadow-[2px_2px_0px_var(--shadow)]"
@@ -420,6 +441,8 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                     Question #{activeQuestionIndex + 1}
                   </span>
                   <select
+                    id="questionTypeSelect"
+                    aria-label="Question Type"
                     value={activeQuestion.type}
                     onChange={e => handleUpdateQuestion('type', e.target.value as QuestionType)}
                     className="paper-select text-xs font-bold rounded-lg border-2 border-[var(--border)] px-2 py-1"
@@ -446,8 +469,9 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
 
               {/* Question Text Prompt */}
               <div className="space-y-1">
-                <label className="text-xs font-bold uppercase text-[var(--text)]">Question Prompt</label>
+                <label htmlFor="questionPromptTextarea" className="text-xs font-bold uppercase text-[var(--text)]">Question Prompt</label>
                 <textarea
+                  id="questionPromptTextarea"
                   rows={3}
                   value={activeQuestion.text}
                   onChange={e => handleUpdateQuestion('text', e.target.value)}
@@ -554,8 +578,10 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
               {/* Pedagogical Metadata: Time, Points, Bloom Level, CO Tag, Topic */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t-2 border-[var(--border)]/20 pt-4">
                 <div>
-                  <label className="text-xs font-bold uppercase text-[var(--text)]">Time Limit</label>
+                  <label htmlFor="questionTimeLimitSelect" className="text-xs font-bold uppercase text-[var(--text)]">Time Limit</label>
                   <select
+                    id="questionTimeLimitSelect"
+                    aria-label="Time Limit"
                     value={activeQuestion.timeLimit}
                     onChange={e => handleUpdateQuestion('timeLimit', Number(e.target.value))}
                     className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
@@ -570,8 +596,10 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold uppercase text-[var(--text)]">Points</label>
+                  <label htmlFor="questionPointsSelect" className="text-xs font-bold uppercase text-[var(--text)]">Points</label>
                   <select
+                    id="questionPointsSelect"
+                    aria-label="Points"
                     value={activeQuestion.points}
                     onChange={e => handleUpdateQuestion('points', Number(e.target.value))}
                     className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
@@ -583,8 +611,10 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold uppercase text-[var(--text)]">Bloom Taxonomy</label>
+                  <label htmlFor="questionBloomLevelSelect" className="text-xs font-bold uppercase text-[var(--text)]">Bloom Taxonomy</label>
                   <select
+                    id="questionBloomLevelSelect"
+                    aria-label="Bloom Taxonomy"
                     value={activeQuestion.bloomLevel}
                     onChange={e => handleUpdateQuestion('bloomLevel', e.target.value as BloomLevel)}
                     className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
@@ -598,8 +628,9 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold uppercase text-[var(--text)]">CO Outcome Tag</label>
+                  <label htmlFor="questionCOTagInput" className="text-xs font-bold uppercase text-[var(--text)]">CO Outcome Tag</label>
                   <input
+                    id="questionCOTagInput"
                     type="text"
                     value={activeQuestion.courseOutcomeTag}
                     onChange={e => handleUpdateQuestion('courseOutcomeTag', e.target.value.toUpperCase())}
@@ -611,10 +642,11 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
 
               {/* Explanation Text */}
               <div className="space-y-1">
-                <label className="text-xs font-bold uppercase text-[var(--text)]">
+                <label htmlFor="questionExplanationTextarea" className="text-xs font-bold uppercase text-[var(--text)]">
                   Answer Explanation (Shown to players during Reveal step)
                 </label>
                 <textarea
+                  id="questionExplanationTextarea"
                   rows={2}
                   value={activeQuestion.explanation}
                   onChange={e => handleUpdateQuestion('explanation', e.target.value)}
