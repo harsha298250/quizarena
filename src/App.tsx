@@ -8,6 +8,7 @@ import { Quiz, GameSession, Player } from './types/quiz';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
 import { Navbar } from './components/common/Navbar';
 import { OfflineBanner } from './components/common/OfflineBanner';
+import { ToastContainer, ToastMessage } from './components/common/Toast';
 import { JoinView } from './components/arena/JoinView';
 import { LobbyView } from './components/arena/LobbyView';
 import { HostArena } from './components/arena/HostArena';
@@ -26,11 +27,14 @@ import { SupportedLanguage } from './lib/i18n';
 import { testConnection, ensureAnonymousAuth, auth, isFirebaseConfigured } from './lib/firebase';
 import { saveQuiz, loadUserQuizzes, deleteQuiz, deleteMyData } from './services/quizService';
 import { autoSendGameResults } from './services/emailService';
+import { useTheme } from './hooks/useTheme';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('arena');
   const [lang, setLang] = useState<SupportedLanguage>('en');
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const isDarkMode = resolvedTheme === 'dark';
+  const setIsDarkMode = (val: boolean) => setTheme(val ? 'dark' : 'light');
 
   // Quizzes repository: cached locally, loaded from Firestore
   const [quizzes, setQuizzes] = useState<Quiz[]>(() => {
@@ -51,6 +55,27 @@ export default function App() {
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
   const [testModalOpen, setTestModalOpen] = useState<boolean>(false);
   const [testResults, setTestResults] = useState<{ passed: number; failed: number; results: string[] } | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = (toast: Omit<ToastMessage, 'id'>) => {
+    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    setToasts(prev => [...prev, { ...toast, id }]);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  useEffect(() => {
+    if (firestoreError) {
+      addToast({
+        type: 'error',
+        title: 'Firestore Sync Error',
+        message: firestoreError,
+        duration: 7000,
+      });
+    }
+  }, [firestoreError]);
 
   // Test Firebase connection on boot, ensure auth, and load teacher's Firestore quizzes
   useEffect(() => {
@@ -292,32 +317,7 @@ export default function App() {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col ${isDarkMode ? 'dark bg-[#16120E] text-[#FFF6E5]' : 'bg-[#FFF6E5] text-[#16120E]'}`}>
-      {/* Real-mode Visible Firestore Error Banner */}
-      {firestoreError && (
-        <div className="bg-[#FF5A36] text-white px-4 py-3 text-xs sm:text-sm font-bold flex items-center justify-between shadow-lg sticky top-0 z-50 animate-fadeIn">
-          <div className="flex items-center gap-2.5">
-            <span className="text-xl">⚠️</span>
-            <div>
-              <span className="font-extrabold uppercase tracking-wider block text-[10px] text-white/90">
-                Firestore Database Connection Error
-              </span>
-              <span>{firestoreError}</span>
-              <span className="block text-[11px] text-white/80 font-normal mt-0.5">
-                Real-time sync mode is active. Silent fallback to localStorage has been disabled to preserve fair competition.
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => setFirestoreError(null)}
-            className="ml-4 px-2.5 py-1.5 bg-black/30 hover:bg-black/50 rounded-lg text-xs font-bold shrink-0 transition"
-            title="Dismiss error banner"
-          >
-            Dismiss ✕
-          </button>
-        </div>
-      )}
-
+    <div className="min-h-screen flex flex-col bg-[var(--bg-page)] text-[var(--text)]">
       {/* Top Navbar */}
       <Navbar
         currentTab={currentTab}
@@ -331,13 +331,15 @@ export default function App() {
         }}
         lang={lang}
         setLang={setLang}
+        theme={theme}
+        setTheme={setTheme}
         isDarkMode={isDarkMode}
         setIsDarkMode={setIsDarkMode}
         onDeleteMyData={handleDeleteMyData}
       />
 
-      {/* Main App Switcher */}
-      <main className="flex-1 py-4 sm:py-6">
+      {/* Main App Switcher with Page Transition */}
+      <main key={currentTab} className="flex-1 py-4 sm:py-6 animate-fadeIn transition-all">
         {/* Tab 1: Arena (Join, Lobby, Live Question, Results) */}
         {currentTab === 'arena' && (
           <div>
@@ -355,6 +357,17 @@ export default function App() {
                 onKickPlayer={id => {
                   const updated = players.filter(p => p.id !== id);
                   setPlayers(updated);
+                }}
+                onUpdateSettings={settings => {
+                  if (!activeGame) return;
+                  const updated = {
+                    ...activeGame,
+                    settings: { ...activeGame.settings, ...settings },
+                  };
+                  setActiveGame(updated);
+                  GameEngine.updateGameStatus(updated, updated.status).catch(err => {
+                    console.warn('Failed to persist settings update:', err);
+                  });
                 }}
               />
             ) : activeGame.status === 'finished' ? (
@@ -440,23 +453,23 @@ export default function App() {
       </main>
 
       {/* Footer & Self-Test Verifier Badge */}
-      <footer className="border-t-3 border-[#16120E] dark:border-[#FFF6E5] bg-[#FFF6E5] dark:bg-[#16120E] py-4 px-6 text-center text-xs font-bold transition-colors">
+      <footer className="border-t-3 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] py-4 px-6 text-center text-xs font-bold transition-colors">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[#FF5A36]">
+            <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[var(--accent)]">
               QuizArena
             </span>
-            <span className="text-gray-500">• Real-Time Playful Paper Quiz System</span>
+            <span className="text-[var(--text-muted)]">• Real-Time Playful Paper Quiz System</span>
           </div>
 
           <div className="flex items-center gap-4">
             <button
               onClick={() => setTestModalOpen(true)}
-              className="text-[#14B8A6] hover:underline flex items-center gap-1 font-mono-code"
+              className="text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline flex items-center gap-1 font-mono-code font-bold"
             >
               🛡️ Self-Tests: {testResults ? `${testResults.passed} Passed` : 'Running...'}
             </button>
-            <span className="text-gray-400">PWA Installable • WCAG AA</span>
+            <span className="text-[var(--text-muted)]">PWA Installable • WCAG AA</span>
           </div>
         </div>
       </footer>
@@ -467,9 +480,9 @@ export default function App() {
       {/* Self-Tests Verification Modal */}
       {testModalOpen && testResults && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="paper-card p-6 bg-white dark:bg-[#221c16] max-w-lg w-full space-y-4">
+          <div className="paper-card p-6 max-w-lg w-full space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
+              <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
                 Engine Self-Tests & Cryptographic Verification
               </h3>
               <button onClick={() => setTestModalOpen(false)} className="paper-btn paper-btn-sm text-xs">
@@ -477,21 +490,21 @@ export default function App() {
               </button>
             </div>
 
-            <div className="p-3 bg-gray-50 dark:bg-[#16120E] rounded-xl border-2 border-[#16120E] font-mono-code text-xs space-y-1.5 max-h-64 overflow-y-auto">
+            <div className="p-3 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] font-mono-code text-xs space-y-1.5 max-h-64 overflow-y-auto">
               {testResults.results.map((res, i) => (
-                <div key={i} className={res.startsWith('✓') ? 'text-green-600' : 'text-red-600'}>
+                <div key={i} className={res.startsWith('✓') ? 'text-green-700 dark:text-green-400 font-bold' : 'text-red-700 dark:text-red-400 font-bold'}>
                   {res}
                 </div>
               ))}
             </div>
 
-            <div className="text-xs font-bold text-gray-500 text-center">
+            <div className="text-xs font-bold text-[var(--text-muted)] text-center">
               Scoring algorithms, latency compensation, SHA-256 hash chains, and nickname sanitization passed.
             </div>
 
             <button
               onClick={() => setTestModalOpen(false)}
-              className="paper-btn w-full bg-[#14B8A6] text-white py-2 text-xs font-bold"
+              className="paper-btn paper-btn-ok w-full py-2 text-xs font-bold"
             >
               Close
             </button>
@@ -501,6 +514,9 @@ export default function App() {
 
       {/* Connectivity & Offline Banner */}
       <OfflineBanner isDemoMode={!isFirebaseConfigured} />
+
+      {/* Global Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   validatePlayerEligibility,
   validateAndTrackPowerUp,
   RateLimiter,
+  TimingAnomalyDetector,
 } from '../server/scoringHardening.ts';
 import { calculateFairScore } from '../lib/scoring.ts';
 
@@ -241,6 +242,95 @@ export function runHardenedScoringTests(): TestResultSummary {
   assert(
     afterResetRes.allowed,
     'Case (f): Requests are allowed again after rate limit window expires'
+  );
+
+  // =========================================================================
+  // Case (g): Timing Anomaly Detection (Implausibly fast & uniform bot timing)
+  // =========================================================================
+  const anomalyDetector = new TimingAnomalyDetector();
+  const testPlayer = 'contender_bot_check_1';
+
+  // 1. Sub-human reaction speed (< 300ms)
+  const fastRes = anomalyDetector.recordAndCheck(testPlayer, 140);
+  assert(
+    fastRes.isAnomaly && fastRes.type === 'suspicious_timing' && fastRes.severity === 'high',
+    'Case (g): Sub-human response time (< 300ms) triggers high-severity suspicious_timing flag'
+  );
+
+  // 2. Normal human response times (std dev > 100ms) should NOT trigger anomaly
+  const humanPlayer = 'contender_human_1';
+  const humanR1 = anomalyDetector.recordAndCheck(humanPlayer, 1450);
+  const humanR2 = anomalyDetector.recordAndCheck(humanPlayer, 2800);
+  const humanR3 = anomalyDetector.recordAndCheck(humanPlayer, 1920);
+  assert(
+    !humanR1.isAnomaly && !humanR2.isAnomaly && !humanR3.isAnomaly,
+    'Case (g): Natural variable human response times (1450ms, 2800ms, 1920ms) are NOT flagged'
+  );
+
+  // 3. Automated script with unnaturally uniform timing (e.g. 500ms, 502ms, 501ms)
+  const botPlayer = 'contender_bot_macro';
+  anomalyDetector.recordAndCheck(botPlayer, 500);
+  anomalyDetector.recordAndCheck(botPlayer, 502);
+  const botR3 = anomalyDetector.recordAndCheck(botPlayer, 501);
+  assert(
+    botR3.isAnomaly && botR3.type === 'uniform_timing' && botR3.severity === 'medium',
+    'Case (g): Unnaturally uniform script timing across questions (std dev < 25ms) triggers uniform_timing flag'
+  );
+
+  // 4. Reset history restores clean slate
+  anomalyDetector.reset(botPlayer);
+  const afterResetBot = anomalyDetector.recordAndCheck(botPlayer, 500);
+  assert(
+    !afterResetBot.isAnomaly,
+    'Case (g): Resetting timing detector history clears previous anomalies'
+  );
+
+  // =========================================================================
+  // Case (h): Secure Mode Strike Escalation and Advisory Integrity Model
+  // =========================================================================
+  const calculateStrikeOutcome = (
+    strike: number,
+    settings: { strike2PointPenalty?: number; lockAnswerOnStrike3?: boolean }
+  ) => {
+    if (strike === 1) {
+      return { penaltyPoints: 0, locked: false, modalType: 'friendly_warning' };
+    }
+    if (strike === 2) {
+      return {
+        penaltyPoints: settings.strike2PointPenalty ?? 50,
+        locked: false,
+        modalType: 'strong_warning_penalty',
+      };
+    }
+    return {
+      penaltyPoints: 0,
+      locked: settings.lockAnswerOnStrike3 !== false,
+      modalType: 'host_flagged_locked',
+    };
+  };
+
+  const strike1Outcome = calculateStrikeOutcome(1, { strike2PointPenalty: 50 });
+  assert(
+    strike1Outcome.modalType === 'friendly_warning' && strike1Outcome.penaltyPoints === 0 && !strike1Outcome.locked,
+    'Case (h): Strike 1 triggers a friendly informational modal without point penalties'
+  );
+
+  const strike2Outcome = calculateStrikeOutcome(2, { strike2PointPenalty: 75 });
+  assert(
+    strike2Outcome.modalType === 'strong_warning_penalty' && strike2Outcome.penaltyPoints === 75 && !strike2Outcome.locked,
+    'Case (h): Strike 2 applies the host-configured point penalty (75 pts)'
+  );
+
+  const strike3Outcome = calculateStrikeOutcome(3, { lockAnswerOnStrike3: true });
+  assert(
+    strike3Outcome.modalType === 'host_flagged_locked' && strike3Outcome.locked,
+    'Case (h): Strike 3 flags player to host and locks answering for active question'
+  );
+
+  const strike3UnlockedOutcome = calculateStrikeOutcome(3, { lockAnswerOnStrike3: false });
+  assert(
+    strike3UnlockedOutcome.modalType === 'host_flagged_locked' && !strike3UnlockedOutcome.locked,
+    'Case (h): Strike 3 advisory mode flags host without locking when lockAnswerOnStrike3 is false'
   );
 
   return { passed, failed, results };

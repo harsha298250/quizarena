@@ -21,6 +21,7 @@ import {
   extractQuestionStartTimeMs,
   validatePlayerEligibility,
   validateAndTrackPowerUp,
+  globalTimingAnomalyDetector,
   MAX_ALLOWED_LATENCY_MS,
 } from './src/server/scoringHardening.ts';
 import { handleSendResults } from './src/server/resultEmailsHandler.ts';
@@ -770,6 +771,23 @@ app.post('/api/answer', async (req: Request, res: Response): Promise<void> => {
         // Write answer document and update latest audit hash on the game doc
         transaction.set(answerDocRef, submissionData);
         transaction.update(gameDocRef, { lastAuditHash: auditBlock.hash });
+
+        // Server-side timing anomaly detection (implausibly fast or uniform timing across questions)
+        const timingAnomaly = globalTimingAnomalyDetector.recordAndCheck(playerId, serverElapsedMs);
+        if (timingAnomaly.isAnomaly) {
+          const flagId = `flag_${now}_${Math.random().toString(36).substring(2, 7)}`;
+          const flagDocRef = adminDb.doc(`games/${gameId}/flags/${flagId}`);
+          transaction.set(flagDocRef, {
+            id: flagId,
+            playerId,
+            playerNickname: playerData.nickname || 'Player',
+            type: timingAnomaly.type,
+            severity: timingAnomaly.severity || 'medium',
+            reason: timingAnomaly.reason,
+            timestamp: new Date().toISOString(),
+            questionIndex,
+          });
+        }
 
         // Update player score, streaks, and mark power-up as used on server
         const newStreak = scoreResult.newStreak;

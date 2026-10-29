@@ -112,35 +112,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="relative w-full max-w-md rounded-2xl border-3 border-[#16120E] bg-[#FFF6E5] dark:bg-[#16120E] p-6 shadow-[8px_8px_0px_#16120E] dark:border-[#FFF6E5]">
+      <div className="relative w-full max-w-md paper-modal p-6 shadow-[8px_8px_0px_var(--shadow)]">
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 h-8 w-8 rounded-full border-2 border-[#16120E] bg-white dark:bg-[#221c16] text-[#16120E] dark:text-white font-bold flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-800 shadow-[2px_2px_0px_#16120E]"
+          aria-label="Close authentication modal"
+          className="absolute top-4 right-4 h-8 w-8 rounded-full border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] font-bold flex items-center justify-center hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]"
         >
           ✕
         </button>
 
         <div className="text-center mb-5">
-          <span className="sticker-badge bg-[#FFC83D] text-[#16120E] text-[11px] font-black uppercase">
+          <span className="sticker-badge sticker-badge-sunshine text-[11px] font-black uppercase">
             Host / Teacher Access
           </span>
-          <h2 className="font-['Bricolage_Grotesque'] text-2xl font-black text-[#16120E] dark:text-white mt-1">
+          <h2 className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--text)] mt-1">
             {isRegister ? 'Create Host Account' : 'Sign In to QuizArena'}
           </h2>
-          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1">
             Manage your quizzes, launch live competitions, and view cohort analytics.
           </p>
         </div>
 
         {/* Feedback messages */}
         {errorMsg && (
-          <div className="mb-4 rounded-xl border-2 border-[#EF4444] bg-red-100 dark:bg-red-950/60 p-2.5 text-xs font-bold text-red-700 dark:text-red-300">
+          <div className="mb-4 rounded-xl border-2 border-red-600 bg-red-100 dark:bg-red-950/60 p-2.5 text-xs font-bold text-red-800 dark:text-red-200">
             ⚠️ {errorMsg}
           </div>
         )}
         {infoMsg && (
-          <div className="mb-4 rounded-xl border-2 border-[#10B981] bg-emerald-100 dark:bg-emerald-950/60 p-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+          <div className="mb-4 rounded-xl border-2 border-[var(--ok)] bg-emerald-100 dark:bg-emerald-950/60 p-2.5 text-xs font-bold text-emerald-900 dark:text-emerald-200">
             {infoMsg}
           </div>
         )}
@@ -150,9 +151,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full paper-btn bg-white hover:bg-gray-50 text-[#16120E] text-sm font-black py-2.5 flex items-center justify-center gap-2 mb-4"
+          className="w-full paper-btn bg-[var(--surface)] hover:bg-[var(--surface-2)] text-[var(--text)] text-sm font-black py-2.5 flex items-center justify-center gap-2 mb-4"
         >
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
             <path
               fill="#4285F4"
               d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -174,15 +175,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         </button>
 
         <div className="relative flex py-2 items-center">
-          <div className="grow border-t-2 border-[#16120E]/20 dark:border-white/20"></div>
-          <span className="shrink mx-3 text-[11px] font-bold text-gray-500 uppercase">or with email</span>
-          <div className="grow border-t-2 border-[#16120E]/20 dark:border-white/20"></div>
+          <div className="grow border-t-2 border-[var(--border)]/20"></div>
+          <span className="shrink mx-3 text-[11px] font-bold text-[var(--text-muted)] uppercase">or with email</span>
+          <div className="grow border-t-2 border-[var(--border)]/20"></div>
         </div>
 
         {/* 2. Email & Password Form */}
         <form onSubmit={handleEmailAuthSubmit} className="space-y-3 mt-2">
           <div>
-            <label className="block text-xs font-black uppercase text-[#16120E] dark:text-white mb-1">
+            <label className="block text-xs font-black uppercase text-[var(--text)] mb-1">
               Email Address
             </label>
             <input
@@ -191,20 +192,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               onChange={e => setEmail(e.target.value)}
               placeholder="teacher@school.edu"
               required
-              className="w-full rounded-xl border-2 border-[#16120E] bg-white dark:bg-[#221c16] px-3 py-2 text-sm font-semibold text-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E] focus:outline-none"
+              className="w-full rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)] focus:outline-none"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-black uppercase text-[#16120E] dark:text-white">
+              <label className="text-xs font-black uppercase text-[var(--text)]">
                 Password
               </label>
               {!isRegister && (
                 <button
                   type="button"
                   onClick={handleForgotPassword}
-                  className="text-[11px] font-bold text-[#FF5A36] hover:underline"
+                  className="text-[11px] font-bold text-[var(--accent)] hover:underline"
                 >
                   Forgot password?
                 </button>
@@ -216,21 +217,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               onChange={e => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              className="w-full rounded-xl border-2 border-[#16120E] bg-white dark:bg-[#221c16] px-3 py-2 text-sm font-semibold text-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E] focus:outline-none"
+              className="w-full rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)] focus:outline-none"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full paper-btn bg-[#FF5A36] text-white font-extrabold text-sm py-2.5 mt-2"
+            className="w-full paper-btn paper-btn-primary font-extrabold text-sm py-2.5 mt-2"
           >
             {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In with Email'}
           </button>
         </form>
 
         {/* Toggle Sign In / Create Account */}
-        <div className="mt-4 pt-3 border-t border-[#16120E]/20 dark:border-white/20 text-center">
+        <div className="mt-4 pt-3 border-t border-[var(--border)]/20 text-center">
           <button
             type="button"
             onClick={() => {
@@ -239,7 +240,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               setErrorMsg(null);
               setInfoMsg(null);
             }}
-            className="text-xs font-bold text-[#14B8A6] hover:underline cursor-pointer"
+            className="text-xs font-bold text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline cursor-pointer"
           >
             {isRegister ? 'Already have an account? Sign In' : 'Need an account? Create one here'}
           </button>

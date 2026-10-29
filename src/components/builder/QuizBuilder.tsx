@@ -195,15 +195,15 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
       {/* Toast Alert */}
       {toastMessage && (
-        <div className="fixed top-16 right-6 z-50 rounded-xl border-2 border-[#16120E] bg-[#FFC83D] px-4 py-2 font-bold text-[#16120E] shadow-[3px_3px_0px_#16120E] animate-bounce">
+        <div className="fixed top-16 right-6 z-50 rounded-xl border-2 border-[var(--border)] bg-[var(--accent-2-bg)] px-4 py-2 font-bold text-[var(--text-on-accent-2)] shadow-[3px_3px_0px_var(--shadow)] animate-bounce">
           {toastMessage}
         </div>
       )}
 
       {/* Top Bar: Selector, Actions, Host Button */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b-2 border-[#16120E] pb-4">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b-2 border-[var(--border)] pb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-black uppercase text-[#16120E] dark:text-[#FFF6E5]">Active Quiz:</label>
+          <label className="text-xs font-black uppercase text-[var(--text)]">Active Quiz:</label>
           <select
             value={selectedQuiz.id}
             onChange={e => {
@@ -211,7 +211,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
               setSelectedQuiz(q);
               setActiveQuestionIndex(0);
             }}
-            className="rounded-xl border-2 border-[#16120E] bg-white dark:bg-[#221c16] dark:text-white px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0px_#16120E] cursor-pointer"
+            className="rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0px_var(--shadow)] cursor-pointer"
           >
             {quizzes.map(q => (
               <option key={q.id} value={q.id}>
@@ -220,7 +220,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
             ))}
           </select>
 
-          <button onClick={handleCreateNewQuiz} className="paper-btn paper-btn-sm bg-[#FFC83D] text-[#16120E]">
+          <button onClick={handleCreateNewQuiz} className="paper-btn paper-btn-sm paper-btn-secondary">
             + New Quiz
           </button>
 
@@ -234,7 +234,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                   setActiveQuestionIndex(0);
                 }
               }}
-              className="paper-btn paper-btn-sm bg-red-100 hover:bg-red-200 text-red-700 border-[#16120E] dark:bg-red-950 dark:text-red-300"
+              className="paper-btn paper-btn-sm paper-btn-danger"
               title="Delete this quiz"
             >
               🗑️ Delete Quiz
@@ -244,17 +244,17 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
 
         <div className="flex flex-wrap items-center gap-2">
           {/* JSON Export/Import */}
-          <button onClick={handleExportJson} className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white">
+          <button onClick={handleExportJson} className="paper-btn paper-btn-sm">
             Export JSON
           </button>
-          <label className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white cursor-pointer">
+          <label className="paper-btn paper-btn-sm cursor-pointer">
             Import JSON
             <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
           </label>
 
           <button
             onClick={() => setPreviewMode(!previewMode)}
-            className={`paper-btn paper-btn-sm ${previewMode ? 'bg-[#14B8A6] text-white' : 'bg-white dark:bg-[#221c16] dark:text-white'}`}
+            className={`paper-btn paper-btn-sm ${previewMode ? 'paper-btn-ok' : ''}`}
           >
             {previewMode ? 'Exit Preview' : '👁️ Preview'}
           </button>
@@ -264,7 +264,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
               sound.playClick();
               onSelectForHost(selectedQuiz);
             }}
-            className="paper-btn paper-btn-sm bg-[#FF5A36] text-white font-extrabold px-4"
+            className="paper-btn paper-btn-sm paper-btn-primary font-extrabold px-4"
           >
             🚀 Host Live Now
           </button>
@@ -272,25 +272,25 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
       </div>
 
       {/* Quiz Metadata Editor */}
-      <div className="paper-card p-4 bg-white dark:bg-[#221c16] space-y-3">
+      <div className="paper-card p-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2 space-y-1">
-            <label className="text-xs font-bold uppercase text-[#16120E] dark:text-[#FFF6E5]">Quiz Title</label>
+            <label className="text-xs font-bold uppercase text-[var(--text)]">Quiz Title</label>
             <input
               type="text"
               value={selectedQuiz.title}
               onChange={e => handleUpdateQuizMeta('title', e.target.value)}
-              className="w-full rounded-xl border-2 border-[#16120E] px-3 py-2 font-bold text-lg dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+              className="paper-input w-full rounded-xl border-2 border-[var(--border)] px-3 py-2 font-bold text-lg shadow-[2px_2px_0px_var(--shadow)]"
               placeholder="e.g. Physics Midterm Battle..."
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-bold uppercase text-[#16120E] dark:text-[#FFF6E5]">Default Game Mode</label>
+            <label className="text-xs font-bold uppercase text-[var(--text)]">Default Game Mode</label>
             <select
               value={selectedQuiz.gameMode}
               onChange={e => handleUpdateQuizMeta('gameMode', e.target.value)}
-              className="w-full rounded-xl border-2 border-[#16120E] px-3 py-2 font-bold text-sm dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+              className="paper-select w-full rounded-xl border-2 border-[var(--border)] px-3 py-2 font-bold text-sm shadow-[2px_2px_0px_var(--shadow)]"
             >
               <option value="classic">Classic (Speed + Accuracy)</option>
               <option value="accuracy">Accuracy Only (No Speed Clock)</option>
@@ -303,12 +303,12 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
         </div>
 
         <div>
-          <label className="text-xs font-bold uppercase text-[#16120E] dark:text-[#FFF6E5]">Description</label>
+          <label className="text-xs font-bold uppercase text-[var(--text)]">Description</label>
           <input
             type="text"
             value={selectedQuiz.description}
             onChange={e => handleUpdateQuizMeta('description', e.target.value)}
-            className="w-full rounded-xl border-2 border-[#16120E] px-3 py-1.5 text-sm dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+            className="paper-input w-full rounded-xl border-2 border-[var(--border)] px-3 py-1.5 text-sm shadow-[2px_2px_0px_var(--shadow)]"
             placeholder="Brief instructions or summary for participants..."
           />
         </div>
@@ -319,14 +319,14 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
         {/* Left: Questions Navigator Rail */}
         <div className="lg:col-span-1 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-wider text-[#16120E] dark:text-white">
+            <span className="text-xs font-black uppercase tracking-wider text-[var(--text)]">
               Questions ({selectedQuiz.questions.length})
             </span>
             <div className="flex gap-1">
               <button
                 disabled={activeQuestionIndex === 0}
                 onClick={() => handleMoveQuestion('up')}
-                className="p-1 rounded border-2 border-[#16120E] bg-white disabled:opacity-40 text-xs font-bold"
+                className="p-1 rounded border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] disabled:opacity-40 text-xs font-bold"
                 title="Move Question Up"
               >
                 ▲
@@ -334,7 +334,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
               <button
                 disabled={activeQuestionIndex === selectedQuiz.questions.length - 1}
                 onClick={() => handleMoveQuestion('down')}
-                className="p-1 rounded border-2 border-[#16120E] bg-white disabled:opacity-40 text-xs font-bold"
+                className="p-1 rounded border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] disabled:opacity-40 text-xs font-bold"
                 title="Move Question Down"
               >
                 ▼
@@ -352,19 +352,19 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                     sound.playClick();
                     setActiveQuestionIndex(idx);
                   }}
-                  className={`p-3 rounded-xl border-2 border-[#16120E] cursor-pointer transition-all ${
+                  className={`p-3 rounded-xl border-2 border-[var(--border)] cursor-pointer transition-all ${
                     isActive
-                      ? 'bg-[#FFC83D] shadow-[3px_3px_0px_#16120E] -translate-y-0.5'
-                      : 'bg-white dark:bg-[#221c16] hover:bg-[#FFF6E5] shadow-[2px_2px_0px_#16120E]'
+                      ? 'bg-[var(--accent-2-bg)] text-[#16120E] shadow-[3px_3px_0px_var(--shadow)] -translate-y-0.5'
+                      : 'bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]'
                   }`}
                 >
                   <div className="flex items-center justify-between text-xs font-black mb-1">
                     <span>Q{idx + 1} • {q.type.replace('_', ' ')}</span>
-                    <span className="sticker-badge bg-[#FFF6E5] text-[10px] py-0 px-1.5 border">
+                    <span className="sticker-badge text-[10px] py-0 px-1.5 border">
                       {q.courseOutcomeTag || 'CO1'}
                     </span>
                   </div>
-                  <p className="text-xs font-medium text-[#16120E] dark:text-gray-300 line-clamp-2">
+                  <p className="text-xs font-medium text-[var(--text)] line-clamp-2">
                     {q.text}
                   </p>
                 </div>
@@ -376,32 +376,32 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
           <div className="pt-2 space-y-1.5">
             <button
               onClick={() => handleAddQuestion('multiple_choice')}
-              className="paper-btn w-full bg-[#14B8A6] text-white py-2 text-xs font-bold"
+              className="paper-btn paper-btn-ok w-full py-2 text-xs font-bold"
             >
               + Multiple Choice
             </button>
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 onClick={() => handleAddQuestion('true_false')}
-                className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white text-[11px]"
+                className="paper-btn paper-btn-sm text-[11px]"
               >
                 + True / False
               </button>
               <button
                 onClick={() => handleAddQuestion('type_answer')}
-                className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white text-[11px]"
+                className="paper-btn paper-btn-sm text-[11px]"
               >
                 + Type Answer
               </button>
               <button
                 onClick={() => handleAddQuestion('ordering')}
-                className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white text-[11px]"
+                className="paper-btn paper-btn-sm text-[11px]"
               >
                 + Ordering
               </button>
               <button
                 onClick={() => handleAddQuestion('poll')}
-                className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white text-[11px]"
+                className="paper-btn paper-btn-sm text-[11px]"
               >
                 + Poll (Unscored)
               </button>
@@ -412,17 +412,17 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
         {/* Right: Active Question Detail Editor */}
         <div className="lg:col-span-3">
           {activeQuestion ? (
-            <div className="paper-card p-6 bg-white dark:bg-[#221c16] space-y-5">
+            <div className="paper-card p-6 space-y-5">
               {/* Question Control Strip */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-gray-200 pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-[var(--border)]/20 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="font-['Bricolage_Grotesque'] font-black text-xl text-[#FF5A36]">
+                  <span className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--accent)]">
                     Question #{activeQuestionIndex + 1}
                   </span>
                   <select
                     value={activeQuestion.type}
                     onChange={e => handleUpdateQuestion('type', e.target.value as QuestionType)}
-                    className="text-xs font-bold rounded-lg border-2 border-[#16120E] px-2 py-1 bg-[#FFF6E5] dark:bg-[#16120E] dark:text-white"
+                    className="paper-select text-xs font-bold rounded-lg border-2 border-[var(--border)] px-2 py-1"
                   >
                     <option value="multiple_choice">Multiple Choice (Single)</option>
                     <option value="multi_select">Multi-Select (Multiple Correct)</option>
@@ -435,10 +435,10 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button onClick={handleDuplicateQuestion} className="paper-btn paper-btn-sm bg-white text-xs">
+                  <button onClick={handleDuplicateQuestion} className="paper-btn paper-btn-sm text-xs">
                     Duplicate
                   </button>
-                  <button onClick={handleDeleteQuestion} className="paper-btn paper-btn-sm bg-[#FF5A36] text-white text-xs">
+                  <button onClick={handleDeleteQuestion} className="paper-btn paper-btn-sm paper-btn-primary text-xs">
                     Delete
                   </button>
                 </div>
@@ -446,12 +446,12 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
 
               {/* Question Text Prompt */}
               <div className="space-y-1">
-                <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">Question Prompt</label>
+                <label className="text-xs font-bold uppercase text-[var(--text)]">Question Prompt</label>
                 <textarea
                   rows={3}
                   value={activeQuestion.text}
                   onChange={e => handleUpdateQuestion('text', e.target.value)}
-                  className="w-full rounded-xl border-2 border-[#16120E] p-3 font-semibold text-base dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                  className="paper-input w-full rounded-xl border-2 border-[var(--border)] p-3 font-semibold text-base shadow-[2px_2px_0px_var(--shadow)]"
                   placeholder="Enter your question prompt here..."
                 />
               </div>
@@ -460,7 +460,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
               {activeQuestion.type !== 'type_answer' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+                    <label className="text-xs font-bold uppercase text-[var(--text)]">
                       Answer Choices (Click checkmark to toggle correct answers)
                     </label>
                     {activeQuestion.options.length < 6 && (
@@ -469,7 +469,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                           const updated = [...activeQuestion.options, `Option ${String.fromCharCode(65 + activeQuestion.options.length)}`];
                           handleUpdateQuestion('options', updated);
                         }}
-                        className="text-xs font-bold text-[#14B8A6] hover:underline"
+                        className="text-xs font-bold text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline"
                       >
                         + Add Option
                       </button>
@@ -480,17 +480,17 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                     {activeQuestion.options.map((opt, optIdx) => {
                       const isCorrect = activeQuestion.correctAnswers.includes(optIdx);
                       const shapeIcons = [
-                        <ShapeTriangle className="w-5 h-5" fill="#FF5A36" />,
-                        <ShapeDiamond className="w-5 h-5" fill="#FFC83D" />,
-                        <ShapeCircle className="w-5 h-5" fill="#14B8A6" />,
-                        <ShapeSquare className="w-5 h-5" fill="#4DA3FF" />,
+                        <ShapeTriangle key="tri" className="w-5 h-5" fill="var(--accent)" />,
+                        <ShapeDiamond key="dia" className="w-5 h-5" fill="var(--accent-2)" />,
+                        <ShapeCircle key="cir" className="w-5 h-5" fill="var(--ok)" />,
+                        <ShapeSquare key="sq" className="w-5 h-5" fill="var(--info)" />,
                       ];
 
                       return (
                         <div
                           key={optIdx}
-                          className={`flex items-center gap-2 p-2.5 rounded-xl border-2 border-[#16120E] transition-all ${
-                            isCorrect ? 'bg-[#FFFAEE] ring-2 ring-[#14B8A6]' : 'bg-white dark:bg-[#16120E]'
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border-2 border-[var(--border)] transition-all ${
+                            isCorrect ? 'bg-[var(--surface-2)] ring-2 ring-[var(--ok)]' : 'bg-[var(--surface)] text-[var(--text)]'
                           }`}
                         >
                           <div className="shrink-0">{shapeIcons[optIdx % 4]}</div>
@@ -502,7 +502,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                               opts[optIdx] = e.target.value;
                               handleUpdateQuestion('options', opts);
                             }}
-                            className="flex-1 text-sm font-bold bg-transparent border-none focus:outline-none dark:text-white"
+                            className="flex-1 text-sm font-bold bg-transparent border-none focus:outline-none text-[var(--text)]"
                           />
                           <button
                             type="button"
@@ -518,8 +518,8 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                                 handleUpdateQuestion('correctAnswers', [optIdx]);
                               }
                             }}
-                            className={`h-7 w-7 rounded-lg border-2 border-[#16120E] flex items-center justify-center font-bold text-xs ${
-                              isCorrect ? 'bg-[#14B8A6] text-white' : 'bg-gray-100 text-gray-400'
+                            className={`h-7 w-7 rounded-lg border-2 border-[var(--border)] flex items-center justify-center font-bold text-xs ${
+                              isCorrect ? 'paper-btn-ok' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200'
                             }`}
                             title="Toggle Correct Answer"
                           >
@@ -535,7 +535,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
               {/* Type Answer Accepted Answers */}
               {activeQuestion.type === 'type_answer' && (
                 <div className="space-y-1">
-                  <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+                  <label className="text-xs font-bold uppercase text-[var(--text)]">
                     Accepted Text Answers (Comma separated)
                   </label>
                   <input
@@ -545,20 +545,20 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                       const split = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
                       handleUpdateQuestion('acceptedTextAnswers', split);
                     }}
-                    className="w-full rounded-xl border-2 border-[#16120E] p-2.5 text-sm font-bold dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                    className="paper-input w-full rounded-xl border-2 border-[var(--border)] p-2.5 text-sm font-bold shadow-[2px_2px_0px_var(--shadow)]"
                     placeholder="e.g. Canberra, canberra"
                   />
                 </div>
               )}
 
               {/* Pedagogical Metadata: Time, Points, Bloom Level, CO Tag, Topic */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t-2 border-gray-200 pt-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 border-t-2 border-[var(--border)]/20 pt-4">
                 <div>
-                  <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">Time Limit</label>
+                  <label className="text-xs font-bold uppercase text-[var(--text)]">Time Limit</label>
                   <select
                     value={activeQuestion.timeLimit}
                     onChange={e => handleUpdateQuestion('timeLimit', Number(e.target.value))}
-                    className="w-full rounded-lg border-2 border-[#16120E] p-1.5 text-xs font-bold dark:bg-[#16120E] dark:text-white"
+                    className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
                   >
                     <option value={10}>10 Seconds</option>
                     <option value={15}>15 Seconds</option>
@@ -570,11 +570,11 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">Points</label>
+                  <label className="text-xs font-bold uppercase text-[var(--text)]">Points</label>
                   <select
                     value={activeQuestion.points}
                     onChange={e => handleUpdateQuestion('points', Number(e.target.value))}
-                    className="w-full rounded-lg border-2 border-[#16120E] p-1.5 text-xs font-bold dark:bg-[#16120E] dark:text-white"
+                    className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
                   >
                     <option value={1000}>Standard (1000 pts)</option>
                     <option value={2000}>Double Points (2000 pts)</option>
@@ -583,11 +583,11 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">Bloom Taxonomy</label>
+                  <label className="text-xs font-bold uppercase text-[var(--text)]">Bloom Taxonomy</label>
                   <select
                     value={activeQuestion.bloomLevel}
                     onChange={e => handleUpdateQuestion('bloomLevel', e.target.value as BloomLevel)}
-                    className="w-full rounded-lg border-2 border-[#16120E] p-1.5 text-xs font-bold dark:bg-[#16120E] dark:text-white"
+                    className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
                   >
                     <option value="remember">Remember / Recall</option>
                     <option value="understand">Understand</option>
@@ -598,12 +598,12 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">CO Outcome Tag</label>
+                  <label className="text-xs font-bold uppercase text-[var(--text)]">CO Outcome Tag</label>
                   <input
                     type="text"
                     value={activeQuestion.courseOutcomeTag}
                     onChange={e => handleUpdateQuestion('courseOutcomeTag', e.target.value.toUpperCase())}
-                    className="w-full rounded-lg border-2 border-[#16120E] p-1.5 text-xs font-bold dark:bg-[#16120E] dark:text-white"
+                    className="paper-input w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
                     placeholder="e.g. CO1"
                   />
                 </div>
@@ -611,20 +611,20 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, o
 
               {/* Explanation Text */}
               <div className="space-y-1">
-                <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+                <label className="text-xs font-bold uppercase text-[var(--text)]">
                   Answer Explanation (Shown to players during Reveal step)
                 </label>
                 <textarea
                   rows={2}
                   value={activeQuestion.explanation}
                   onChange={e => handleUpdateQuestion('explanation', e.target.value)}
-                  className="w-full rounded-xl border-2 border-[#16120E] p-2.5 text-xs dark:bg-[#16120E] dark:text-white"
+                  className="paper-input w-full rounded-xl border-2 border-[var(--border)] p-2.5 text-xs"
                   placeholder="Explain why the answer is correct to reinforce learning..."
                 />
               </div>
             </div>
           ) : (
-            <div className="paper-card p-12 text-center text-gray-500">
+            <div className="paper-card p-12 text-center text-[var(--text-muted)] font-medium">
               Select or add a question to begin editing.
             </div>
           )}

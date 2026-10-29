@@ -88,14 +88,13 @@ service cloud.firestore {
           (!('maxStreak' in request.resource.data) || request.resource.data.maxStreak == 0) &&
           (!('correctCount' in request.resource.data) || request.resource.data.correctCount == 0) &&
           (!('isKicked' in request.resource.data) || request.resource.data.isKicked == false) &&
-          (!('usedPowerUps' in request.resource.data))
+          (!('usedPowerUps' in request.resource.data)) &&
+          (!('avatarConfig' in request.resource.data) || (request.resource.data.avatarConfig is map && request.resource.data.avatarConfig.size() <= 12))
         );
         allow update: if (
           (isSignedIn() && request.auth.uid == playerId &&
-            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-              'score', 'streak', 'maxStreak', 'correctCount',
-              'powerUps', 'usedPowerUps', 'latencyMs', 'status', 'isKicked'
-            ])) ||
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatarConfig', 'avatar']) &&
+            (!('avatarConfig' in request.resource.data) || (request.resource.data.avatarConfig is map && request.resource.data.avatarConfig.size() <= 12))) ||
           isGameHost(gameId)
         );
         allow delete: if (

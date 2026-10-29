@@ -7,5 +7,12 @@ coverage/
 .env*
 !.env.example
 serviceAccountKey*.json
+*service*account*.json
+*private*key*.json
+*credential*.json
+*.pem
+*.key
+.tmp_*
+qa_screenshots/
 *.zip
 

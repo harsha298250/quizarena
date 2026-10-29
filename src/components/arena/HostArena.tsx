@@ -8,6 +8,8 @@ import { GameSession, Player, AnswerSubmission, Question, IntegrityFlag } from '
 import { GameEngine } from '../../services/gameEngine';
 import { sound } from '../../lib/sound';
 import { ShapeTriangle, ShapeDiamond, ShapeCircle, ShapeSquare, ShieldIcon } from '../common/CustomIcons';
+import { TimerRing } from '../common/TimerRing';
+import { Avatar } from '../common/Avatar';
 
 interface HostArenaProps {
   game: GameSession;
@@ -125,44 +127,57 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
 
   // Shapes & color palette for options
   const optionStyles = [
-    { bg: 'bg-[#FF5A36]', shape: <ShapeTriangle className="w-8 h-8 text-white" fill="#FFFFFF" /> },
-    { bg: 'bg-[#FFC83D]', shape: <ShapeDiamond className="w-8 h-8 text-[#16120E]" fill="#16120E" /> },
-    { bg: 'bg-[#14B8A6]', shape: <ShapeCircle className="w-8 h-8 text-white" fill="#FFFFFF" /> },
-    { bg: 'bg-[#4DA3FF]', shape: <ShapeSquare className="w-8 h-8 text-white" fill="#FFFFFF" /> },
+    { bg: 'bg-[var(--accent)] text-[var(--text-on-accent)]', shape: <ShapeTriangle className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" /> },
+    { bg: 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)]', shape: <ShapeDiamond className="w-8 h-8 text-[var(--text-on-accent-2)]" fill="currentColor" /> },
+    { bg: 'bg-[var(--ok)] text-[var(--text-on-accent)]', shape: <ShapeCircle className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" /> },
+    { bg: 'bg-[var(--info)] text-[var(--text-on-accent)]', shape: <ShapeSquare className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" /> },
   ];
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-4">
+      {/* Clear Progress */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-xs font-bold text-[var(--text-muted)]">
+          <span>Question <strong>{game.currentQuestionIndex + 1} of {game.questions.length}</strong></span>
+          <span>{Math.round(((game.currentQuestionIndex + 1) / game.questions.length) * 100)}% Complete</span>
+        </div>
+        <div className="w-full bg-[var(--surface-2)] h-2 rounded-full border border-[var(--border)] overflow-hidden">
+          <div
+            className="bg-[var(--accent)] h-full transition-all duration-300"
+            style={{ width: `${((game.currentQuestionIndex + 1) / game.questions.length) * 100}%` }}
+          />
+        </div>
+      </div>
+
       {/* Top Projector Bar: Question Index, Countdown Clock, Live Answer Count, Shortcuts hint */}
-      <div className="paper-card p-4 bg-[#FFF6E5] dark:bg-[#16120E] border-3 flex flex-wrap items-center justify-between gap-4">
+      <div className="paper-card p-4 bg-[var(--bg-page)] border-3 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="font-['Bricolage_Grotesque'] font-black text-2xl text-[#FF5A36]">
+          <span className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--accent)]">
             Q {game.currentQuestionIndex + 1} / {game.questions.length}
           </span>
-          <span className="sticker-badge bg-[#FFC83D] text-[#16120E] text-xs">
+          <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] text-xs">
             {currentQuestion.topicTag || 'Arena Question'}
           </span>
-          <span className="sticker-badge bg-[#14B8A6] text-white text-xs">
+          <span className="sticker-badge bg-[var(--ok)] text-[var(--text-on-accent)] text-xs">
             {currentQuestion.courseOutcomeTag}
           </span>
         </div>
 
-        {/* Big Countdown Timer */}
+        {/* Big Countdown Timer Ring */}
         <div className="flex items-center gap-3">
-          <div
-            className={`font-mono-code text-4xl sm:text-5xl font-black px-6 py-1.5 rounded-2xl border-3 border-[#16120E] shadow-[4px_4px_0px_#16120E] ${
-              timeLeft <= 5 ? 'bg-[#FF5A36] text-white animate-pulse' : 'bg-white dark:bg-[#221c16] text-[#16120E] dark:text-white'
-            }`}
-          >
-            {timeLeft}s
-          </div>
+          <TimerRing
+            timeLeft={timeLeft}
+            totalTime={currentQuestion.timeLimit || 20}
+            size={84}
+            strokeWidth={8}
+          />
         </div>
 
         {/* Live Answer Progress */}
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <div className="text-xs font-bold uppercase text-gray-600 dark:text-gray-400">Answers Locked</div>
-            <div className="font-mono-code text-xl font-black text-[#14B8A6]">
+            <div className="text-xs font-bold uppercase text-[var(--text-muted)]">Answers Locked</div>
+            <div className="font-mono-code text-xl font-black text-[var(--ok)]">
               {totalAnswered} / {players.length} ({answerPercentage}%)
             </div>
           </div>
@@ -171,7 +186,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleTogglePause}
-              className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] dark:text-white text-xs"
+              className="paper-btn paper-btn-sm paper-btn-secondary text-xs"
               title="Shortcut: P"
             >
               {game.isPaused ? '▶ Resume' : '⏸ Pause'}
@@ -180,7 +195,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
             {game.status === 'question_active' && (
               <button
                 onClick={handleReveal}
-                className="paper-btn paper-btn-sm bg-[#FFC83D] text-[#16120E] text-xs font-bold"
+                className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] text-xs font-bold"
                 title="Shortcut: R"
               >
                 👁️ Reveal Answer
@@ -190,7 +205,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
             {game.status === 'reveal' && (
               <button
                 onClick={handleShowLeaderboard}
-                className="paper-btn paper-btn-sm bg-[#14B8A6] text-white text-xs font-bold"
+                className="paper-btn paper-btn-sm paper-btn-ok text-xs font-bold"
               >
                 📊 Show Leaderboard
               </button>
@@ -199,7 +214,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
             {(game.status === 'reveal' || game.status === 'leaderboard') && (
               <button
                 onClick={handleNextQuestion}
-                className="paper-btn paper-btn-sm bg-[#FF5A36] text-white text-xs font-bold"
+                className="paper-btn paper-btn-sm paper-btn-primary text-xs font-bold"
                 title="Shortcut: Space"
               >
                 {game.currentQuestionIndex + 1 === game.questions.length ? '🏁 Final Podium' : 'Next Question ➔'}
@@ -210,8 +225,8 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
       </div>
 
       {/* Main Question Display Screen (Projector Landscape) */}
-      <div className="paper-card p-8 sm:p-12 bg-white dark:bg-[#221c16] text-center space-y-6">
-        <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-4xl lg:text-5xl font-black text-[#16120E] dark:text-white leading-tight">
+      <div className="paper-card p-8 sm:p-12 bg-[var(--surface)] text-center space-y-6">
+        <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-4xl lg:text-5xl font-black text-[var(--text)] leading-tight">
           {currentQuestion.text}
         </h1>
 
@@ -221,7 +236,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
             <img
               src={currentQuestion.imageUrl}
               alt="Question illustration"
-              className="max-h-64 rounded-xl border-3 border-[#16120E] shadow-[4px_4px_0px_#16120E]"
+              className="max-h-64 rounded-xl border-3 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)]"
             />
           </div>
         )}
@@ -239,40 +254,40 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
           return (
             <div
               key={idx}
-              className={`paper-card p-5 relative overflow-hidden border-3 shadow-[4px_4px_0px_#16120E] transition-all ${
+              className={`paper-card p-5 relative overflow-hidden border-3 shadow-[4px_4px_0px_var(--shadow)] transition-all ${
                 isRevealed && isCorrect
                   ? 'ring-4 ring-green-500 scale-[1.02]'
                   : isRevealed && !isCorrect
                   ? 'opacity-40 grayscale-[50%]'
                   : ''
-              } bg-white dark:bg-[#221c16]`}
+              } bg-[var(--surface)]`}
             >
               {/* Distribution Bar (revealed or live) */}
               {isRevealed && (
                 <div
-                  className="absolute bottom-0 left-0 top-0 bg-[#FFFAEE] dark:bg-[#332a21] -z-10 transition-all duration-700"
+                  className="absolute bottom-0 left-0 top-0 bg-[var(--surface-2)] dark:bg-[var(--surface-2)] -z-10 transition-all duration-700"
                   style={{ width: `${pct}%` }}
                 />
               )}
 
               <div className="flex items-center gap-4">
-                <div className={`p-2.5 rounded-xl border-2 border-[#16120E] ${style.bg} shrink-0`}>
+                <div className={`p-2.5 rounded-xl border-2 border-[var(--border)] ${style.bg} shrink-0`}>
                   {style.shape}
                 </div>
                 <div className="flex-1 text-left">
-                  <span className="font-['Bricolage_Grotesque'] font-bold text-lg sm:text-xl text-[#16120E] dark:text-white block">
+                  <span className="font-['Bricolage_Grotesque'] font-bold text-lg sm:text-xl text-[var(--text)] block">
                     {opt}
                   </span>
                 </div>
 
                 {isRevealed && (
                   <div className="text-right shrink-0">
-                    <span className="font-mono-code font-black text-xl text-[#16120E] dark:text-white">
+                    <span className="font-mono-code font-black text-xl text-[var(--text)]">
                       {count}
                     </span>
-                    <span className="text-xs font-bold text-gray-500 block">({pct}%)</span>
+                    <span className="text-xs font-bold text-[var(--text-muted)] block">({pct}%)</span>
                     {isCorrect && (
-                      <span className="sticker-badge bg-[#14B8A6] text-white text-[10px] mt-1">
+                      <span className="sticker-badge bg-[var(--ok)] text-[var(--text-on-accent)] text-[10px] mt-1">
                         ✓ Correct
                       </span>
                     )}
@@ -286,27 +301,27 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
 
       {/* Explanation Banner when Revealed */}
       {(game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.explanation && (
-        <div className="paper-card p-5 bg-[#FFFAEE] dark:bg-[#16120E] border-3 border-[#16120E] space-y-1 animate-fadeIn">
-          <span className="sticker-badge bg-[#14B8A6] text-white text-xs mb-1">Pedagogical Key</span>
-          <p className="text-sm font-semibold text-[#16120E] dark:text-gray-200">
+        <div className="paper-card p-5 bg-[var(--surface-2)] border-3 border-[var(--border)] space-y-1 animate-fadeIn">
+          <span className="sticker-badge bg-[var(--ok)] text-white text-xs mb-1">Pedagogical Key</span>
+          <p className="text-sm font-semibold text-[var(--text)]">
             {currentQuestion.explanation}
           </p>
         </div>
       )}
 
       {/* Projector Footbar: Live Leaderboard Peek & Keyboard Shortcut Guide */}
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-gray-600 dark:text-gray-400">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-bold text-[var(--text-muted)]">
         <div>
-          Keyboard shortcuts: <kbd className="px-1.5 py-0.5 bg-gray-200 rounded border">Space</kbd> Next | <kbd className="px-1.5 py-0.5 bg-gray-200 rounded border">R</kbd> Reveal | <kbd className="px-1.5 py-0.5 bg-gray-200 rounded border">P</kbd> Pause
+          Keyboard shortcuts: <kbd className="px-1.5 py-0.5 bg-[var(--surface-2)] text-[var(--text)] rounded border border-[var(--border)]">Space</kbd> Next | <kbd className="px-1.5 py-0.5 bg-[var(--surface-2)] text-[var(--text)] rounded border border-[var(--border)]">R</kbd> Reveal | <kbd className="px-1.5 py-0.5 bg-[var(--surface-2)] text-[var(--text)] rounded border border-[var(--border)]">P</kbd> Pause
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowIntegrityModal(true)}
-            className="flex items-center gap-1.5 text-[#14B8A6] hover:underline"
+            className="flex items-center gap-1.5 text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline font-bold"
           >
-            <ShieldIcon className="w-4 h-4" /> Integrity & Flags Panel
+            <ShieldIcon className="w-4 h-4" /> Integrity &amp; Flags Panel
             {flags.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[#FF5A36] text-white animate-pulse">
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-[var(--accent)] text-[var(--text-on-accent)] animate-pulse">
                 {flags.length}
               </span>
             )}
@@ -316,83 +331,152 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
 
       {/* Integrity Audit & Flags Modal */}
       {showIntegrityModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="paper-card p-6 bg-white dark:bg-[#221c16] max-w-lg w-full space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
-                  Integrity & Advisory Flags
-                </h3>
-                <span className="text-[11px] font-semibold text-gray-500 block">
-                  Advisory only — No automatic penalties applied
-                </span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-fadeIn">
+          <div className="paper-modal p-6 max-w-2xl w-full space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">🛡️</span>
+                <div>
+                  <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)] leading-tight">
+                    Arena Integrity &amp; Advisory Audit
+                  </h3>
+                  <span className="text-[11px] font-semibold text-[var(--text-muted)] block">
+                    Advisory telemetry for host review • Human discretion supersedes automated checks
+                  </span>
+                </div>
               </div>
               <button
                 onClick={() => setShowIntegrityModal(false)}
-                className="paper-btn paper-btn-sm bg-gray-200 text-xs"
+                className="paper-btn paper-btn-sm paper-btn-secondary text-xs"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3 text-xs font-semibold">
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl space-y-1">
-                <div><strong>Fair Scoring:</strong> Real RTT latency subtracted per answer</div>
-                <div><strong>Current Round Submissions:</strong> {answers.length} verified submissions</div>
-                <div><strong>Audit Chain:</strong> SHA-256 block chain active</div>
+            {/* Accessibility Disclaimer */}
+            <div className="p-3 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-semibold text-[var(--text)] flex items-start gap-2 shrink-0">
+              <span className="text-sm shrink-0">♿</span>
+              <div className="space-y-0.5">
+                <span className="font-black text-[var(--text)]">Accessibility Guarantee:</span>
+                <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                  Screen readers, dyslexia fonts, speech synthesis, and assistive accommodations are strictly allowed. Assistive tools may trigger natural focus or blur changes; all flags must be evaluated in human context.
+                </p>
               </div>
+            </div>
 
-              {/* Live Flags Feed */}
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1">
+              {/* Contender Strike Summary Grid */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-gray-700 dark:text-gray-300">
-                    Live Flags ({flags.length})
+                  <span className="font-['Bricolage_Grotesque'] font-black text-sm text-[var(--text)]">
+                    Contender Strike Status ({players.length})
+                  </span>
+                  <span className="text-[11px] font-bold text-[var(--text-muted)]">
+                    Strike 1: Warning • Strike 2: Penalty • Strike 3: Locked
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {players.map(p => {
+                    const playerFlags = flags.filter(f => f.playerId === p.id);
+                    const focusStrikes = playerFlags.filter(
+                      f => f.type === 'tab_switch' || f.type === 'window_blur' || f.type === 'fullscreen_exit'
+                    ).length;
+                    const strikeCount = p.strikes !== undefined ? Math.max(p.strikes, focusStrikes) : focusStrikes;
+
+                    let badgeColor = 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700';
+                    let strikeLabel = '0 Strikes (Clean)';
+                    if (strikeCount === 1) {
+                      badgeColor = 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700';
+                      strikeLabel = '⚠️ 1 Strike (Warned)';
+                    } else if (strikeCount === 2) {
+                      badgeColor = 'bg-orange-100 dark:bg-orange-950/40 text-orange-800 dark:text-orange-300 border-orange-300 dark:border-orange-700';
+                      strikeLabel = '⚡ 2 Strikes (Penalty)';
+                    } else if (strikeCount >= 3) {
+                      badgeColor = 'bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-300 dark:border-red-700';
+                      strikeLabel = `🚨 ${strikeCount} Strikes (Flagged / Locked)`;
+                    }
+
+                    return (
+                      <div
+                        key={p.id}
+                        className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex items-center justify-between gap-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={30} />
+                          <div className="min-w-0">
+                            <span className="font-bold text-xs text-[var(--text)] truncate block">
+                              {p.nickname}
+                            </span>
+                            <span className="font-mono-code text-[10px] text-[var(--text-muted)]">
+                              {p.score.toLocaleString()} pts • {playerFlags.length} flags
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border shrink-0 ${badgeColor}`}>
+                          {strikeLabel}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Live Flags Audit Feed */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-['Bricolage_Grotesque'] font-black text-sm text-[var(--text)]">
+                    Live Telemetry Feed ({flags.length})
                   </span>
                   {flags.length > 0 && (
-                    <span className="text-[10px] text-gray-400">Latest first</span>
+                    <span className="text-[10px] font-bold text-[var(--text-muted)]">Latest first</span>
                   )}
                 </div>
 
                 {flags.length === 0 ? (
-                  <div className="p-4 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-center text-gray-500 text-xs">
-                    ✓ No integrity flags recorded. All players active in the arena.
+                  <div className="p-4 rounded-xl border-2 border-dashed border-[var(--border)] text-center text-[var(--text-muted)] text-xs font-bold">
+                    ✓ No flags recorded. All contenders actively focused on the arena.
                   </div>
                 ) : (
-                  <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
                     {flags.map(flag => {
                       const badgeClass =
                         flag.severity === 'high'
-                          ? 'bg-[#FF5A36] text-white'
+                          ? 'bg-[var(--accent)] text-[var(--text-on-accent)]'
                           : flag.severity === 'medium'
-                          ? 'bg-[#FFC83D] text-[#16120E]'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200';
+                          ? 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)]'
+                          : 'bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)]';
 
                       return (
                         <div
                           key={flag.id}
-                          className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1a1512] flex items-center justify-between gap-2"
+                          className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-2"
                         >
                           <div className="space-y-0.5 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-[#16120E] dark:text-white truncate">
+                              <span className="font-bold text-xs text-[var(--text)] truncate">
                                 {flag.playerNickname}
                               </span>
                               {flag.questionIndex !== undefined && (
-                                <span className="text-[10px] font-mono px-1 bg-gray-100 dark:bg-gray-800 rounded text-gray-600 dark:text-gray-400">
+                                <span className="text-[10px] font-mono-code font-bold px-1.5 py-0.2 rounded bg-[var(--surface-2)] text-[var(--text-muted)] border border-[var(--border)]">
                                   Q{flag.questionIndex + 1}
                                 </span>
                               )}
+                              <span className="text-[10px] font-mono-code text-[var(--text-muted)]">
+                                [{flag.type}]
+                              </span>
                             </div>
-                            <div className="text-[11px] text-gray-600 dark:text-gray-400 truncate">
+                            <div className="text-[11px] text-[var(--text-muted)] truncate">
                               {flag.reason}
                             </div>
                           </div>
 
                           <div className="text-right shrink-0">
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${badgeClass}`}>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${badgeClass}`}>
                               {flag.severity}
                             </span>
-                            <span className="block text-[10px] font-mono text-gray-400 mt-0.5">
+                            <span className="block text-[10px] font-mono-code text-[var(--text-muted)] mt-0.5">
                               {new Date(flag.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                             </span>
                           </div>
@@ -404,12 +488,14 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
               </div>
             </div>
 
-            <button
-              onClick={() => setShowIntegrityModal(false)}
-              className="paper-btn w-full bg-[#14B8A6] text-white py-2 font-bold text-xs"
-            >
-              Close Panel
-            </button>
+            <div className="shrink-0 pt-2 border-t border-[var(--border)]">
+              <button
+                onClick={() => setShowIntegrityModal(false)}
+                className="paper-btn paper-btn-ok w-full py-2 font-black text-xs shadow-[2px_2px_0px_var(--shadow)]"
+              >
+                Close Integrity Panel
+              </button>
+            </div>
           </div>
         </div>
       )}

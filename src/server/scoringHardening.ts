@@ -145,3 +145,71 @@ export function validateAndTrackPowerUp(
 
   return { allowed: true, willUse: true };
 }
+
+/**
+ * Server-side Detection for implausibly fast responses or uniform timing patterns.
+ */
+export interface TimingAnomalyResult {
+  isAnomaly: boolean;
+  type?: 'suspicious_timing' | 'uniform_timing';
+  reason?: string;
+  severity?: 'medium' | 'high';
+}
+
+export class TimingAnomalyDetector {
+  private playerTimingHistory = new Map<string, number[]>();
+
+  public recordAndCheck(
+    playerId: string,
+    responseTimeMs: number
+  ): TimingAnomalyResult {
+    // 1. Implausibly fast response check: < 300ms is sub-human cognitive reaction + reading speed
+    if (responseTimeMs < 300 && responseTimeMs >= 0) {
+      return {
+        isAnomaly: true,
+        type: 'suspicious_timing',
+        reason: `Implausibly fast response time (${responseTimeMs}ms) detected. Sub-human cognitive threshold is 300ms.`,
+        severity: 'high',
+      };
+    }
+
+    // 2. Uniform timing check across questions (e.g. automated bot script)
+    let history = this.playerTimingHistory.get(playerId);
+    if (!history) {
+      history = [];
+      this.playerTimingHistory.set(playerId, history);
+    }
+    history.push(responseTimeMs);
+    if (history.length > 6) {
+      history.shift();
+    }
+
+    if (history.length >= 3) {
+      const avg = history.reduce((sum, v) => sum + v, 0) / history.length;
+      const variance = history.reduce((sum, v) => sum + Math.pow(v - avg, 2), 0) / history.length;
+      const stdDev = Math.sqrt(variance);
+
+      // Bot script or macro with tight uniform timing (< 25ms standard deviation)
+      if (stdDev < 25) {
+        return {
+          isAnomaly: true,
+          type: 'uniform_timing',
+          reason: `Implausibly uniform response timing across ${history.length} questions (std dev ${stdDev.toFixed(1)}ms).`,
+          severity: 'medium',
+        };
+      }
+    }
+
+    return { isAnomaly: false };
+  }
+
+  public reset(playerId?: string) {
+    if (playerId) {
+      this.playerTimingHistory.delete(playerId);
+    } else {
+      this.playerTimingHistory.clear();
+    }
+  }
+}
+
+export const globalTimingAnomalyDetector = new TimingAnomalyDetector();

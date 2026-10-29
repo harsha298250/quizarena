@@ -125,42 +125,50 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
       {/* Header Banner */}
-      <div className="paper-card p-6 bg-[#FFF6E5] dark:bg-[#16120E] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="paper-card p-5 sm:p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <span className="sticker-badge bg-[#FF5A36] text-white text-xs mb-1">
+          <span className="sticker-badge bg-[var(--accent)] text-[var(--text-on-accent)] text-xs mb-1">
             Tournament Arena
           </span>
-          <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[#16120E] dark:text-white">
+          <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[var(--text)]">
             {activeComp.title}
           </h1>
-          <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mt-1">
-            Organizer: <strong>{activeComp.organizerName}</strong> • Status: <strong className="text-[#14B8A6] uppercase">{activeComp.status}</strong>
+          <p className="text-xs font-semibold text-[var(--text-muted)] mt-1">
+            Organizer: <strong>{activeComp.organizerName}</strong> • Status: <strong className="text-[var(--ok)] uppercase">{activeComp.status}</strong>
           </p>
         </div>
 
         {/* Tab switchers */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Tournament navigation">
           <button
+            role="tab"
+            aria-selected={activeSubTab === 'bracket'}
             onClick={() => setActiveSubTab('bracket')}
-            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'bracket' ? 'bg-[#FF5A36] text-white' : 'bg-white dark:bg-[#221c16]'}`}
+            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'bracket' ? 'paper-btn-primary' : 'paper-btn-secondary'}`}
           >
-            🏟️ Brackets & Rounds
+            🏟️ Brackets &amp; Rounds
           </button>
           <button
+            role="tab"
+            aria-selected={activeSubTab === 'jury'}
             onClick={() => setActiveSubTab('jury')}
-            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'jury' ? 'bg-[#14B8A6] text-white' : 'bg-white dark:bg-[#221c16]'}`}
+            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'jury' ? 'paper-btn-ok' : 'paper-btn-secondary'}`}
           >
             ⚖️ Jury Panel
           </button>
           <button
+            role="tab"
+            aria-selected={activeSubTab === 'appeals'}
             onClick={() => setActiveSubTab('appeals')}
-            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'appeals' ? 'bg-[#FFC83D] text-[#16120E]' : 'bg-white dark:bg-[#221c16]'}`}
+            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'appeals' ? 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] border-2 border-[var(--border)]' : 'paper-btn-secondary'}`}
           >
             ⚠️ Appeals ({appeals.filter(a => a.status === 'pending').length})
           </button>
           <button
+            role="tab"
+            aria-selected={activeSubTab === 'league'}
             onClick={() => setActiveSubTab('league')}
-            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'league' ? 'bg-[#4DA3FF] text-white' : 'bg-white dark:bg-[#221c16]'}`}
+            className={`paper-btn paper-btn-sm text-xs font-bold ${activeSubTab === 'league' ? 'bg-[var(--info)] text-[var(--text-on-accent)]' : 'paper-btn-secondary'}`}
           >
             🏅 Elo League
           </button>
@@ -178,23 +186,23 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
               return (
                 <div
                   key={rnd.id}
-                  className={`paper-card p-6 border-3 space-y-4 relative ${
+                  className={`paper-card p-5 sm:p-6 border-3 space-y-4 relative ${
                     rnd.status === 'active'
-                      ? 'bg-[#FFFAEE] dark:bg-[#221c16] ring-4 ring-[#FF5A36]'
-                      : 'bg-white dark:bg-[#16120E]'
+                      ? 'bg-[var(--surface-2)] dark:bg-[var(--surface)] ring-4 ring-[var(--accent)]'
+                      : 'bg-[var(--surface)]'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-['Bricolage_Grotesque'] font-black text-lg text-[#FF5A36]">
+                    <span className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--accent)]">
                       Tier {idx + 1}
                     </span>
                     <span
                       className={`sticker-badge text-[10px] ${
                         rnd.status === 'completed'
-                          ? 'bg-green-100 text-green-800'
+                          ? 'sticker-badge-ok'
                           : rnd.status === 'active'
-                          ? 'bg-[#FFC83D] text-[#16120E] animate-pulse'
-                          : 'bg-gray-200 text-gray-700'
+                          ? 'sticker-badge-sunshine animate-pulse'
+                          : 'bg-[var(--surface-2)] text-[var(--text-muted)]'
                       }`}
                     >
                       {rnd.status.toUpperCase()}
@@ -202,10 +210,10 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
                   </div>
 
                   <div>
-                    <h3 className="font-bold text-base text-[#16120E] dark:text-white">
+                    <h2 className="font-bold text-base text-[var(--text)]">
                       {rnd.name}
-                    </h3>
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    </h2>
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
                       Advancement Rule: <strong>Top {rnd.qualificationValue} Contenders</strong>
                     </p>
                   </div>
@@ -218,7 +226,7 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
                           onLaunchRound(quizForRound, `${activeComp.title} - ${rnd.name}`);
                         }
                       }}
-                      className="paper-btn w-full bg-[#14B8A6] text-white py-2.5 text-xs font-black shadow-[3px_3px_0px_#16120E]"
+                      className="paper-btn paper-btn-ok w-full py-2.5 text-xs font-black shadow-[3px_3px_0px_var(--shadow)]"
                     >
                       🚀 Launch Live Round
                     </button>
@@ -230,19 +238,19 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
 
           {/* Teams Table */}
           {activeComp.teams && (
-            <div className="paper-card p-5 bg-white dark:bg-[#221c16] space-y-3">
-              <h3 className="font-['Bricolage_Grotesque'] font-black text-lg text-[#16120E] dark:text-white">
-                Team Standings & Roster
-              </h3>
-              <div className="divide-y-2 divide-gray-200">
+            <div className="paper-card p-5 bg-[var(--surface)] space-y-3">
+              <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
+                Team Standings &amp; Roster
+              </h2>
+              <div className="divide-y divide-[var(--border)]">
                 {activeComp.teams.map((t, i) => (
-                  <div key={t.id} className="py-2.5 flex items-center justify-between text-xs font-bold">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono-code text-gray-400">#{i + 1}</span>
-                      <span className="text-base text-[#FF5A36]">{t.name}</span>
-                      <span className="text-gray-500">({t.members.join(', ')})</span>
+                  <div key={t.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4 text-xs font-bold">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono-code text-[var(--text-muted)] shrink-0">#{i + 1}</span>
+                      <span className="text-sm font-black text-[var(--accent)] truncate shrink-0">{t.name}</span>
+                      <span className="text-[11px] text-[var(--text-muted)] truncate">({t.members.join(', ')})</span>
                     </div>
-                    <span className="font-mono-code text-base text-[#14B8A6]">
+                    <span className="font-mono-code text-sm font-black text-[var(--ok)] shrink-0">
                       {t.score.toLocaleString()} pts
                     </span>
                   </div>
@@ -255,22 +263,22 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
 
       {/* View 2: Jury & Moderator Panel */}
       {activeSubTab === 'jury' && (
-        <div className="paper-card p-6 bg-white dark:bg-[#221c16] space-y-4">
-          <div className="flex items-center justify-between border-b-2 border-gray-200 pb-3">
+        <div className="paper-card p-5 sm:p-6 bg-[var(--surface)] space-y-4">
+          <div className="flex items-center justify-between border-b-2 border-[var(--border)] pb-3">
             <div>
-              <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
-                Jury & Moderator Control Console
-              </h3>
-              <p className="text-xs text-gray-500">
+              <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+                Jury &amp; Moderator Control Console
+              </h2>
+              <p className="text-xs text-[var(--text-muted)]">
                 Authorized override tools for verified competition judges.
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-            <div className="p-4 bg-[#FFFAEE] rounded-xl border-2 border-[#16120E] space-y-2">
-              <span className="font-black text-sm text-[#FF5A36] block">Void Question Override</span>
-              <p className="text-xs text-gray-600">
+            <div className="p-4 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] space-y-2">
+              <span className="font-black text-sm text-[var(--accent)] block">Void Question Override</span>
+              <p className="text-xs text-[var(--text-muted)]">
                 Nullify points from a disputed question and auto-recalculate round scores across all participants.
               </p>
               <button
@@ -278,15 +286,15 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
                   sound.playClick();
                   alert('Question #3 voided. Round standings recalculated.');
                 }}
-                className="paper-btn paper-btn-sm bg-white text-xs font-bold w-full"
+                className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold w-full"
               >
                 Void Question #3
               </button>
             </div>
 
-            <div className="p-4 bg-[#FFFAEE] rounded-xl border-2 border-[#16120E] space-y-2">
-              <span className="font-black text-sm text-[#14B8A6] block">Manual Point Adjustment</span>
-              <p className="text-xs text-gray-600">
+            <div className="p-4 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] space-y-2">
+              <span className="font-black text-sm text-[var(--ok)] block">Manual Point Adjustment</span>
+              <p className="text-xs text-[var(--text-muted)]">
                 Grant or dock points with transparent jury record annotation for sportsmanship or appeals.
               </p>
               <button
@@ -294,20 +302,20 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
                   sound.playClick();
                   alert('Awarded +500 points to Jordan Hayes (Reason: Jury Appeal #1 accepted).');
                 }}
-                className="paper-btn paper-btn-sm bg-white text-xs font-bold w-full"
+                className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold w-full"
               >
                 +500 Discretionary Points
               </button>
             </div>
 
-            <div className="p-4 bg-[#FFFAEE] rounded-xl border-2 border-[#16120E] space-y-2">
-              <span className="font-black text-sm text-[#4DA3FF] block">Official Certificate Dispatch</span>
-              <p className="text-xs text-gray-600">
+            <div className="p-4 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] space-y-2">
+              <span className="font-black text-sm text-[var(--info)] block">Official Certificate Dispatch</span>
+              <p className="text-xs text-[var(--text-muted)]">
                 Issue cryptographic high-res PDF credentials directly to finalists.
               </p>
               <button
                 onClick={() => handlePrintCert('Devendra K.', 1)}
-                className="paper-btn paper-btn-sm bg-[#4DA3FF] text-white text-xs font-bold w-full"
+                className="paper-btn paper-btn-sm bg-[var(--info)] text-[var(--text-on-accent)] text-xs font-bold w-full"
               >
                 Print 1st Place Certificate
               </button>
@@ -318,13 +326,13 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
 
       {/* View 3: Appeals Workflow */}
       {activeSubTab === 'appeals' && (
-        <div className="paper-card p-6 bg-white dark:bg-[#221c16] space-y-4">
-          <div className="flex items-center justify-between border-b-2 border-gray-200 pb-3">
+        <div className="paper-card p-5 sm:p-6 bg-[var(--surface)] space-y-4">
+          <div className="flex items-center justify-between border-b-2 border-[var(--border)] pb-3">
             <div>
-              <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
-                Player Appeals & Dispute Resolution
-              </h3>
-              <p className="text-xs text-gray-500">
+              <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+                Player Appeals &amp; Dispute Resolution
+              </h2>
+              <p className="text-xs text-[var(--text-muted)]">
                 Transparent adjudication process for ambiguous prompts or hardware disconnects.
               </p>
             </div>
@@ -332,49 +340,49 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
 
           <div className="space-y-3">
             {appeals.map(a => (
-              <div key={a.id} className="p-4 rounded-xl border-2 border-[#16120E] bg-[#FFF6E5] dark:bg-[#16120E] space-y-2">
+              <div key={a.id} className="p-4 rounded-xl border-2 border-[var(--border)] bg-[var(--bg-page)] space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-sm text-[#FF5A36]">{a.playerName}</span>
-                    <span className="text-xs text-gray-500 font-mono-code">• Question #{a.questionNumber}</span>
+                    <span className="font-bold text-sm text-[var(--accent)]">{a.playerName}</span>
+                    <span className="text-xs text-[var(--text-muted)] font-mono-code">• Question #{a.questionNumber}</span>
                   </div>
                   <span
                     className={`sticker-badge text-[10px] ${
                       a.status === 'accepted'
-                        ? 'bg-green-600 text-white'
+                        ? 'sticker-badge-ok'
                         : a.status === 'rejected'
-                        ? 'bg-red-600 text-white'
-                        : 'bg-[#FFC83D] text-[#16120E]'
+                        ? 'sticker-badge-tomato'
+                        : 'sticker-badge-sunshine'
                     }`}
                   >
                     {a.status.toUpperCase()}
                   </span>
                 </div>
 
-                <p className="text-xs text-gray-700 dark:text-gray-300">
+                <p className="text-xs text-[var(--text)]">
                   <strong>Dispute Statement:</strong> {a.disputeReason}
                 </p>
-                <p className="text-xs text-[#14B8A6]">
+                <p className="text-xs text-[var(--ok)] dark:text-[var(--accent-2)]">
                   <strong>Proposed Remedy:</strong> {a.proposedFix}
                 </p>
 
                 {a.status === 'pending' ? (
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex flex-wrap gap-2 pt-2">
                     <button
                       onClick={() => handleResolveAppeal(a.id, 'accepted')}
-                      className="paper-btn paper-btn-sm bg-[#14B8A6] text-white text-xs font-bold"
+                      className="paper-btn paper-btn-sm paper-btn-ok text-xs font-bold"
                     >
-                      ✓ Accept & Adjust Points (+1000)
+                      ✓ Accept &amp; Adjust Points (+1000)
                     </button>
                     <button
                       onClick={() => handleResolveAppeal(a.id, 'rejected')}
-                      className="paper-btn paper-btn-sm bg-gray-300 text-gray-800 text-xs font-bold"
+                      className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold"
                     >
                       ✕ Reject Dispute
                     </button>
                   </div>
                 ) : (
-                  <div className="text-xs font-semibold text-gray-500 pt-1 italic">
+                  <div className="text-xs font-semibold text-[var(--text-muted)] pt-1 italic">
                     Jury Decision: {a.organizerNotes}
                   </div>
                 )}
@@ -386,13 +394,13 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
 
       {/* View 4: Ranked Elo League */}
       {activeSubTab === 'league' && (
-        <div className="paper-card p-6 bg-white dark:bg-[#221c16] space-y-4">
-          <div className="flex items-center justify-between border-b-2 border-gray-200 pb-3">
+        <div className="paper-card p-5 sm:p-6 bg-[var(--surface)] space-y-4">
+          <div className="flex items-center justify-between border-b-2 border-[var(--border)] pb-3">
             <div>
-              <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
+              <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
                 Official Ranked League (Elo Ratings)
-              </h3>
-              <p className="text-xs text-gray-500">
+              </h2>
+              <p className="text-xs text-[var(--text-muted)]">
                 Competitive ladder calculated using chess-standard Elo rating formula across verified tournaments.
               </p>
             </div>
@@ -401,7 +409,7 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-bold">
               <thead>
-                <tr className="border-b-2 border-[#16120E] text-gray-500 uppercase tracking-wider">
+                <tr className="border-b-2 border-[var(--border)] text-[var(--text-muted)] uppercase tracking-wider">
                   <th className="py-2">Rank</th>
                   <th className="py-2">Contender</th>
                   <th className="py-2">Affiliation</th>
@@ -411,19 +419,19 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
                   <th className="py-2 text-right">Certificate</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-[var(--border)]">
                 {leagueStandings.map(s => (
-                  <tr key={s.rank} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                    <td className="py-3 font-mono-code font-black text-sm text-[#FF5A36]">#{s.rank}</td>
-                    <td className="py-3 font-black text-sm text-[#16120E] dark:text-white">{s.name}</td>
-                    <td className="py-3 text-gray-500">{s.team}</td>
-                    <td className="py-3 font-mono-code text-sm font-black text-[#14B8A6]">{s.elo}</td>
-                    <td className="py-3 font-mono-code">{s.matches}</td>
-                    <td className="py-3 font-mono-code text-green-600">{s.winRate}</td>
+                  <tr key={s.rank} className="hover:bg-[var(--surface-2)] transition-colors">
+                    <td className="py-3 font-mono-code font-black text-sm text-[var(--accent)]">#{s.rank}</td>
+                    <td className="py-3 font-black text-sm text-[var(--text)]">{s.name}</td>
+                    <td className="py-3 text-[var(--text-muted)]">{s.team}</td>
+                    <td className="py-3 font-mono-code text-sm font-black text-[var(--ok)] dark:text-[var(--accent-2)]">{s.elo}</td>
+                    <td className="py-3 font-mono-code text-[var(--text)]">{s.matches}</td>
+                    <td className="py-3 font-mono-code text-[var(--ok)] dark:text-[var(--accent-2)]">{s.winRate}</td>
                     <td className="py-3 text-right">
                       <button
                         onClick={() => handlePrintCert(s.name, s.rank)}
-                        className="paper-btn paper-btn-sm bg-white dark:bg-[#16120E] text-[11px]"
+                        className="paper-btn paper-btn-sm paper-btn-secondary text-[11px]"
                       >
                         PDF
                       </button>

@@ -4,18 +4,14 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameSession, Player, Question, AnswerSubmission, IntegrityFlag } from '../../types/quiz';
-import { GameEngine } from '../../services/gameEngine';
+import { GameSession, Player, IntegrityFlag } from '../../types/quiz';
 import { sound } from '../../lib/sound';
-import {
-  ShapeTriangle,
-  ShapeDiamond,
-  ShapeCircle,
-  ShapeSquare,
-  FlameIcon,
-  AvatarBadge,
-  LightningIcon,
-} from '../common/CustomIcons';
+import { GameEngine } from '../../services/gameEngine';
+import { AvatarBadge, ShapeTriangle, ShapeDiamond, ShapeCircle, ShapeSquare, FlameIcon } from '../common/CustomIcons';
+import { TimerRing } from '../common/TimerRing';
+import { Avatar } from '../common/Avatar';
+import { useIntegrityGuard } from '../../hooks/useIntegrityGuard';
+import { IntegrityModal } from '../common/IntegrityModal';
 
 interface PlayerArenaProps {
   game: GameSession;
@@ -24,120 +20,82 @@ interface PlayerArenaProps {
 }
 
 export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdatePlayer }) => {
-  const currentQuestion: Question | undefined = game.questions[game.currentQuestionIndex];
+  const currentQuestion = game.questions[game.currentQuestionIndex];
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [textAnswer, setTextAnswer] = useState<string>('');
   const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
-  const [submissionResult, setSubmissionResult] = useState<AnswerSubmission | null>(null);
-  const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
-  const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
+  const [submissionResult, setSubmissionResult] = useState<{ isCorrect: boolean; pointsAwarded: number } | null>(null);
   const [activeDoublePoints, setActiveDoublePoints] = useState<boolean>(false);
+  const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
   const [accommodationsOpen, setAccommodationsOpen] = useState<boolean>(false);
-  const lastFlagTimeRef = useRef<Record<string, number>>({});
 
-  // Reset answer state when active question advances
+  // Time tracking & Local Countdown Ring
+  const baseTime = currentQuestion?.timeLimit || game.timeLimit || 20;
+  const totalTimeLimit = Math.round(baseTime * (player.accommodations.extraTimeMultiplier || 1));
+  const [playerTimeLeft, setPlayerTimeLeft] = useState<number>(totalTimeLimit);
+  const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
+
+  // Advanced Integrity Guard (Secure Mode)
+  const {
+    strikes,
+    warningModal,
+    dismissWarningModal,
+    isQuestionLocked,
+    blockedByExtension,
+    extensionReason,
+    isFullscreen,
+    requestFullscreen,
+    requireFullscreen,
+    handlePasteAttempt,
+  } = useIntegrityGuard({
+    game,
+    player,
+    currentQuestionIndex: game.currentQuestionIndex,
+    hasSubmitted,
+    onApplyPenalty: (penaltyPoints) => {
+      onUpdatePlayer({
+        ...player,
+        score: Math.max(0, player.score - penaltyPoints),
+        strikes: (player.strikes || 0) + 1,
+      });
+    },
+  });
+
+  // Countdown timer for player ring
+  useEffect(() => {
+    setPlayerTimeLeft(totalTimeLimit);
+  }, [game.currentQuestionIndex, totalTimeLimit]);
+
+  useEffect(() => {
+    if (game.status !== 'question_active' || hasSubmitted || playerTimeLeft <= 0) return;
+    const interval = setInterval(() => {
+      setPlayerTimeLeft(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [game.status, hasSubmitted, playerTimeLeft]);
+
+  // Reset state when new question begins
   useEffect(() => {
     setSelectedIndices([]);
     setTextAnswer('');
     setHasSubmitted(false);
     setSubmissionResult(null);
-    setHiddenOptions([]);
     setActiveDoublePoints(false);
+    setHiddenOptions([]);
     setQuestionStartTime(Date.now());
 
-    // Read aloud accommodation
-    if (player.accommodations.readAloud && currentQuestion && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    // Dyslexia mode speech synthesis (TTS) if enabled in accommodations
+    if (player.accommodations.readAloud && currentQuestion?.text && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(currentQuestion.text);
+      utterance.rate = 0.95;
       window.speechSynthesis.speak(utterance);
     }
-  }, [game.currentQuestionIndex, game.status]);
-
-  // Anti-cheat detection: tab switch / window blur / fullscreen exit
-  useEffect(() => {
-    if (game.status !== 'question_active' || hasSubmitted || game.settings.antiCheatDetection === false) {
-      return;
-    }
-
-    const sendFlag = (
-      type: IntegrityFlag['type'],
-      severity: IntegrityFlag['severity'],
-      reason: string
-    ) => {
-      const now = Date.now();
-      const last = lastFlagTimeRef.current[type] || 0;
-      if (now - last < 3000) return; // Debounce 3s per flag type
-      lastFlagTimeRef.current[type] = now;
-
-      const flag: IntegrityFlag = {
-        id: `flag_${now}_${Math.random().toString(36).substring(2, 7)}`,
-        playerId: player.id,
-        playerNickname: player.nickname,
-        type,
-        severity,
-        reason,
-        timestamp: new Date().toISOString(),
-        questionIndex: game.currentQuestionIndex,
-      };
-
-      GameEngine.recordFlag(game.id, flag).catch(err => {
-        console.warn('Failed to record anti-cheat flag:', err);
-      });
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        sendFlag('tab_switch', 'medium', 'Player switched tab or minimized window');
-      }
-    };
-
-    const handleBlur = () => {
-      sendFlag('window_blur', 'low', 'Player window lost focus (blur detected)');
-    };
-
-    const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        sendFlag('fullscreen_exit', 'medium', 'Player exited fullscreen mode');
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, [game.id, game.status, game.currentQuestionIndex, hasSubmitted, player.id, player.nickname, game.settings.antiCheatDetection]);
-
-  const handlePasteInTypeAnswer = () => {
-    if (game.settings.antiCheatDetection === false) return;
-    const now = Date.now();
-    const last = lastFlagTimeRef.current['paste_detected'] || 0;
-    if (now - last < 3000) return;
-    lastFlagTimeRef.current['paste_detected'] = now;
-
-    const flag: IntegrityFlag = {
-      id: `flag_${now}_${Math.random().toString(36).substring(2, 7)}`,
-      playerId: player.id,
-      playerNickname: player.nickname,
-      type: 'paste_detected',
-      severity: 'high',
-      reason: 'Pasted text detected in type-answer input',
-      timestamp: new Date().toISOString(),
-      questionIndex: game.currentQuestionIndex,
-    };
-
-    GameEngine.recordFlag(game.id, flag).catch(err => {
-      console.warn('Failed to record paste flag:', err);
-    });
-  };
+  }, [game.currentQuestionIndex, player.accommodations.readAloud]);
 
   if (!currentQuestion) {
     return (
-      <div className="paper-card p-8 text-center bg-white dark:bg-[#16120E] text-[#16120E] dark:text-white">
+      <div className="paper-card p-8 text-center text-[var(--text)]">
         Waiting for the next round to start...
       </div>
     );
@@ -145,7 +103,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
 
   // Answer submission
   const handleSubmitOption = async (optIdx: number) => {
-    if (hasSubmitted || game.status !== 'question_active') return;
+    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active') return;
     sound.playClick();
 
     if (currentQuestion.type === 'multi_select') {
@@ -179,7 +137,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   };
 
   const handleConfirmMultiSelectOrText = async () => {
-    if (hasSubmitted || game.status !== 'question_active') return;
+    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active') return;
     sound.playClick();
     const rawTimeMs = Date.now() - questionStartTime;
     setHasSubmitted(true);
@@ -233,29 +191,34 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   };
 
   const optionButtons = [
-    { bg: 'bg-[#FF5A36]', hover: 'hover:bg-[#ff471e]', icon: <ShapeTriangle className="w-8 h-8 text-white" fill="#FFFFFF" />, label: 'Triangle' },
-    { bg: 'bg-[#FFC83D]', hover: 'hover:bg-[#f5bc28]', icon: <ShapeDiamond className="w-8 h-8 text-[#16120E]" fill="#16120E" />, label: 'Diamond' },
-    { bg: 'bg-[#14B8A6]', hover: 'hover:bg-[#0fa090]', icon: <ShapeCircle className="w-8 h-8 text-white" fill="#FFFFFF" />, label: 'Circle' },
-    { bg: 'bg-[#4DA3FF]', hover: 'hover:bg-[#3b93f0]', icon: <ShapeSquare className="w-8 h-8 text-white" fill="#FFFFFF" />, label: 'Square' },
+    { bg: 'bg-[var(--accent)] text-[var(--text-on-accent)]', icon: <ShapeTriangle className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" />, label: 'Triangle' },
+    { bg: 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)]', icon: <ShapeDiamond className="w-8 h-8 text-[var(--text-on-accent-2)]" fill="currentColor" />, label: 'Diamond' },
+    { bg: 'bg-[var(--ok)] text-[var(--text-on-accent)]', icon: <ShapeCircle className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" />, label: 'Circle' },
+    { bg: 'bg-[var(--info)] text-[var(--text-on-accent)]', icon: <ShapeSquare className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" />, label: 'Square' },
   ];
 
   return (
     <div className={`mx-auto max-w-xl p-3 sm:p-4 space-y-4 ${player.accommodations.dyslexiaFont ? 'dyslexia-font' : ''}`}>
       {/* Player Header: Avatar, Nickname, Streak Flame, Score & Accommodations button */}
-      <div className="paper-card p-3.5 bg-white dark:bg-[#16120E] flex items-center justify-between">
+      <div className="paper-card p-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <AvatarBadge avatarId={player.avatar} size={42} />
+          <Avatar config={player.avatarConfig || player.avatar} seed={player.nickname} size={44} />
           <div>
-            <div className="font-['Bricolage_Grotesque'] font-black text-base text-[#16120E] dark:text-white leading-none">
+            <div className="font-['Bricolage_Grotesque'] font-black text-base text-[var(--text)] leading-none">
               {player.nickname}
             </div>
             <div className="flex items-center gap-1.5 mt-1">
-              <span className="font-mono-code text-xs font-bold text-[#FF5A36]">
+              <span className="font-mono-code text-xs font-bold text-[var(--accent)]">
                 {player.score.toLocaleString()} pts
               </span>
               {player.streak > 1 && (
-                <span className="inline-flex items-center gap-0.5 text-xs font-bold text-[#FFC83D]">
-                  <FlameIcon className="w-3.5 h-3.5" /> {player.streak} Streak
+                <span className="inline-flex items-center gap-1 text-xs font-black px-2 py-0.5 rounded-full bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] border border-[var(--border)] shadow-[1px_1px_0px_var(--shadow)] animate-pulse-glow">
+                  <FlameIcon className="w-3.5 h-3.5 text-orange-600 fill-current" /> {player.streak} Streak
+                </span>
+              )}
+              {strikes > 0 && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                  ⚠️ {strikes} Strike{strikes > 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -265,7 +228,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => setAccommodationsOpen(true)}
-            className="paper-btn paper-btn-sm bg-[#FFFAEE] dark:bg-[#221c16] text-[11px] font-bold"
+            className="paper-btn paper-btn-sm text-[11px] font-bold"
             title="Accessibility Accommodations"
           >
             ♿ Options
@@ -279,7 +242,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
           onClick={handleUse5050}
           disabled={player.powerUps.fiftyFiftyUsed || hasSubmitted}
           className={`paper-btn paper-btn-sm text-xs font-bold py-2 ${
-            player.powerUps.fiftyFiftyUsed ? 'bg-gray-200 text-gray-500' : 'bg-[#FFC83D] text-[#16120E]'
+            player.powerUps.fiftyFiftyUsed ? 'opacity-50 cursor-not-allowed' : 'paper-btn-secondary'
           }`}
         >
           {player.powerUps.fiftyFiftyUsed ? '50/50 (Used)' : '⚡ 50/50 (Cut 2)'}
@@ -289,7 +252,11 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
           onClick={handleUseDoublePoints}
           disabled={player.powerUps.doublePointsUsed || hasSubmitted}
           className={`paper-btn paper-btn-sm text-xs font-bold py-2 ${
-            player.powerUps.doublePointsUsed ? 'bg-gray-200 text-gray-500' : 'bg-[#14B8A6] text-white'
+            player.powerUps.doublePointsUsed
+              ? 'opacity-50 cursor-not-allowed'
+              : activeDoublePoints
+              ? 'bg-[var(--accent)] text-[var(--text-on-accent)]'
+              : 'paper-btn-ok'
           }`}
         >
           {player.powerUps.doublePointsUsed
@@ -300,67 +267,119 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         </button>
       </div>
 
-      {/* Question Prompt on Player Screen */}
-      <div className="paper-card p-5 bg-[#FFF6E5] dark:bg-[#16120E] border-3 text-center space-y-2">
-        <span className="sticker-badge bg-[#FFC83D] text-[#16120E] text-[10px]">
-          Q{game.currentQuestionIndex + 1} of {game.questions.length}
-        </span>
-        <h2 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[#16120E] dark:text-white leading-tight">
+      {/* Clear Question Progress */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] font-bold text-[var(--text-muted)]">
+          <span>Question <strong>{game.currentQuestionIndex + 1} of {game.questions.length}</strong></span>
+          <span>{Math.round(((game.currentQuestionIndex + 1) / game.questions.length) * 100)}%</span>
+        </div>
+        <div className="w-full bg-[var(--surface-2)] h-1.5 rounded-full border border-[var(--border)] overflow-hidden">
+          <div
+            className="bg-[var(--accent)] h-full transition-all duration-300"
+            style={{ width: `${((game.currentQuestionIndex + 1) / game.questions.length) * 100}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Question Prompt and Timer Ring */}
+      <div
+        className={`paper-card p-4 sm:p-5 border-3 flex flex-col items-center text-center space-y-3 ${
+          game.settings.preventCopyPaste !== false ? 'select-none' : ''
+        }`}
+        onContextMenu={e => {
+          if (game.settings.preventCopyPaste !== false) {
+            e.preventDefault();
+          }
+        }}
+        onCopy={e => {
+          if (game.settings.preventCopyPaste !== false) {
+            handlePasteAttempt(e);
+          }
+        }}
+      >
+        <div className="flex items-center justify-between w-full">
+          <span className="sticker-badge sticker-badge-sunshine text-[11px] font-bold">
+            Q{game.currentQuestionIndex + 1} / {game.questions.length}
+          </span>
+          <TimerRing
+            timeLeft={playerTimeLeft}
+            totalTime={totalTimeLimit}
+            size={56}
+            strokeWidth={5}
+          />
+        </div>
+        <h2 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)] leading-snug">
           {currentQuestion.text}
         </h2>
       </div>
 
+      {/* Question Locked Banner if Strike 3 locked the round */}
+      {isQuestionLocked && !hasSubmitted && game.status === 'question_active' && (
+        <div className="paper-card p-6 text-center border-3 border-[var(--accent)] space-y-2 bg-red-50 dark:bg-red-950/40 animate-fadeIn">
+          <div className="text-3xl">⚠️</div>
+          <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--accent)]">
+            Question Locked
+          </h3>
+          <p className="text-xs font-semibold text-[var(--text-muted)]">
+            Answering has been locked for this question due to repeated tab switching or focus loss. The host has been notified.
+          </p>
+          <div className="text-[11px] font-bold text-[var(--text-muted)]">
+            ♿ Human Review: Flags are reviewed by your host. Normal play resumes next question.
+          </div>
+        </div>
+      )}
+
       {/* Waiting or Submitted Feedback State */}
       {hasSubmitted && game.status === 'question_active' && (
-        <div className="paper-card p-8 text-center bg-white dark:bg-[#16120E] border-3 space-y-3 animate-fadeIn">
+        <div className="paper-card p-8 text-center border-3 space-y-3 animate-fadeIn">
           <div className="text-4xl animate-pulse">🔒</div>
-          <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[#14B8A6]">
+          <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--ok)] dark:text-[var(--accent-2)]">
             Locked In!
           </h3>
-          <p className="text-xs font-bold text-gray-600 dark:text-gray-400">
+          <p className="text-xs font-bold text-[var(--text-muted)]">
             Waiting for remaining players and host countdown...
           </p>
         </div>
       )}
 
-      {/* Reveal Outcome State */}
+      {/* Reveal Outcome State with Instant Animations */}
       {(game.status === 'reveal' || game.status === 'leaderboard') && (
         <div
-          className={`paper-card p-6 text-center border-3 space-y-3 animate-fadeIn ${
+          className={`paper-card p-6 text-center border-3 space-y-3 shadow-[5px_5px_0px_var(--shadow)] ${
             submissionResult?.isCorrect
-              ? 'bg-[#E8FAF6] border-[#14B8A6]'
-              : 'bg-[#FFF0ED] border-[#FF5A36]'
+              ? 'bg-emerald-50 dark:bg-emerald-950/40 border-[var(--ok)] animate-pop-in'
+              : 'bg-red-50 dark:bg-red-950/40 border-[var(--accent)] animate-shake'
           }`}
         >
-          <div className="text-4xl">
+          <div className="text-4xl animate-bounce">
             {submissionResult?.isCorrect ? '🎉' : '💡'}
           </div>
           <h3
             className={`font-['Bricolage_Grotesque'] font-black text-2xl ${
-              submissionResult?.isCorrect ? 'text-[#14B8A6]' : 'text-[#FF5A36]'
+              submissionResult?.isCorrect ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'
             }`}
           >
             {submissionResult?.isCorrect ? 'Nice one! Spot on!' : 'Bummer! Keep your head up!'}
           </h3>
           {submissionResult?.isCorrect && (
-            <div className="font-mono-code font-black text-xl text-[#16120E]">
+            <div className="font-mono-code font-black text-xl text-[var(--ok)] dark:text-[var(--accent-2)]">
               +{submissionResult.pointsAwarded} Points!
             </div>
           )}
           {currentQuestion.explanation && (
-            <p className="text-xs font-semibold text-gray-700 mt-2">
+            <p className="text-xs font-semibold text-[var(--text-muted)] mt-2">
               {currentQuestion.explanation}
             </p>
           )}
         </div>
       )}
 
-      {/* Shape-coded Answer Buttons (Phone-First Large Buttons) */}
-      {!hasSubmitted && game.status === 'question_active' && currentQuestion.type !== 'type_answer' && (
+      {/* Shape-coded Answer Buttons with Tactile Press Feedback */}
+      {!hasSubmitted && !isQuestionLocked && game.status === 'question_active' && currentQuestion.type !== 'type_answer' && (
         <div className="grid grid-cols-2 gap-3 pt-2">
           {currentQuestion.options.map((opt, idx) => {
             if (hiddenOptions.includes(idx)) {
-              return <div key={idx} className="h-28 rounded-2xl bg-gray-100 dark:bg-gray-800 opacity-20 border-2" />;
+              return <div key={idx} className="h-32 sm:h-36 rounded-2xl bg-[var(--surface-2)] opacity-20 border-2 border-[var(--border)]" />;
             }
 
             const btn = optionButtons[idx % 4];
@@ -370,12 +389,13 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
               <button
                 key={idx}
                 onClick={() => handleSubmitOption(idx)}
-                className={`paper-btn h-32 sm:h-36 flex flex-col items-center justify-center p-3 rounded-2xl transition-transform active:scale-95 ${
+                disabled={isQuestionLocked}
+                className={`paper-btn h-32 sm:h-36 flex flex-col items-center justify-center p-3 rounded-2xl shadow-[4px_4px_0px_var(--shadow)] hover:-translate-y-0.5 active:translate-y-1 active:shadow-none transition-all select-none ${
                   btn.bg
-                } ${isSelected ? 'ring-4 ring-black scale-95' : ''}`}
+                } ${isSelected ? 'ring-4 ring-[var(--border)] scale-95' : ''}`}
               >
-                <div className="mb-2 shrink-0">{btn.icon}</div>
-                <span className="text-white font-['Bricolage_Grotesque'] font-extrabold text-sm sm:text-base leading-tight text-center line-clamp-2">
+                <div className="mb-1.5 sm:mb-2 shrink-0">{btn.icon}</div>
+                <span className="font-['Bricolage_Grotesque'] font-extrabold text-xs sm:text-base leading-tight text-center line-clamp-3 break-words px-1">
                   {opt}
                 </span>
               </button>
@@ -385,33 +405,34 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       )}
 
       {/* Multi-select confirm button */}
-      {!hasSubmitted && currentQuestion.type === 'multi_select' && selectedIndices.length > 0 && (
+      {!hasSubmitted && !isQuestionLocked && currentQuestion.type === 'multi_select' && selectedIndices.length > 0 && (
         <button
           onClick={handleConfirmMultiSelectOrText}
-          className="paper-btn w-full bg-[#14B8A6] text-white py-3 text-base font-black shadow-[4px_4px_0px_#16120E]"
+          className="paper-btn paper-btn-ok w-full py-3 text-base font-black shadow-[4px_4px_0px_var(--shadow)]"
         >
           Confirm Selected Answers ({selectedIndices.length})
         </button>
       )}
 
       {/* Type Answer Screen */}
-      {!hasSubmitted && game.status === 'question_active' && currentQuestion.type === 'type_answer' && (
+      {!hasSubmitted && !isQuestionLocked && game.status === 'question_active' && currentQuestion.type === 'type_answer' && (
         <div className="space-y-3">
           <input
             type="text"
             value={textAnswer}
             onChange={e => setTextAnswer(e.target.value)}
-            onPaste={handlePasteInTypeAnswer}
+            onPaste={handlePasteAttempt}
+            disabled={isQuestionLocked}
             onKeyDown={e => {
               if (e.key === 'Enter') handleConfirmMultiSelectOrText();
             }}
             placeholder="Type your answer here..."
-            className="w-full rounded-2xl border-3 border-[#16120E] p-4 text-center font-bold text-lg dark:bg-[#16120E] dark:text-white shadow-[4px_4px_0px_#16120E]"
+            className="paper-input w-full rounded-2xl border-3 border-[var(--border)] p-4 text-center font-bold text-lg shadow-[4px_4px_0px_var(--shadow)]"
           />
           <button
             onClick={handleConfirmMultiSelectOrText}
-            disabled={!textAnswer.trim()}
-            className="paper-btn w-full bg-[#FF5A36] text-white py-3 font-black text-base shadow-[4px_4px_0px_#16120E] disabled:opacity-50"
+            disabled={!textAnswer.trim() || isQuestionLocked}
+            className="paper-btn paper-btn-primary w-full py-3 font-black text-base shadow-[4px_4px_0px_var(--shadow)] disabled:opacity-50"
           >
             Lock It In!
           </button>
@@ -421,12 +442,12 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       {/* Accommodations Modal */}
       {accommodationsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="paper-card p-6 bg-[#FFF6E5] dark:bg-[#16120E] max-w-sm w-full space-y-4">
-            <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#FF5A36]">
+          <div className="paper-modal p-6 max-w-sm w-full space-y-4">
+            <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--accent)]">
               Personal Accommodations
             </h3>
 
-            <div className="space-y-3 text-xs font-bold text-[#16120E] dark:text-white">
+            <div className="space-y-3 text-xs font-bold text-[var(--text)]">
               <label className="flex items-center justify-between cursor-pointer">
                 <span>Dyslexia-friendly Font</span>
                 <input
@@ -439,7 +460,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
                       accommodations: { ...player.accommodations, dyslexiaFont: e.target.checked },
                     });
                   }}
-                  className="h-4 w-4 accent-[#FF5A36]"
+                  className="h-4 w-4 accent-[var(--accent)]"
                 />
               </label>
 
@@ -455,7 +476,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
                       accommodations: { ...player.accommodations, readAloud: e.target.checked },
                     });
                   }}
-                  className="h-4 w-4 accent-[#FF5A36]"
+                  className="h-4 w-4 accent-[var(--accent)]"
                 />
               </label>
 
@@ -471,20 +492,31 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
                       accommodations: { ...player.accommodations, fewerOptions: e.target.checked },
                     });
                   }}
-                  className="h-4 w-4 accent-[#FF5A36]"
+                  className="h-4 w-4 accent-[var(--accent)]"
                 />
               </label>
             </div>
 
             <button
               onClick={() => setAccommodationsOpen(false)}
-              className="paper-btn w-full bg-[#14B8A6] text-white py-2 text-xs font-bold"
+              className="paper-btn paper-btn-ok w-full py-2 text-xs font-bold"
             >
-              Save & Return
+              Save &amp; Return
             </button>
           </div>
         </div>
       )}
+
+      {/* Integrity Guard Escalation Modal (Strikes 1, 2, 3, Fullscreen, Extension Warning) */}
+      <IntegrityModal
+        modalState={warningModal}
+        onDismiss={dismissWarningModal}
+        blockedByExtension={blockedByExtension}
+        extensionReason={extensionReason}
+        requireFullscreen={requireFullscreen}
+        isFullscreen={isFullscreen}
+        onRequestFullscreen={requestFullscreen}
+      />
     </div>
   );
 };

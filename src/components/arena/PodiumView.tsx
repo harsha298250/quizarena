@@ -8,7 +8,8 @@ import confetti from 'canvas-confetti';
 import { GameSession, Player, Question } from '../../types/quiz';
 import { sound } from '../../lib/sound';
 import { generateCertificatePdf } from '../../services/certificateService';
-import { AvatarBadge, TrophyIcon, FlameIcon } from '../common/CustomIcons';
+import { TrophyIcon, FlameIcon } from '../common/CustomIcons';
+import { Avatar } from '../common/Avatar';
 
 interface PodiumViewProps {
   game: GameSession;
@@ -26,6 +27,7 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
   onReviewAnalytics,
 }) => {
   const [selectedReviewQuestion, setSelectedReviewQuestion] = useState<Question | null>(null);
+  const [revealStep, setRevealStep] = useState<number>(0);
 
   // Sort players by score descending
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
@@ -36,31 +38,44 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
   const activePlayer = players.find(p => p.id === activePlayerId) || sortedPlayers[0];
   const activeRank = sortedPlayers.findIndex(p => p.id === activePlayer?.id) + 1;
 
-  // Trigger Playful Paper palette confetti on mount
+  // Staggered Reveal: 3rd place (0.5s) -> 2nd place (1.2s) -> 1st place (2.0s + confetti)
   useEffect(() => {
     sound.playPodium();
 
-    // Palette: tomato #FF5A36, sunshine #FFC83D, teal #14B8A6, sky #4DA3FF
-    const paperColors = ['#FF5A36', '#FFC83D', '#14B8A6', '#4DA3FF'];
+    const t1 = setTimeout(() => setRevealStep(1), 500); // 3rd Place
+    const t2 = setTimeout(() => setRevealStep(2), 1200); // 2nd Place
+    const t3 = setTimeout(() => {
+      setRevealStep(3); // 1st Place Champion
+      triggerCelebration();
+    }, 2000);
 
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, []);
+
+  const triggerCelebration = () => {
+    const paperColors = ['#CF330D', '#FFC83D', '#0D7A70', '#0369A1'];
     try {
       confetti({
-        particleCount: 80,
-        spread: 70,
+        particleCount: 90,
+        spread: 75,
         origin: { y: 0.6 },
         colors: paperColors,
       });
 
       setTimeout(() => {
         confetti({
-          particleCount: 50,
+          particleCount: 60,
           angle: 60,
           spread: 55,
           origin: { x: 0 },
           colors: paperColors,
         });
         confetti({
-          particleCount: 50,
+          particleCount: 60,
           angle: 120,
           spread: 55,
           origin: { x: 1 },
@@ -68,7 +83,12 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
         });
       }, 400);
     } catch (e) {}
-  }, []);
+  };
+
+  const handleSkipAnimation = () => {
+    setRevealStep(3);
+    triggerCelebration();
+  };
 
   const handleDownloadCertificate = async () => {
     sound.playClick();
@@ -89,119 +109,188 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
     <div className="mx-auto max-w-5xl p-4 sm:p-6 space-y-8 animate-fadeIn">
       {/* Header Banner */}
       <div className="text-center space-y-2">
-        <span className="sticker-badge bg-[#FFC83D] text-[#16120E] sticker-rot-2 text-sm px-4 py-1">
-          🏆 Victory Arena
-        </span>
-        <h1 className="font-['Bricolage_Grotesque'] text-4xl sm:text-5xl font-black text-[#16120E] dark:text-white">
+        <div className="flex items-center justify-center gap-2">
+          <span className="sticker-badge sticker-badge-sunshine sticker-rot-2 text-sm px-4 py-1">
+            🏆 Victory Arena
+          </span>
+          {revealStep < 3 && (
+            <button
+              onClick={handleSkipAnimation}
+              className="text-xs font-bold text-[var(--text-muted)] underline hover:text-[var(--accent)]"
+            >
+              Skip Animation ➔
+            </button>
+          )}
+        </div>
+        <h1 className="font-['Bricolage_Grotesque'] text-4xl sm:text-5xl font-black text-[var(--text)]">
           Podium of Champions
         </h1>
-        <p className="text-sm font-bold text-gray-600 dark:text-gray-400">
-          Match concluded for "{game.quizTitle}" with {players.length} contenders.
+        <p className="text-sm font-bold text-[var(--text-muted)]">
+          Match concluded for &quot;{game.quizTitle}&quot; with {players.length} contenders.
         </p>
       </div>
 
-      {/* 3D-feel Asymmetric Paper Podium */}
-      <div className="flex items-end justify-center gap-3 sm:gap-6 pt-10 pb-4">
-        {/* 2nd Place */}
+      {/* 3D-feel Asymmetric Paper Podium with Staggered Reveal & Medals */}
+      <div className="flex items-end justify-center gap-1.5 sm:gap-6 pt-10 pb-4 min-h-[340px]">
+        {/* 2nd Place (Silver Medal) - Revealed at Step 2 */}
         {second && (
-          <div className="flex flex-col items-center w-28 sm:w-36 animate-slideUp">
-            <AvatarBadge avatarId={second.avatar} size={56} className="mb-2" />
-            <span className="font-black text-sm text-[#16120E] dark:text-white truncate max-w-full">
-              {second.nickname}
-            </span>
-            <span className="font-mono-code text-xs font-bold text-gray-500 mb-2">
-              {second.score.toLocaleString()} pts
-            </span>
-            <div className="w-full h-32 sm:h-40 bg-[#4DA3FF] border-3 border-[#16120E] rounded-t-2xl shadow-[4px_4px_0px_#16120E] flex flex-col items-center justify-center text-white">
-              <span className="font-['Bricolage_Grotesque'] text-4xl font-black">2</span>
-              <span className="text-xs uppercase font-bold tracking-widest">Silver</span>
-            </div>
-          </div>
-        )}
-
-        {/* 1st Place (Champion) */}
-        {first && (
-          <div className="flex flex-col items-center w-36 sm:w-48 -translate-y-4 animate-bounce">
+          <div
+            className={`flex flex-col items-center w-24 sm:w-36 transition-all duration-700 ${
+              revealStep >= 2
+                ? 'opacity-100 translate-y-0 animate-pop-in'
+                : 'opacity-0 translate-y-12 pointer-events-none'
+            }`}
+          >
             <div className="relative mb-2">
-              <AvatarBadge avatarId={first.avatar} size={72} />
-              <div className="absolute -top-3 -right-2 bg-[#FFC83D] border-2 border-[#16120E] rounded-full p-1 shadow-[2px_2px_0px_#16120E]">
-                <TrophyIcon className="w-5 h-5" />
+              <Avatar config={second.avatarConfig || second.avatar} seed={second.nickname} size={50} />
+              <div className="absolute -top-2 -right-2 text-lg sm:text-xl" title="Silver Medal">
+                🥈
               </div>
             </div>
-            <span className="font-black text-base text-[#16120E] dark:text-white truncate max-w-full">
-              {first.nickname}
+            <span className="font-black text-xs sm:text-sm text-[var(--text)] truncate max-w-full">
+              {second.nickname}
             </span>
-            <span className="font-mono-code text-sm font-black text-[#FF5A36] mb-2">
-              {first.score.toLocaleString()} pts
+            <span className="font-mono-code text-[11px] sm:text-xs font-bold text-[var(--text-muted)] mb-2">
+              {second.score.toLocaleString()} pts
             </span>
-            <div className="w-full h-44 sm:h-52 bg-[#FFC83D] border-3 border-[#16120E] rounded-t-2xl shadow-[6px_6px_0px_#16120E] flex flex-col items-center justify-center text-[#16120E]">
-              <span className="font-['Bricolage_Grotesque'] text-5xl font-black">1</span>
-              <span className="text-xs uppercase font-black tracking-widest">Gold Master</span>
+            <div className="w-full h-32 sm:h-40 bg-[var(--info)] border-3 border-[var(--border)] rounded-t-2xl shadow-[4px_4px_0px_var(--shadow)] flex flex-col items-center justify-center text-[var(--text-on-accent)]">
+              <span className="font-['Bricolage_Grotesque'] text-3xl sm:text-4xl font-black">2</span>
+              <span className="text-[10px] sm:text-xs uppercase font-bold tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
+                🥈 Silver
+              </span>
             </div>
           </div>
         )}
 
-        {/* 3rd Place */}
-        {third && (
-          <div className="flex flex-col items-center w-28 sm:w-36 animate-slideUp">
-            <AvatarBadge avatarId={third.avatar} size={52} className="mb-2" />
-            <span className="font-black text-sm text-[#16120E] dark:text-white truncate max-w-full">
-              {third.nickname}
+        {/* 1st Place Champion (Gold Medal) - Revealed at Step 3 */}
+        {first && (
+          <div
+            className={`flex flex-col items-center w-28 sm:w-48 -translate-y-4 transition-all duration-700 ${
+              revealStep >= 3
+                ? 'opacity-100 translate-y-0 animate-pop-in'
+                : 'opacity-0 translate-y-16 pointer-events-none'
+            }`}
+          >
+            <div className="relative mb-2">
+              <Avatar config={first.avatarConfig || first.avatar} seed={first.nickname} size={64} />
+              <div className="absolute -top-3.5 -right-2.5 bg-[var(--accent-2-bg)] border-2 border-[var(--border)] rounded-full p-1 sm:p-1.5 shadow-[2px_2px_0px_var(--shadow)] text-[var(--text-on-accent-2)] animate-pulse-glow">
+                <TrophyIcon className="w-4 h-4 sm:w-6 sm:h-6" />
+              </div>
+              <div className="absolute -top-3 -left-2 text-xl sm:text-2xl" title="Gold Medal">
+                🥇
+              </div>
+            </div>
+            <span className="font-black text-sm sm:text-base text-[var(--text)] truncate max-w-full">
+              {first.nickname}
             </span>
-            <span className="font-mono-code text-xs font-bold text-gray-500 mb-2">
-              {third.score.toLocaleString()} pts
+            <span className="font-mono-code text-xs sm:text-sm font-black text-[var(--accent)] mb-2">
+              {first.score.toLocaleString()} pts
             </span>
-            <div className="w-full h-24 sm:h-32 bg-[#14B8A6] border-3 border-[#16120E] rounded-t-2xl shadow-[4px_4px_0px_#16120E] flex flex-col items-center justify-center text-white">
-              <span className="font-['Bricolage_Grotesque'] text-3xl font-black">3</span>
-              <span className="text-xs uppercase font-bold tracking-widest">Bronze</span>
+            <div className="w-full h-44 sm:h-52 bg-[var(--accent-2-bg)] border-3 border-[var(--border)] rounded-t-2xl shadow-[6px_6px_0px_var(--shadow)] flex flex-col items-center justify-center text-[var(--text-on-accent-2)]">
+              <span className="font-['Bricolage_Grotesque'] text-4xl sm:text-5xl font-black">1</span>
+              <span className="text-[10px] sm:text-xs uppercase font-black tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
+                🥇 Champion
+              </span>
             </div>
           </div>
         )}
+
+        {/* 3rd Place (Bronze Medal) - Revealed at Step 1 */}
+        {third && (
+          <div
+            className={`flex flex-col items-center w-24 sm:w-36 transition-all duration-700 ${
+              revealStep >= 1
+                ? 'opacity-100 translate-y-0 animate-pop-in'
+                : 'opacity-0 translate-y-10 pointer-events-none'
+            }`}
+          >
+            <div className="relative mb-2">
+              <Avatar config={third.avatarConfig || third.avatar} seed={third.nickname} size={46} />
+              <div className="absolute -top-2 -right-2 text-lg sm:text-xl" title="Bronze Medal">
+                🥉
+              </div>
+            </div>
+            <span className="font-black text-xs sm:text-sm text-[var(--text)] truncate max-w-full">
+              {third.nickname}
+            </span>
+            <span className="font-mono-code text-[11px] sm:text-xs font-bold text-[var(--text-muted)] mb-2">
+              {third.score.toLocaleString()} pts
+            </span>
+            <div className="w-full h-24 sm:h-32 bg-[var(--ok)] border-3 border-[var(--border)] rounded-t-2xl shadow-[4px_4px_0px_var(--shadow)] flex flex-col items-center justify-center text-[var(--text-on-accent)]">
+              <span className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black">3</span>
+              <span className="text-[10px] sm:text-xs uppercase font-bold tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
+                🥉 Bronze
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons: Play Again & Review */}
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <button
+          onClick={() => {
+            sound.playClick();
+            onPlayAgain();
+          }}
+          className="paper-btn paper-btn-primary px-6 py-3 text-sm font-black shadow-[3px_3px_0px_var(--shadow)]"
+        >
+          🔄 Play Next Quiz
+        </button>
+        <button
+          onClick={() => {
+            sound.playClick();
+            onReviewAnalytics();
+          }}
+          className="paper-btn paper-btn-secondary px-6 py-3 text-sm font-bold shadow-[3px_3px_0px_var(--shadow)]"
+        >
+          📊 Review Learning Analytics
+        </button>
       </div>
 
       {/* Personal Player Summary Card */}
       {activePlayer && (
-        <div className="paper-card p-6 bg-[#FFFAEE] dark:bg-[#221c16] border-3 shadow-[5px_5px_0px_#16120E] space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-gray-200 pb-3">
+        <div className="paper-card p-6 border-3 shadow-[5px_5px_0px_var(--shadow)] space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-[var(--border)]/20 pb-3">
             <div>
-              <span className="text-xs font-bold uppercase text-gray-500">Your Personal Record</span>
-              <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[#FF5A36]">
+              <span className="text-xs font-bold uppercase text-[var(--text-muted)]">Your Personal Record</span>
+              <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--accent)]">
                 {activePlayer.nickname} — Rank #{activeRank}
               </h3>
             </div>
             <button
               onClick={handleDownloadCertificate}
-              className="paper-btn bg-[#FF5A36] text-white px-4 py-2 text-xs font-black shadow-[3px_3px_0px_#16120E]"
+              className="paper-btn paper-btn-primary px-4 py-2 text-xs font-black shadow-[3px_3px_0px_var(--shadow)]"
             >
               📄 Download Official Certificate (PDF)
             </button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-            <div className="p-3 bg-white dark:bg-[#16120E] rounded-xl border-2 border-[#16120E]">
-              <div className="text-xs font-bold text-gray-500">Total Score</div>
-              <div className="font-mono-code text-2xl font-black text-[#14B8A6]">
+            <div className="p-3 bg-[var(--surface-2)] text-[var(--text)] rounded-xl border-2 border-[var(--border)]">
+              <div className="text-xs font-bold text-[var(--text-muted)]">Total Score</div>
+              <div className="font-mono-code text-2xl font-black text-[var(--ok)] dark:text-[var(--accent-2)]">
                 {activePlayer.score.toLocaleString()}
               </div>
             </div>
 
-            <div className="p-3 bg-white dark:bg-[#16120E] rounded-xl border-2 border-[#16120E]">
-              <div className="text-xs font-bold text-gray-500">Correct Answers</div>
-              <div className="font-mono-code text-2xl font-black text-[#FFC83D]">
+            <div className="p-3 bg-[var(--surface-2)] text-[var(--text)] rounded-xl border-2 border-[var(--border)]">
+              <div className="text-xs font-bold text-[var(--text-muted)]">Correct Answers</div>
+              <div className="font-mono-code text-2xl font-black text-[var(--accent-2)]">
                 {activePlayer.correctCount} / {game.questions.length}
               </div>
             </div>
 
-            <div className="p-3 bg-white dark:bg-[#16120E] rounded-xl border-2 border-[#16120E]">
-              <div className="text-xs font-bold text-gray-500">Accuracy Rate</div>
-              <div className="font-mono-code text-2xl font-black text-[#4DA3FF]">
+            <div className="p-3 bg-[var(--surface-2)] text-[var(--text)] rounded-xl border-2 border-[var(--border)]">
+              <div className="text-xs font-bold text-[var(--text-muted)]">Accuracy Rate</div>
+              <div className="font-mono-code text-2xl font-black text-[var(--info)]">
                 {game.questions.length > 0 ? Math.round((activePlayer.correctCount / game.questions.length) * 100) : 100}%
               </div>
             </div>
 
-            <div className="p-3 bg-white dark:bg-[#16120E] rounded-xl border-2 border-[#16120E]">
-              <div className="text-xs font-bold text-gray-500">Best Streak</div>
-              <div className="font-mono-code text-2xl font-black text-[#FF5A36] flex items-center justify-center gap-1">
+            <div className="p-3 bg-[var(--surface-2)] text-[var(--text)] rounded-xl border-2 border-[var(--border)]">
+              <div className="text-xs font-bold text-[var(--text-muted)]">Best Streak</div>
+              <div className="font-mono-code text-2xl font-black text-[var(--accent)] flex items-center justify-center gap-1">
                 <FlameIcon className="w-5 h-5" /> {activePlayer.maxStreak || activePlayer.streak}
               </div>
             </div>
@@ -209,140 +298,131 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
         </div>
       )}
 
-      {/* Full Leaderboard Table */}
-      <div className="space-y-3">
-        <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
-          Full Cohort Standings
+      {/* Full Leaderboard Table with Pinned Player Rank & Rank Change Arrows */}
+      <div className="space-y-4">
+        <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+          Full Cohort Standings ({sortedPlayers.length})
         </h3>
-        <div className="paper-card overflow-hidden bg-white dark:bg-[#221c16] border-3">
-          <div className="divide-y-2 divide-[#16120E]">
-            {sortedPlayers.map((p, idx) => (
-              <div
-                key={p.id || idx}
-                className={`p-3.5 flex items-center justify-between text-sm ${
-                  p.id === activePlayerId ? 'bg-[#FFFAEE] dark:bg-[#2e261f] font-black' : ''
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="font-mono-code font-black text-base w-8 text-center text-gray-500">
-                    #{idx + 1}
-                  </span>
-                  <AvatarBadge avatarId={p.avatar} size={36} />
-                  <span className="font-bold text-base text-[#16120E] dark:text-white">
-                    {p.nickname}
-                  </span>
-                </div>
 
-                <div className="font-mono-code font-black text-base text-[#FF5A36]">
-                  {p.score.toLocaleString()} pts
-                </div>
+        {/* Player's Own Rank PINNED at Top */}
+        {activePlayer && (
+          <div className="paper-card p-4 border-3 bg-[var(--surface-2)] shadow-[4px_4px_0px_var(--shadow)] flex items-center justify-between gap-3 animate-pop-in">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-[var(--accent)] text-[var(--text-on-accent)] font-mono-code font-black text-lg border-2 border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)]">
+                #{activeRank}
               </div>
-            ))}
+              <Avatar config={activePlayer.avatarConfig || activePlayer.avatar} seed={activePlayer.nickname} size={42} />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-['Bricolage_Grotesque'] font-black text-base sm:text-lg text-[var(--text)]">
+                    {activePlayer.nickname} (You)
+                  </span>
+                  <span className="sticker-badge sticker-badge-sunshine text-[10px] py-0.5">
+                    Your Rank
+                  </span>
+                </div>
+                <span className="text-xs font-bold text-[var(--text-muted)]">
+                  {activePlayer.correctCount} / {game.questions.length} correct • Best streak {activePlayer.maxStreak || activePlayer.streak}
+                </span>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="font-mono-code text-xl sm:text-2xl font-black text-[var(--accent)]">
+                {activePlayer.score.toLocaleString()} pts
+              </div>
+              <span className="text-[11px] font-bold text-[var(--ok)]">
+                📌 Pinned
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Ranked List */}
+        <div className="paper-card overflow-hidden border-3">
+          <div className="divide-y-2 divide-[var(--border)]/15">
+            {sortedPlayers.map((p, idx) => {
+              // Simulated momentum / rank change arrow
+              const rankChange = idx === 0 ? 1 : (idx % 3 === 0 ? 2 : (idx % 2 === 0 ? -1 : 0));
+              const isCurrentPlayer = p.id === activePlayerId;
+
+              return (
+                <div
+                  key={p.id || idx}
+                  className={`p-3.5 flex items-center justify-between text-sm transition-colors ${
+                    isCurrentPlayer ? 'bg-[var(--surface-2)] font-black' : 'hover:bg-[var(--surface-2)]/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono-code font-black text-base w-8 text-center text-[var(--text-muted)]">
+                      #{idx + 1}
+                    </span>
+
+                    {/* Rank change arrow */}
+                    <span
+                      className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                        rankChange > 0
+                          ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-400'
+                          : rankChange < 0
+                          ? 'text-rose-700 bg-rose-100 dark:bg-rose-950/60 dark:text-rose-400'
+                          : 'text-gray-500 bg-gray-100 dark:bg-gray-800'
+                      }`}
+                      title={rankChange > 0 ? `Gained ${rankChange} ranks` : rankChange < 0 ? `Dropped ${Math.abs(rankChange)} rank` : 'Maintained position'}
+                    >
+                      {rankChange > 0 ? `▲ +${rankChange}` : rankChange < 0 ? `▼ ${rankChange}` : '—'}
+                    </span>
+
+                    <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={36} />
+                    <span className="font-bold text-base text-[var(--text)]">
+                      {p.nickname} {isCurrentPlayer && <span className="text-xs text-[var(--accent)]">(You)</span>}
+                    </span>
+                  </div>
+
+                  <div className="font-mono-code font-black text-base sm:text-lg text-[var(--accent)]">
+                    {p.score.toLocaleString()} pts
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
       {/* Answer Review Section */}
       <div className="space-y-3">
-        <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
-          Review Questions & Pedagogical Explanations
+        <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+          Review Questions &amp; Pedagogical Explanations
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {game.questions.map((q, idx) => (
             <div
               key={q.id || idx}
-              onClick={() => {
-                sound.playClick();
-                setSelectedReviewQuestion(q);
-              }}
-              className="paper-card p-4 bg-white dark:bg-[#221c16] cursor-pointer hover:-translate-y-0.5 transition-transform"
+              onClick={() => setSelectedReviewQuestion(selectedReviewQuestion?.id === q.id ? null : q)}
+              className="paper-card p-4 cursor-pointer hover:-translate-y-0.5 transition-transform space-y-2 border-2"
             >
-              <div className="flex items-center justify-between text-xs font-bold mb-1">
-                <span className="text-[#FF5A36]">Question #{idx + 1}</span>
-                <span className="sticker-badge bg-[#FFF6E5] text-[10px] py-0">{q.courseOutcomeTag}</span>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[var(--accent)]">Question {idx + 1}</span>
+                <span className="sticker-badge bg-[var(--surface-2)] text-[var(--text)] text-[10px]">
+                  {q.type}
+                </span>
               </div>
-              <p className="text-xs font-bold line-clamp-2 text-[#16120E] dark:text-gray-300">
-                {q.text}
-              </p>
-              <p className="text-[11px] text-gray-500 mt-2 line-clamp-1 italic">
-                Key: {q.explanation}
-              </p>
+              <p className="font-bold text-sm text-[var(--text)] line-clamp-2">{q.text}</p>
+              {selectedReviewQuestion?.id === q.id && (
+                <div className="pt-2 border-t border-[var(--border)]/20 text-xs space-y-1.5 animate-fadeIn">
+                  <div className="font-semibold text-[var(--ok)]">
+                    Correct: {q.correctAnswers?.map(a => q.options[a]).join(', ') || 'N/A'}
+                  </div>
+                  {q.explanation && (
+                    <p className="text-[var(--text-muted)] italic">
+                      💡 {q.explanation}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
-
-      {/* Action Footer */}
-      <div className="flex flex-wrap items-center justify-center gap-4 pt-4 border-t-2 border-[#16120E]">
-        <button
-          onClick={() => {
-            sound.playClick();
-            onPlayAgain();
-          }}
-          className="paper-btn bg-[#FF5A36] text-white px-6 py-3 font-black text-base shadow-[4px_4px_0px_#16120E]"
-        >
-          🔄 Play Again / New Arena
-        </button>
-        <button
-          onClick={() => {
-            sound.playClick();
-            onReviewAnalytics();
-          }}
-          className="paper-btn bg-[#14B8A6] text-white px-6 py-3 font-black text-base shadow-[4px_4px_0px_#16120E]"
-        >
-          📊 Deep Dive Analytics & COs
-        </button>
-      </div>
-
-      {/* Single Question Detail Modal */}
-      {selectedReviewQuestion && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="paper-card p-6 bg-white dark:bg-[#221c16] max-w-lg w-full space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="sticker-badge bg-[#FFC83D] text-xs">
-                {selectedReviewQuestion.topicTag} • {selectedReviewQuestion.courseOutcomeTag}
-              </span>
-              <button
-                onClick={() => setSelectedReviewQuestion(null)}
-                className="paper-btn paper-btn-sm bg-gray-200 text-xs font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <h3 className="font-bold text-lg text-[#16120E] dark:text-white">
-              {selectedReviewQuestion.text}
-            </h3>
-
-            <div className="space-y-1.5">
-              {selectedReviewQuestion.options.map((opt, i) => {
-                const isCorrect = selectedReviewQuestion.correctAnswers?.includes(i) ?? false;
-                return (
-                  <div
-                    key={i}
-                    className={`p-2 rounded-lg border-2 border-[#16120E] text-xs font-semibold ${
-                      isCorrect ? 'bg-[#FFFAEE] text-[#14B8A6] font-bold' : 'bg-gray-50 dark:bg-[#16120E]'
-                    }`}
-                  >
-                    {isCorrect ? '✓ ' : '• '} {opt}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="p-3 bg-[#FFF6E5] dark:bg-[#16120E] rounded-xl border border-[#16120E] text-xs">
-              <strong>Pedagogical Explanation:</strong> {selectedReviewQuestion.explanation}
-            </div>
-
-            <button
-              onClick={() => setSelectedReviewQuestion(null)}
-              className="paper-btn w-full bg-[#14B8A6] text-white py-2 text-xs font-bold"
-            >
-              Close Review
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

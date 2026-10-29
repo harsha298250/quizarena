@@ -116,84 +116,27 @@ export const LightningIcon: React.FC<{ className?: string }> = ({ className = 'w
   </svg>
 );
 
+import { Avatar } from './Avatar';
+import { AvatarConfig } from '../../types/avatar';
+
 // Illustrated Avatar Badges
-export const AvatarBadge: React.FC<{ avatarId: string; size?: number; className?: string }> = ({
+export const AvatarBadge: React.FC<{
+  avatarId?: string;
+  config?: AvatarConfig | string;
+  size?: number;
+  className?: string;
+}> = ({
   avatarId,
+  config,
   size = 48,
   className = '',
 }) => {
-  const getAvatarContent = () => {
-    switch (avatarId) {
-      case 'fox':
-        return (
-          <g>
-            <circle cx="24" cy="24" r="20" fill="#FF5A36" stroke="#16120E" strokeWidth="3" />
-            <polygon points="12,12 16,6 20,14" fill="#16120E" />
-            <polygon points="36,12 32,6 28,14" fill="#16120E" />
-            <polygon points="14,14 24,28 34,14" fill="#FFF6E5" />
-            <circle cx="19" cy="18" r="2.5" fill="#16120E" />
-            <circle cx="29" cy="18" r="2.5" fill="#16120E" />
-            <ellipse cx="24" cy="26" rx="3" ry="2" fill="#16120E" />
-          </g>
-        );
-      case 'owl':
-        return (
-          <g>
-            <circle cx="24" cy="24" r="20" fill="#14B8A6" stroke="#16120E" strokeWidth="3" />
-            <circle cx="17" cy="20" r="7" fill="#FFF6E5" stroke="#16120E" strokeWidth="2" />
-            <circle cx="31" cy="20" r="7" fill="#FFF6E5" stroke="#16120E" strokeWidth="2" />
-            <circle cx="17" cy="20" r="3.5" fill="#16120E" />
-            <circle cx="31" cy="20" r="3.5" fill="#16120E" />
-            <polygon points="24,24 21,30 27,30" fill="#FFC83D" stroke="#16120E" strokeWidth="1.5" />
-          </g>
-        );
-      case 'tiger':
-        return (
-          <g>
-            <circle cx="24" cy="24" r="20" fill="#FFC83D" stroke="#16120E" strokeWidth="3" />
-            <path d="M14 10 L16 16 M34 10 L32 16 M24 6 L24 14" stroke="#16120E" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="17" cy="22" r="3" fill="#16120E" />
-            <circle cx="31" cy="22" r="3" fill="#16120E" />
-            <polygon points="24,27 21,31 27,31" fill="#FF5A36" stroke="#16120E" strokeWidth="1.5" />
-          </g>
-        );
-      case 'robot':
-        return (
-          <g>
-            <rect x="8" y="8" width="32" height="32" rx="8" fill="#8B5CF6" stroke="#16120E" strokeWidth="3" />
-            <rect x="14" y="18" width="6" height="6" rx="2" fill="#FFC83D" stroke="#16120E" strokeWidth="2" />
-            <rect x="28" y="18" width="6" height="6" rx="2" fill="#FFC83D" stroke="#16120E" strokeWidth="2" />
-            <line x1="16" y1="30" x2="32" y2="30" stroke="#16120E" strokeWidth="3" strokeLinecap="round" />
-            <line x1="24" y1="8" x2="24" y2="2" stroke="#16120E" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="24" cy="2" r="2.5" fill="#FF5A36" />
-          </g>
-        );
-      default:
-        // Bear / Default
-        return (
-          <g>
-            <circle cx="12" cy="12" r="6" fill="#4DA3FF" stroke="#16120E" strokeWidth="2.5" />
-            <circle cx="36" cy="12" r="6" fill="#4DA3FF" stroke="#16120E" strokeWidth="2.5" />
-            <circle cx="24" cy="26" r="18" fill="#4DA3FF" stroke="#16120E" strokeWidth="3" />
-            <circle cx="18" cy="22" r="2.5" fill="#16120E" />
-            <circle cx="30" cy="22" r="2.5" fill="#16120E" />
-            <ellipse cx="24" cy="29" rx="6" ry="4" fill="#FFF6E5" stroke="#16120E" strokeWidth="2" />
-            <circle cx="24" cy="28" r="2" fill="#16120E" />
-          </g>
-        );
-    }
-  };
-
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 48 48"
-      className={`inline-block select-none ${className}`}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {getAvatarContent()}
-    </svg>
+    <Avatar
+      config={config || avatarId}
+      seed={typeof avatarId === 'string' ? avatarId : 'player'}
+      size={size}
+      className={className}
+    />
   );
 };

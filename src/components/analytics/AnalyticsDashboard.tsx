@@ -147,12 +147,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
       {/* Top Header */}
-      <div className="paper-card p-6 bg-[#FFF6E5] dark:bg-[#16120E] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="paper-card p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <span className="sticker-badge bg-[#14B8A6] text-white text-xs mb-1">
+          <span className="sticker-badge bg-[var(--ok)] text-white text-xs mb-1">
             Curriculum Analytics
           </span>
-          <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[#16120E] dark:text-white">
+          <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[var(--text)]">
             Performance & Course Outcome (CO) Attainment
           </h1>
           <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mt-1">
@@ -163,13 +163,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleExportCsv}
-            className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] text-xs font-bold"
+            className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold"
           >
             📥 Export Grade CSV (LMS)
           </button>
           <button
             onClick={handleReteachPack}
-            className="paper-btn paper-btn-sm bg-[#FF5A36] text-white text-xs font-bold"
+            className="paper-btn paper-btn-sm paper-btn-primary text-xs font-bold"
           >
             🎯 Create Reteach Pack
           </button>
@@ -177,26 +177,28 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {/* CO Attainment Report Card */}
-      <div className="paper-card p-6 bg-white dark:bg-[#221c16] space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b-2 border-gray-200 pb-3">
+      <div className="paper-card p-5 sm:p-6 bg-[var(--surface)] space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b-2 border-[var(--border)] pb-3">
           <div>
-            <h2 className="font-['Bricolage_Grotesque'] text-xl font-black text-[#16120E] dark:text-white">
+            <h2 className="font-['Bricolage_Grotesque'] text-xl font-black text-[var(--text)]">
               Course Outcome (CO) Threshold Analysis
             </h2>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-[var(--text-muted)]">
               Measures accreditation outcome criteria per syllabus mapping.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-bold">
-            <span>Target Threshold:</span>
+          <div className="flex items-center gap-2 text-xs font-bold text-[var(--text)]">
+            <label htmlFor="targetThresholdInput" className="cursor-pointer">Target Threshold:</label>
             <input
+              id="targetThresholdInput"
+              aria-label="Target Threshold percentage"
               type="number"
               min={40}
               max={95}
               value={attainmentTarget}
               onChange={e => setAttainmentTarget(Number(e.target.value))}
-              className="w-16 rounded border-2 border-[#16120E] px-2 py-1 text-center font-bold"
+              className="paper-input w-16 rounded border-2 border-[var(--border)] px-2 py-1 text-center font-bold"
             />
             <span>%</span>
           </div>
@@ -207,22 +209,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <div
               key={co.coTag}
               className={`paper-card p-4 border-2 ${
-                co.isAttained ? 'bg-green-50 border-green-800' : 'bg-amber-50 border-amber-800'
+                co.isAttained ? 'bg-emerald-50 dark:bg-emerald-950/30 border-[var(--ok)]' : 'bg-amber-50 dark:bg-amber-950/30 border-amber-500'
               }`}
             >
               <div className="flex items-center justify-between mb-2">
-                <span className="font-['Bricolage_Grotesque'] font-black text-lg text-[#16120E]">
+                <span className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
                   {co.coTag}
                 </span>
                 <span
                   className={`sticker-badge text-xs ${
-                    co.isAttained ? 'bg-green-600 text-white' : 'bg-amber-500 text-white'
+                    co.isAttained ? 'sticker-badge-ok' : 'sticker-badge-sunshine'
                   }`}
                 >
                   {co.isAttained ? '✓ Attained' : '⚠️ Gaps Detected'}
                 </span>
               </div>
-              <div className="font-mono-code text-2xl font-black text-[#16120E]">
+              <div className="font-mono-code text-2xl font-black text-[var(--text)]">
                 {Math.round(co.accuracyRate * 100)}%
               </div>
               <div className="text-xs text-gray-600 mt-1">
@@ -236,28 +238,28 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       {/* Visual Analytics Charts: Question Accuracy + Bloom Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Per-Question Accuracy Bar Chart */}
-        <div className="lg:col-span-2 paper-card p-5 bg-white dark:bg-[#221c16] space-y-3">
-          <h3 className="font-['Bricolage_Grotesque'] font-black text-lg text-[#16120E] dark:text-white">
+        <div className="lg:col-span-2 paper-card p-4 sm:p-5 bg-[var(--surface)] space-y-3 min-w-0 overflow-hidden">
+          <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
             Per-Question Cohort Accuracy (%)
-          </h3>
-          <div className="h-64 w-full">
+          </h2>
+          <div className="h-64 w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={questionAccuracyData}>
-                <XAxis dataKey="name" stroke="#16120E" strokeWidth={2} />
-                <YAxis stroke="#16120E" strokeWidth={2} domain={[0, 100]} />
+                <XAxis dataKey="name" stroke="currentColor" className="text-[var(--text)]" strokeWidth={2} />
+                <YAxis stroke="currentColor" className="text-[var(--text)]" strokeWidth={2} domain={[0, 100]} />
                 <Tooltip />
-                <Bar dataKey="accuracy" fill="#FF5A36" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="accuracy" fill="var(--accent)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Right: Bloom Taxonomy Hierarchy Pie Chart */}
-        <div className="paper-card p-5 bg-white dark:bg-[#221c16] space-y-3">
-          <h3 className="font-['Bricolage_Grotesque'] font-black text-lg text-[#16120E] dark:text-white">
+        <div className="paper-card p-4 sm:p-5 bg-[var(--surface)] space-y-3 min-w-0 overflow-hidden">
+          <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
             Bloom's Taxonomy Balance
-          </h3>
-          <div className="h-64 w-full flex items-center justify-center">
+          </h2>
+          <div className="h-64 w-full flex items-center justify-center min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -269,7 +271,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   label={({ name }) => name}
                 >
                   {bloomData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={PALETTE[index % PALETTE.length]} stroke="#16120E" strokeWidth={2} />
+                    <Cell key={`cell-${index}`} fill={PALETTE[index % PALETTE.length]} stroke="var(--border)" strokeWidth={2} />
                   ))}
                 </Pie>
                 <Tooltip />
@@ -280,18 +282,18 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       </div>
 
       {/* AI Pedagogical Insights & Recommendations */}
-      <div className="paper-card p-6 bg-[#FFFAEE] dark:bg-[#221c16] border-3 space-y-4">
+      <div className="paper-card p-5 sm:p-6 bg-[var(--surface-2)] dark:bg-[var(--surface)] border-3 space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="sticker-badge bg-[#FFC83D] text-[#16120E] sticker-rot-1 text-xs">
+              <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] sticker-rot-1 text-xs">
                 Gemini Advisory
               </span>
-              <h2 className="font-['Bricolage_Grotesque'] text-xl font-black text-[#16120E] dark:text-white">
-                AI Class Insights & Actionable Next Steps
+              <h2 className="font-['Bricolage_Grotesque'] text-xl font-black text-[var(--text)]">
+                AI Class Insights &amp; Actionable Next Steps
               </h2>
             </div>
-            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+            <p className="text-xs text-[var(--text-muted)] mt-1">
               Synthesizes discrimination index, error clusters, and student remediation priorities.
             </p>
           </div>
@@ -299,7 +301,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <button
             onClick={handleGenerateAIInsights}
             disabled={isGeneratingInsights}
-            className="paper-btn paper-btn-sm bg-[#14B8A6] text-white text-xs font-bold"
+            className="paper-btn paper-btn-sm paper-btn-ok text-xs font-bold disabled:opacity-50"
           >
             {isGeneratingInsights ? 'Synthesizing...' : '⚡ Generate AI Analysis'}
           </button>
@@ -307,7 +309,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
         {aiInsights ? (
           <div className="space-y-4 pt-2">
-            <div className="p-4 bg-white dark:bg-[#16120E] rounded-xl border-2 border-[#16120E] text-sm leading-relaxed text-[#16120E] dark:text-gray-200">
+            <div className="p-4 bg-[var(--surface)] rounded-xl border-2 border-[var(--border)] text-sm leading-relaxed text-[var(--text)]">
               <strong>Cohort Summary:</strong> {aiInsights.overallSummary}
             </div>
 
@@ -347,7 +349,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             </div>
           </div>
         ) : (
-          <div className="p-6 text-center text-xs font-bold text-gray-500 bg-white dark:bg-[#16120E] rounded-xl border-2 border-dashed border-[#16120E]">
+          <div className="p-6 text-center text-xs font-bold text-gray-500 bg-[var(--surface)] rounded-xl border-2 border-dashed border-[var(--border)]">
             Click "Generate AI Analysis" to extract automated diagnostic recommendations and reteach plans.
           </div>
         )}

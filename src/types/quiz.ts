@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { AvatarConfig } from './avatar';
+export type { AvatarConfig };
+
 export type QuestionType =
   | 'multiple_choice'
   | 'multi_select'
@@ -77,6 +80,11 @@ export interface GameSettings {
   allowLateJoin: boolean;
   enablePowerUps: boolean;
   antiCheatDetection: boolean;
+  secureMode?: boolean;
+  requireFullscreen?: boolean;
+  lockAnswerOnStrike3?: boolean;
+  strike2PointPenalty?: number;
+  preventCopyPaste?: boolean;
   showLeaderboardBetween: boolean;
   autoEmailResults: boolean;
   scoringProfile: 'speed_weighted' | 'accuracy_only';
@@ -103,6 +111,7 @@ export interface Player {
   id: string;
   nickname: string;
   avatar: string;
+  avatarConfig?: AvatarConfig;
   email?: string;
   emailConsent?: boolean;
   team?: string;
@@ -113,6 +122,7 @@ export interface Player {
   latencyMs: number;
   clockOffsetMs: number;
   integrityScore: number; // 0-100 (100 = spotless)
+  strikes?: number;
   powerUps: PlayerPowerUps;
   accommodations: PlayerAccommodations;
   isKicked?: boolean;
@@ -141,7 +151,18 @@ export interface IntegrityFlag {
   id: string;
   playerId: string;
   playerNickname: string;
-  type: 'tab_switch' | 'window_blur' | 'fullscreen_exit' | 'paste_detected' | 'suspicious_timing' | 'burst_join';
+  type:
+    | 'tab_switch'
+    | 'window_blur'
+    | 'fullscreen_exit'
+    | 'paste_detected'
+    | 'suspicious_timing'
+    | 'burst_join'
+    | 'extension_injection'
+    | 'devtools_open'
+    | 'webdriver_detected'
+    | 'uniform_timing'
+    | 'copy_paste_attempt';
   severity: 'low' | 'medium' | 'high';
   reason: string;
   timestamp: string;

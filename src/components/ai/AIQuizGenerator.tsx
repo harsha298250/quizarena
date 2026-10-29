@@ -185,17 +185,17 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
       {/* Header Banner */}
-      <div className="paper-card p-6 bg-[#FFF6E5] dark:bg-[#16120E] border-3">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="paper-card p-6 bg-[var(--bg-page)] border-3">
+        <div className="flex flex-col md:flex-row items-start md:md-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="sticker-badge bg-[#FFC83D] text-[#16120E] sticker-rot-1">AI Flagship</span>
-              <span className="text-xs font-bold text-[#14B8A6]">Gemini 3.8 Flash Engine</span>
+              <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text)] sticker-rot-1">AI Flagship</span>
+              <span className="text-xs font-bold text-[var(--ok)]">Gemini 3.8 Flash Engine</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[#16120E] dark:text-[#FFF6E5]">
+            <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)]">
               AI Quiz Generator & Syllabus Alignment
             </h1>
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">
+            <p className="text-sm font-medium text-[var(--text-muted)] mt-1">
               Upload textbook PDFs, lecture notes, or research papers. Extract verifiable questions grounded in source citations.
             </p>
           </div>
@@ -206,24 +206,24 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Source Material Selection */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="paper-card p-5 bg-white dark:bg-[#221c16] space-y-4">
+          <div className="paper-card p-5 bg-[var(--surface)] space-y-4">
             {/* Source Tab Toggle */}
-            <div className="flex items-center gap-2 border-b-2 border-gray-200 pb-3">
+            <div className="flex items-center gap-2 border-b-2 border-[var(--border)] pb-3">
               <button
                 onClick={() => setSourceMode('paste')}
-                className={`paper-btn paper-btn-sm ${sourceMode === 'paste' ? 'bg-[#FF5A36] text-white' : 'bg-white dark:bg-[#16120E] dark:text-white'}`}
+                className={`paper-btn paper-btn-sm ${sourceMode === 'paste' ? 'paper-btn-primary' : 'bg-[var(--surface)] text-[var(--text)]'}`}
               >
                 📝 Paste Text / Notes
               </button>
               <button
                 onClick={() => setSourceMode('pdf')}
-                className={`paper-btn paper-btn-sm ${sourceMode === 'pdf' ? 'bg-[#14B8A6] text-white' : 'bg-white dark:bg-[#16120E] dark:text-white'}`}
+                className={`paper-btn paper-btn-sm ${sourceMode === 'pdf' ? 'bg-[var(--ok)] text-white' : 'bg-[var(--surface)] text-[var(--text)]'}`}
               >
                 📄 Upload PDF Document
               </button>
               <button
                 onClick={() => setSourceMode('topic')}
-                className={`paper-btn paper-btn-sm ${sourceMode === 'topic' ? 'bg-[#FFC83D] text-[#16120E]' : 'bg-white dark:bg-[#16120E] dark:text-white'}`}
+                className={`paper-btn paper-btn-sm ${sourceMode === 'topic' ? 'bg-[var(--accent-2-bg)] text-[var(--text)]' : 'bg-[var(--surface)] text-[var(--text)]'}`}
               >
                 💡 Topic Prompt
               </button>
@@ -232,13 +232,13 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
             {/* Mode 1: PDF Upload */}
             {sourceMode === 'pdf' && (
               <div className="space-y-4">
-                <div className="rounded-2xl border-3 border-dashed border-[#16120E] dark:border-gray-500 p-6 text-center bg-[#FFF6E5] dark:bg-[#16120E]">
+                <div className="rounded-2xl border-3 border-dashed border-[var(--border)] p-6 text-center bg-[var(--bg-page)]">
                   <label className="cursor-pointer block space-y-2">
                     <div className="text-3xl">📂</div>
-                    <div className="font-bold text-sm text-[#16120E] dark:text-white">
+                    <div className="font-bold text-sm text-[var(--text)]">
                       {pdfFile ? pdfFile.name : 'Select or drop a Course PDF / Lecture Slide'}
                     </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400">
+                    <div className="text-xs text-[var(--text-muted)]">
                       In-browser text extraction using pdfjs-dist. Zero server upload.
                     </div>
                     <input type="file" accept=".pdf" onChange={handlePdfUpload} className="hidden" />
@@ -246,13 +246,13 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                 </div>
 
                 {isExtractingPdf && (
-                  <div className="flex items-center justify-center gap-2 text-sm font-bold text-[#FF5A36] animate-pulse">
+                  <div className="flex items-center justify-center gap-2 text-sm font-bold text-[var(--accent)] animate-pulse">
                     <span>Extracting text from PDF pages...</span>
                   </div>
                 )}
 
                 {pdfData && (
-                  <div className="p-3 bg-[#FFFAEE] rounded-xl border-2 border-[#16120E] space-y-2">
+                  <div className="p-3 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] space-y-2">
                     <div className="flex items-center justify-between text-xs font-bold">
                       <span>Total Extracted Pages: {pdfData.numPages}</span>
                       {pdfData.isScannedOrEmpty && (
@@ -268,7 +268,8 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                         max={pdfData.numPages}
                         value={pageRangeStart}
                         onChange={e => setPageRangeStart(Number(e.target.value))}
-                        className="w-16 rounded border border-[#16120E] px-1.5 py-0.5 text-center"
+                        aria-label="PDF start page"
+                        className="w-16 rounded border border-[var(--border)] px-1.5 py-0.5 text-center bg-[var(--surface)] text-[var(--text)]"
                       />
                       <span>to</span>
                       <input
@@ -277,7 +278,8 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                         max={pdfData.numPages}
                         value={pageRangeEnd}
                         onChange={e => setPageRangeEnd(Number(e.target.value))}
-                        className="w-16 rounded border border-[#16120E] px-1.5 py-0.5 text-center"
+                        aria-label="PDF end page"
+                        className="w-16 rounded border border-[var(--border)] px-1.5 py-0.5 text-center bg-[var(--surface)] text-[var(--text)]"
                       />
                     </div>
                   </div>
@@ -289,21 +291,22 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
             {sourceMode === 'paste' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+                  <label htmlFor="pastedNotesTextarea" className="text-xs font-bold uppercase text-[var(--text)]">
                     Source Text / Lecture Notes
                   </label>
                   <button
                     onClick={() => setPastedText(SAMPLE_AI_SOURCE_TEXT)}
-                    className="text-xs font-bold text-[#14B8A6] hover:underline"
+                    className="text-xs font-bold text-[var(--ok)] hover:underline"
                   >
                     Load Sample Cloud Computing Text
                   </button>
                 </div>
                 <textarea
+                  id="pastedNotesTextarea"
                   rows={8}
                   value={pastedText}
                   onChange={e => setPastedText(e.target.value)}
-                  className="w-full rounded-xl border-2 border-[#16120E] p-3 text-sm font-medium dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                  className="w-full rounded-xl border-2 border-[var(--border)] p-3 text-sm font-medium bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
                   placeholder="Paste textbook excerpts, syllabus notes, or article content here..."
                 />
               </div>
@@ -312,14 +315,15 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
             {/* Mode 3: Topic Prompt */}
             {sourceMode === 'topic' && (
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+                <label htmlFor="topicPromptInput" className="text-xs font-bold uppercase text-[var(--text)]">
                   Academic Subject or Topic
                 </label>
                 <input
+                  id="topicPromptInput"
                   type="text"
                   value={topicInput}
                   onChange={e => setTopicInput(e.target.value)}
-                  className="w-full rounded-xl border-2 border-[#16120E] p-3 text-sm font-bold dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                  className="w-full rounded-xl border-2 border-[var(--border)] p-3 text-sm font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
                   placeholder="e.g. Distributed Consensus (Raft vs Paxos), Machine Learning Regularization..."
                 />
               </div>
@@ -329,36 +333,39 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
 
         {/* Right Column: Generation Settings & Trigger */}
         <div className="space-y-4">
-          <div className="paper-card p-5 bg-white dark:bg-[#221c16] space-y-4">
-            <h3 className="font-['Bricolage_Grotesque'] font-black text-lg text-[#16120E] dark:text-white">
+          <div className="paper-card p-5 bg-[var(--surface)] space-y-4">
+            <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
               Pedagogical Parameters
-            </h3>
+            </h2>
 
             {/* Number of Questions */}
             <div className="space-y-1">
               <div className="flex justify-between text-xs font-bold">
-                <span>Number of Questions</span>
-                <span className="text-[#FF5A36] font-mono-code">{numQuestions}</span>
+                <label htmlFor="numQuestionsRange">Number of Questions</label>
+                <span className="text-[var(--accent)] font-mono-code">{numQuestions}</span>
               </div>
               <input
+                id="numQuestionsRange"
                 type="range"
                 min={3}
                 max={15}
                 value={numQuestions}
                 onChange={e => setNumQuestions(Number(e.target.value))}
-                className="w-full accent-[#FF5A36] cursor-pointer"
+                aria-label="Number of Questions"
+                className="w-full accent-[var(--accent)] cursor-pointer"
               />
             </div>
 
             {/* Difficulty Mapping to Bloom's */}
             <div className="space-y-1">
-              <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+              <label htmlFor="difficultySelect" className="text-xs font-bold uppercase text-[var(--text)]">
                 Difficulty / Bloom Profile
               </label>
               <select
+                id="difficultySelect"
                 value={difficulty}
                 onChange={e => setDifficulty(e.target.value as any)}
-                className="w-full rounded-xl border-2 border-[#16120E] p-2 text-xs font-bold dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
               >
                 <option value="mixed">Mixed (Balanced Bloom Hierarchy)</option>
                 <option value="easy">Easy (Recall & Definition Focus)</option>
@@ -369,25 +376,27 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
 
             {/* Target Course Outcome */}
             <div className="space-y-1">
-              <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">
+              <label htmlFor="targetCOInput" className="text-xs font-bold uppercase text-[var(--text)]">
                 Target Course Outcome (CO)
               </label>
               <input
+                id="targetCOInput"
                 type="text"
                 value={targetCO}
                 onChange={e => setTargetCO(e.target.value)}
-                className="w-full rounded-xl border-2 border-[#16120E] p-2 text-xs font-bold dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
                 placeholder="e.g. CO1, CO2, CO3"
               />
             </div>
 
             {/* Language */}
             <div className="space-y-1">
-              <label className="text-xs font-bold uppercase text-[#16120E] dark:text-white">Language</label>
+              <label htmlFor="targetLanguageSelect" className="text-xs font-bold uppercase text-[var(--text)]">Language</label>
               <select
+                id="targetLanguageSelect"
                 value={targetLanguage}
                 onChange={e => setTargetLanguage(e.target.value)}
-                className="w-full rounded-xl border-2 border-[#16120E] p-2 text-xs font-bold dark:bg-[#16120E] dark:text-white shadow-[2px_2px_0px_#16120E]"
+                className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
               >
                 <option value="en">English</option>
                 <option value="ta">Tamil (தமிழ்)</option>
@@ -399,7 +408,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
-              className="paper-btn w-full bg-[#FF5A36] text-white py-3 text-sm font-black tracking-wide shadow-[4px_4px_0px_#16120E]"
+              className="paper-btn paper-btn-primary w-full py-3 text-sm font-black tracking-wide shadow-[4px_4px_0px_var(--shadow)]"
             >
               {isGenerating ? 'Generating Verifiable Questions...' : '⚡ Generate Quiz Questions'}
             </button>
@@ -411,7 +420,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                   type="button"
                   onClick={handleGenerate}
                   disabled={isGenerating}
-                  className="paper-btn paper-btn-sm bg-white text-[#16120E] text-xs font-bold shrink-0"
+                  className="paper-btn paper-btn-sm bg-white text-[var(--text)] text-xs font-bold shrink-0"
                 >
                   🔄 Retry
                 </button>
@@ -424,32 +433,32 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
       {/* Teacher Review & Verification Section */}
       {generatedQuestions.length > 0 && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b-2 border-[#16120E] pb-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b-2 border-[var(--border)] pb-3">
             <div className="flex items-center gap-3">
-              <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[#16120E] dark:text-white">
+              <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
                 Teacher Review & Alignment
               </h2>
-              <span className="sticker-badge bg-[#14B8A6] text-white">
+              <span className="sticker-badge bg-[var(--ok)] text-white">
                 {acceptedQuestionIds.size} / {generatedQuestions.length} Accepted
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={handleAcceptAll} className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] text-xs">
+              <button onClick={handleAcceptAll} className="paper-btn paper-btn-sm bg-[var(--surface)] text-xs">
                 Accept All
               </button>
-              <button onClick={handleRejectAll} className="paper-btn paper-btn-sm bg-white dark:bg-[#221c16] text-xs">
+              <button onClick={handleRejectAll} className="paper-btn paper-btn-sm bg-[var(--surface)] text-xs">
                 Reject All
               </button>
               <button
                 onClick={() => handleSaveQuiz(false)}
-                className="paper-btn paper-btn-sm bg-[#FFC83D] text-[#16120E] text-xs font-bold"
+                className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-bold"
               >
                 💾 Save to Quizzes
               </button>
               <button
                 onClick={() => handleSaveQuiz(true)}
-                className="paper-btn paper-btn-sm bg-[#FF5A36] text-white text-xs font-bold"
+                className="paper-btn paper-btn-sm bg-[var(--accent)] text-white text-xs font-bold"
               >
                 🚀 Host Live Now
               </button>
@@ -465,18 +474,18 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                 <div
                   key={q.id || idx}
                   className={`paper-card p-5 transition-all ${
-                    isAccepted ? 'bg-white dark:bg-[#221c16]' : 'bg-gray-100 dark:bg-gray-800 opacity-60'
+                    isAccepted ? 'bg-[var(--surface)]' : 'bg-[var(--surface-2)] opacity-60'
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-['Bricolage_Grotesque'] font-black text-base text-[#FF5A36]">
+                      <span className="font-['Bricolage_Grotesque'] font-black text-base text-[var(--accent)]">
                         Q{idx + 1}
                       </span>
-                      <span className="sticker-badge bg-[#FFC83D] text-[#16120E] text-[10px] py-0.5">
+                      <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text)] text-[10px] py-0.5">
                         Bloom: {q.bloomLevel}
                       </span>
-                      <span className="sticker-badge bg-[#14B8A6] text-white text-[10px] py-0.5">
+                      <span className="sticker-badge bg-[var(--ok)] text-white text-[10px] py-0.5">
                         {q.courseOutcomeTag || targetCO}
                       </span>
                       {q.validationBadge === 'good' && (
@@ -490,27 +499,27 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleAdapt(q, 'convert_to_scenario')}
-                        className="text-xs font-bold text-[#4DA3FF] hover:underline"
+                        className="text-xs font-bold text-[var(--info)] hover:underline"
                         title="Elevate to realistic scenario"
                       >
                         Convert to Scenario
                       </button>
                       <button
                         onClick={() => handleAdapt(q, 'make_easier')}
-                        className="text-xs font-bold text-gray-500 hover:underline"
+                        className="text-xs font-bold text-[var(--text-muted)] hover:underline"
                       >
                         Make Easier
                       </button>
                       <button
                         onClick={() => handleAdapt(q, 'make_harder')}
-                        className="text-xs font-bold text-gray-500 hover:underline"
+                        className="text-xs font-bold text-[var(--text-muted)] hover:underline"
                       >
                         Make Harder
                       </button>
                       <button
                         onClick={() => toggleAccept(q.id)}
                         className={`paper-btn paper-btn-sm text-xs font-bold ${
-                          isAccepted ? 'bg-[#14B8A6] text-white' : 'bg-gray-300 text-gray-700'
+                          isAccepted ? 'bg-[var(--ok)] text-white' : 'bg-[var(--surface-2)] text-[var(--text-muted)]'
                         }`}
                       >
                         {isAccepted ? '✓ Accepted' : '✗ Rejected'}
@@ -519,7 +528,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                   </div>
 
                   {/* Question Prompt */}
-                  <h3 className="font-bold text-base text-[#16120E] dark:text-white mb-3">
+                  <h3 className="font-bold text-base text-[var(--text)] mb-3">
                     {q.text}
                   </h3>
 
@@ -530,25 +539,25 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                       return (
                         <div
                           key={optIdx}
-                          className={`p-2 rounded-lg border-2 border-[#16120E] text-xs font-semibold flex items-center justify-between ${
-                            isCorrect ? 'bg-[#FFFAEE] font-bold text-[#14B8A6]' : 'bg-white dark:bg-[#16120E] dark:text-gray-300'
+                          className={`p-2 rounded-lg border-2 border-[var(--border)] text-xs font-semibold flex items-center justify-between ${
+                            isCorrect ? 'bg-[var(--surface-2)] font-bold text-[var(--ok)]' : 'bg-[var(--surface)] text-[var(--text)]'
                           }`}
                         >
                           <span>{opt}</span>
-                          {isCorrect && <span className="text-[#14B8A6] font-black">✓ Correct</span>}
+                          {isCorrect && <span className="text-[var(--ok)] font-black">✓ Correct</span>}
                         </div>
                       );
                     })}
                   </div>
 
                   {/* Source Quote Citation & Explanation */}
-                  <div className="bg-[#FFF6E5] dark:bg-[#16120E] p-3 rounded-xl border border-[#16120E] text-xs space-y-1">
+                  <div className="bg-[var(--bg-page)] p-3 rounded-xl border border-[var(--border)] text-xs space-y-1">
                     {q.sourceQuote && (
-                      <p className="text-gray-600 dark:text-gray-400 italic">
+                      <p className="text-[var(--text-muted)] italic">
                         <strong>Source Citation [Page {q.sourcePage || 1}]:</strong> "{q.sourceQuote}"
                       </p>
                     )}
-                    <p className="text-[#16120E] dark:text-gray-200">
+                    <p className="text-[var(--text)]">
                       <strong>Pedagogical Explanation:</strong> {q.explanation}
                     </p>
                   </div>

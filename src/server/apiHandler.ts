@@ -18,6 +18,7 @@ import {
   extractQuestionStartTimeMs,
   validatePlayerEligibility,
   validateAndTrackPowerUp,
+  globalTimingAnomalyDetector,
   MAX_ALLOWED_LATENCY_MS,
 } from './scoringHardening.ts';
 
@@ -548,6 +549,23 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
         };
 
         transaction.set(answerDocRef, submissionData);
+
+        // Server-side timing anomaly detection (implausibly fast or uniform timing across questions)
+        const timingAnomaly = globalTimingAnomalyDetector.recordAndCheck(playerId, serverElapsedMs);
+        if (timingAnomaly.isAnomaly) {
+          const flagId = `flag_${now}_${Math.random().toString(36).substring(2, 7)}`;
+          const flagDocRef = adminDb.doc(`games/${gameId}/flags/${flagId}`);
+          transaction.set(flagDocRef, {
+            id: flagId,
+            playerId,
+            playerNickname: playerData.nickname || 'Player',
+            type: timingAnomaly.type,
+            severity: timingAnomaly.severity || 'medium',
+            reason: timingAnomaly.reason,
+            timestamp: new Date().toISOString(),
+            questionIndex,
+          });
+        }
 
         const newStreak = scoreResult.newStreak;
         const newScore = currentScore + scoreResult.finalPoints;

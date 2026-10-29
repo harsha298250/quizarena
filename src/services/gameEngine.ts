@@ -36,6 +36,7 @@ import {
 } from '../types/quiz';
 import { calculateFairScore, evaluateAnswer } from '../lib/scoring';
 import { createHashBlock } from '../lib/integrity';
+import { getDeterministicAvatar } from '../types/avatar';
 
 // BroadcastChannel for instant local cross-tab real-time demo synchronization
 const broadcastChannel =
@@ -576,10 +577,12 @@ export class GameEngine {
     const simulated: Player[] = [];
     for (let i = 0; i < count; i++) {
       const name = `${sampleNames[i % sampleNames.length]}_Sim${Math.floor(i / sampleNames.length) + 1}`;
+      const avConfig = getDeterministicAvatar(name);
       const simPlayer: Player = {
         id: `sim_player_${i + 1}`,
         nickname: name,
-        avatar: avatars[i % avatars.length],
+        avatar: JSON.stringify(avConfig),
+        avatarConfig: avConfig,
         score: Math.floor(Math.random() * 2000),
         streak: Math.floor(Math.random() * 4),
         maxStreak: Math.floor(Math.random() * 5),

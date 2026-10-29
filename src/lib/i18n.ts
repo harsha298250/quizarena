@@ -41,6 +41,13 @@ export interface Translations {
   competitions: string;
   emailOutbox: string;
   soloPractice: string;
+  navJoin: string;
+  navBuilder: string;
+  navAI: string;
+  navCompetitions: string;
+  navAnalytics: string;
+  navOutbox: string;
+  navPractice: string;
   accommodations: string;
   extraTime: string;
   dyslexiaFont: string;
@@ -94,6 +101,13 @@ export const translations: Record<SupportedLanguage, Translations> = {
     competitions: 'Tournaments',
     emailOutbox: 'Email Outbox',
     soloPractice: 'Solo Practice',
+    navJoin: 'Arena',
+    navBuilder: 'Studio',
+    navAI: 'AI Quiz',
+    navCompetitions: 'Tournaments',
+    navAnalytics: 'Analytics',
+    navOutbox: 'Outbox',
+    navPractice: 'Solo',
     accommodations: 'Accessibility & Accommodations',
     extraTime: 'Extra Time',
     dyslexiaFont: 'Dyslexia-friendly Font',
@@ -145,6 +159,13 @@ export const translations: Record<SupportedLanguage, Translations> = {
     competitions: 'போட்டிகள்',
     emailOutbox: 'மின்னஞ்சல் பெட்டி',
     soloPractice: 'தனிப்பயிற்சி',
+    navJoin: 'அரங்கம்',
+    navBuilder: 'உருவாக்கு',
+    navAI: 'AI வினா',
+    navCompetitions: 'போட்டிகள்',
+    navAnalytics: 'பகுப்பாய்வு',
+    navOutbox: 'அவுட்பாக்ஸ்',
+    navPractice: 'பயிற்சி',
     accommodations: 'வசதிகள் & அணுகல்தன்மை',
     extraTime: 'கூடுதல் நேரம்',
     dyslexiaFont: 'டிஸ்லெக்ஸியா எழுத்துரு',
@@ -196,6 +217,13 @@ export const translations: Record<SupportedLanguage, Translations> = {
     competitions: 'प्रतियोगिताएं',
     emailOutbox: 'ईमेल आउटबॉक्स',
     soloPractice: 'स्वयं अभ्यास',
+    navJoin: 'अखाड़ा',
+    navBuilder: 'स्टूडियो',
+    navAI: 'AI क्विज़',
+    navCompetitions: 'प्रतियोगिताएं',
+    navAnalytics: 'एनालिटिक्स',
+    navOutbox: 'आउटबॉक्स',
+    navPractice: 'अभ्यास',
     accommodations: 'सुलभता एवं समायोजन',
     extraTime: 'अतिरिक्त समय',
     dyslexiaFont: 'डिस्लेक्सिया-अनुकूल फॉन्ट',
