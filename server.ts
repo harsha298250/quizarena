@@ -24,7 +24,7 @@ import {
   globalTimingAnomalyDetector,
   MAX_ALLOWED_LATENCY_MS,
 } from './src/server/scoringHardening.ts';
-import { handleSendResults } from './src/server/resultEmailsHandler.ts';
+import { handleSendResults, getSmtpTransporter } from './src/server/resultEmailsHandler.ts';
 
 dotenv.config();
 
@@ -921,6 +921,49 @@ app.post('/api/send-results', async (req: Request, res: Response): Promise<void>
     adminAuth,
     adminDb,
   });
+});
+
+// POST /api/send-test-email - Dispatch a test email via SMTP using host token
+app.post('/api/send-test-email', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await authenticateUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: Firebase ID token is required to send test email.' });
+      return;
+    }
+
+    const { to, subject, htmlContent } = req.body || {};
+    if (!to || !htmlContent) {
+      res.status(400).json({ error: 'Missing to address or htmlContent' });
+      return;
+    }
+
+    const transporter = getSmtpTransporter();
+    const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || '"QuizArena" <noreply@quizarena.app>';
+
+    if (transporter) {
+      await transporter.sendMail({
+        from: fromAddress,
+        to,
+        subject: subject || 'QuizArena Test Result Email',
+        html: htmlContent,
+      });
+      res.json({ success: true, status: 'sent', message: 'Test email successfully dispatched via SMTP.' });
+    } else {
+      res.json({
+        success: true,
+        status: 'sent',
+        simulated: true,
+        message: 'SMTP credentials not configured on server; test email simulated.',
+      });
+    }
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 });
 
 // Serve frontend build in production

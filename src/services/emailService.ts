@@ -59,6 +59,7 @@ export async function queueResultEmail(item: Omit<MailQueueItem, 'id' | 'created
   const fullItem: MailQueueItem = {
     ...item,
     id: mailId,
+    status: item.status || 'queued',
     createdAt: new Date().toISOString(),
   };
 
@@ -115,6 +116,47 @@ export function updateOutboxItemStatus(
 }
 
 
+
+/**
+ * Dispatch a single test email via Express server POST /api/send-test-email with host token
+ */
+export async function sendTestEmailViaApi(payload: {
+  to: string;
+  recipientName: string;
+  subject: string;
+  htmlContent: string;
+}): Promise<{
+  success: boolean;
+  status: 'sent' | 'failed';
+  error?: string;
+  simulated?: boolean;
+}> {
+  let user = auth.currentUser;
+  if (!user) {
+    user = await ensureAnonymousAuth();
+  }
+  const idToken = (await user?.getIdToken()) || '';
+
+  const resp = await fetch('/api/send-test-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const errorJson = await resp.json().catch(() => ({}));
+    return {
+      success: false,
+      status: 'failed',
+      error: errorJson.error || `Server responded with ${resp.status}`,
+    };
+  }
+
+  return await resp.json();
+}
 
 /**
  * Send results to Express server POST /api/send-results
@@ -318,7 +360,7 @@ export async function autoSendGameResults(
     })
     .slice(0, 3);
 
-  const teacherEmail = auth.currentUser?.email || 'teacher@quizarena.app';
+  const teacherEmail = (auth.currentUser?.email || (game as any).hostEmail || (game as any).teacherEmail || '').trim();
   if (teacherEmail && isValidEmail(teacherEmail)) {
     const teacherHtml = generateTeacherReportHtml({
       teacherName: game.hostName || auth.currentUser?.displayName || 'Teacher',
