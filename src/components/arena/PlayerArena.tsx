@@ -12,6 +12,7 @@ import { TimerRing } from '../common/TimerRing';
 import { Avatar } from '../common/Avatar';
 import { useIntegrityGuard } from '../../hooks/useIntegrityGuard';
 import { IntegrityModal } from '../common/IntegrityModal';
+import { extractQuestionStartTimeMs } from '../../server/scoringHardening';
 
 interface PlayerArenaProps {
   game: GameSession;
@@ -29,11 +30,19 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
   const [accommodationsOpen, setAccommodationsOpen] = useState<boolean>(false);
 
+  // Read-Aloud (TTS) state
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [speechRate, setSpeechRate] = useState<number>(1.0);
+
   // Time tracking & Local Countdown Ring
   const baseTime = currentQuestion?.timeLimit || game.timeLimit || 20;
-  const totalTimeLimit = Math.round(baseTime * (player.accommodations.extraTimeMultiplier || 1));
+  const extraTimeMultiplier = Number(player.accommodations?.extraTimeMultiplier) || 1;
+  const totalTimeLimit = Math.round(baseTime * extraTimeMultiplier);
   const [playerTimeLeft, setPlayerTimeLeft] = useState<number>(totalTimeLimit);
-  const [questionStartTime, setQuestionStartTime] = useState<number>(Date.now());
+  const [questionStartTime, setQuestionStartTime] = useState<number>(() => {
+    return extractQuestionStartTimeMs(game.questionStartTime) || Date.now();
+  });
 
   // Advanced Integrity Guard (Secure Mode)
   const {
@@ -61,18 +70,133 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     },
   });
 
-  // Countdown timer for player ring
-  useEffect(() => {
-    setPlayerTimeLeft(totalTimeLimit);
-  }, [game.currentQuestionIndex, totalTimeLimit]);
+  // Helper to calculate exactly 2 wrong options to hide for fewerOptions
+  const getFewerOptionsToHide = (q: any) => {
+    if (!q || q.type !== 'multiple_choice' || !q.options || q.options.length <= 2) return [];
+    const correctIdx = q.correctAnswers?.[0] !== undefined ? q.correctAnswers[0] : 0;
+    const wrongOptions = q.options
+      .map((_: any, idx: number) => idx)
+      .filter((idx: number) => idx !== correctIdx);
+    return wrongOptions.slice(0, 2);
+  };
 
+  // Stop TTS speech
+  const stopSpeech = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    setIsPaused(false);
+  };
+
+  // Read-Aloud TTS with letter, shape, and color matching active language
+  const startReadAloud = (customRate?: number) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !currentQuestion) return;
+    window.speechSynthesis.cancel();
+
+    const rate = customRate || speechRate;
+    const lang = (game.settings as any)?.language || 'en';
+
+    let script = '';
+    if (lang === 'ta') {
+      script = `கேள்வி: ${currentQuestion.text}. `;
+      if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
+        const labels = [
+          'விருப்பம் A, சிவப்பு முக்கோணம்',
+          'விருப்பம் B, மஞ்சள் வைரம்',
+          'விருப்பம் C, பச்சை வட்டம்',
+          'விருப்பம் D, நீல சதுரம்',
+        ];
+        currentQuestion.options.forEach((opt: string, i: number) => {
+          if (!hiddenOptions.includes(i)) {
+            script += `${labels[i % 4]}: ${opt}. `;
+          }
+        });
+      }
+    } else if (lang === 'hi') {
+      script = `प्रश्न: ${currentQuestion.text}. `;
+      if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
+        const labels = [
+          'विकल्प A, लाल त्रिभुज',
+          'विकल्प B, पीला हीरा',
+          'विकल्प C, हरा वृत्त',
+          'विकल्प D, नीला वर्ग',
+        ];
+        currentQuestion.options.forEach((opt: string, i: number) => {
+          if (!hiddenOptions.includes(i)) {
+            script += `${labels[i % 4]}: ${opt}. `;
+          }
+        });
+      }
+    } else {
+      script = `Question: ${currentQuestion.text}. `;
+      if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
+        const labels = [
+          'Option A, red triangle',
+          'Option B, yellow diamond',
+          'Option C, teal circle',
+          'Option D, blue square',
+        ];
+        currentQuestion.options.forEach((opt: string, i: number) => {
+          if (!hiddenOptions.includes(i)) {
+            script += `${labels[i % 4]}: ${opt}. `;
+          }
+        });
+      }
+    }
+
+    const utterance = new SpeechSynthesisUtterance(script);
+    utterance.rate = rate;
+
+    const voices = window.speechSynthesis.getVoices();
+    const matchedVoice = voices.find(v => v.lang.startsWith(lang)) || voices.find(v => v.lang.startsWith('en'));
+    if (matchedVoice) utterance.voice = matchedVoice;
+
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setIsPaused(false);
+    };
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      setIsPaused(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleTogglePauseSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      setIsPaused(false);
+    } else {
+      window.speechSynthesis.pause();
+      setIsPaused(true);
+    }
+  };
+
+  // Continuous countdown timer computed from server question start time until round ends
   useEffect(() => {
-    if (game.status !== 'question_active' || hasSubmitted || playerTimeLeft <= 0) return;
-    const interval = setInterval(() => {
-      setPlayerTimeLeft(prev => Math.max(0, prev - 1));
-    }, 1000);
+    if (game.status !== 'question_active') {
+      stopSpeech();
+      return;
+    }
+
+    const startMs = extractQuestionStartTimeMs(game.questionStartTime) || questionStartTime;
+    const updateCountdown = () => {
+      const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
+      const remaining = Math.max(0, totalTimeLimit - elapsedSec);
+      setPlayerTimeLeft(remaining);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 500);
     return () => clearInterval(interval);
-  }, [game.status, hasSubmitted, playerTimeLeft]);
+  }, [game.status, game.currentQuestionIndex, game.questionStartTime, questionStartTime, totalTimeLimit]);
 
   // Reset state when new question begins
   useEffect(() => {
@@ -81,17 +205,26 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     setHasSubmitted(false);
     setSubmissionResult(null);
     setActiveDoublePoints(false);
-    setHiddenOptions([]);
-    setQuestionStartTime(Date.now());
+    setQuestionStartTime(extractQuestionStartTimeMs(game.questionStartTime) || Date.now());
 
-    // Dyslexia mode speech synthesis (TTS) if enabled in accommodations
-    if (player.accommodations.readAloud && currentQuestion?.text && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(currentQuestion.text);
-      utterance.rate = 0.95;
-      window.speechSynthesis.speak(utterance);
+    // Fewer options accommodation
+    if (player.accommodations.fewerOptions && currentQuestion) {
+      setHiddenOptions(getFewerOptionsToHide(currentQuestion));
+    } else {
+      setHiddenOptions([]);
     }
-  }, [game.currentQuestionIndex, player.accommodations.readAloud]);
+
+    // Read-aloud TTS if enabled
+    if (player.accommodations.readAloud && currentQuestion?.text) {
+      startReadAloud(speechRate);
+    } else {
+      stopSpeech();
+    }
+
+    return () => {
+      stopSpeech();
+    };
+  }, [game.currentQuestionIndex, player.accommodations.readAloud, player.accommodations.fewerOptions]);
 
   if (!currentQuestion) {
     return (
@@ -115,6 +248,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
 
     // Single choice lock in
     const rawTimeMs = Date.now() - questionStartTime;
+    stopSpeech();
     setHasSubmitted(true);
     setSelectedIndices([optIdx]);
 
@@ -140,6 +274,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     if (hasSubmitted || isQuestionLocked || game.status !== 'question_active') return;
     sound.playClick();
     const rawTimeMs = Date.now() - questionStartTime;
+    stopSpeech();
     setHasSubmitted(true);
 
     const result = await GameEngine.submitAnswer(
@@ -198,7 +333,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   ];
 
   return (
-    <div className={`mx-auto max-w-xl p-3 sm:p-4 space-y-4 ${player.accommodations.dyslexiaFont ? 'dyslexia-font' : ''}`}>
+    <div className={`mx-auto max-w-xl p-3 sm:p-4 space-y-4 ${player.accommodations.dyslexiaFont ? 'dyslexia-font' : ''} ${player.accommodations.largeText ? 'text-base sm:text-lg' : ''}`}>
       {/* Player Header: Avatar, Nickname, Streak Flame, Score & Accommodations button */}
       <div className="paper-card p-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -235,6 +370,22 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
           </button>
         </div>
       </div>
+
+      {/* Confirmation of Active Accommodations */}
+      {(player.accommodations.dyslexiaFont || player.accommodations.readAloud || player.accommodations.fewerOptions || player.accommodations.largeText || (player.accommodations.extraTimeMultiplier && player.accommodations.extraTimeMultiplier > 1)) && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--surface-2)] border-2 border-[var(--border)] rounded-full text-[11px] font-bold text-[var(--text)]">
+          <span className="text-[var(--ok)] dark:text-[var(--accent-2)]">♿ Active:</span>
+          <span className="truncate">
+            {[
+              player.accommodations.dyslexiaFont && 'Dyslexia Font',
+              player.accommodations.readAloud && 'Read-Aloud',
+              player.accommodations.fewerOptions && 'Fewer Options',
+              player.accommodations.largeText && 'Large Text',
+              player.accommodations.extraTimeMultiplier > 1 && `${player.accommodations.extraTimeMultiplier}x Time`,
+            ].filter(Boolean).join(' • ')}
+          </span>
+        </div>
+      )}
 
       {/* Power-Ups Bar (Once per match) */}
       <div className="grid grid-cols-2 gap-2">
@@ -311,6 +462,56 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         <h1 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)] leading-snug">
           {currentQuestion.text}
         </h1>
+
+        {/* Read-Aloud Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-bold w-full">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => startReadAloud(speechRate)}
+              className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1"
+              title="Replay Audio"
+              aria-label="Replay Question and Options"
+            >
+              <span aria-hidden="true">🔄</span> <span>Replay</span>
+            </button>
+            <button
+              onClick={handleTogglePauseSpeech}
+              disabled={!isSpeaking && !isPaused}
+              className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
+              title={isPaused ? 'Resume Audio' : 'Pause Audio'}
+              aria-label={isPaused ? 'Resume Audio' : 'Pause Audio'}
+            >
+              <span>{isPaused ? '▶️ Resume' : '⏸️ Pause'}</span>
+            </button>
+            <button
+              onClick={stopSpeech}
+              disabled={!isSpeaking && !isPaused}
+              className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
+              title="Stop Audio"
+              aria-label="Stop Audio"
+            >
+              <span aria-hidden="true">⏹️</span> <span>Stop</span>
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <label htmlFor="ttsSpeedSelect" className="text-[var(--text-muted)]">Speed:</label>
+            <select
+              id="ttsSpeedSelect"
+              aria-label="Speech Speed"
+              value={speechRate}
+              onChange={e => {
+                const rate = Number(e.target.value);
+                setSpeechRate(rate);
+                if (isSpeaking) startReadAloud(rate);
+              }}
+              className="rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-1.5 py-0.5 text-[11px] font-bold"
+            >
+              <option value={0.8}>0.8x</option>
+              <option value={1.0}>1.0x</option>
+              <option value={1.25}>1.25x</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* Question Locked Banner if Strike 3 locked the round */}
@@ -329,15 +530,17 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         </div>
       )}
 
-      {/* Waiting or Submitted Feedback State */}
+      {/* Waiting or Submitted Feedback State: Countdown continues */}
       {hasSubmitted && game.status === 'question_active' && (
-        <div className="paper-card p-8 text-center border-3 space-y-3 animate-fadeIn">
-          <div className="text-4xl animate-pulse">🔒</div>
-          <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--ok)] dark:text-[var(--accent-2)]">
-            Locked In!
-          </h3>
+        <div className="paper-card p-5 text-center border-3 border-[var(--ok)] space-y-2 bg-emerald-50/50 dark:bg-emerald-950/30 animate-fadeIn">
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-2xl animate-pulse">🔒</span>
+            <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--ok)] dark:text-[var(--accent-2)]">
+              Answer locked - waiting for others
+            </h3>
+          </div>
           <p className="text-xs font-bold text-[var(--text-muted)]">
-            Waiting for remaining players and host countdown...
+            Your answer is securely locked. Timer countdown continues until question ends.
           </p>
         </div>
       )}
@@ -375,7 +578,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       )}
 
       {/* Shape-coded Answer Buttons with Tactile Press Feedback */}
-      {!hasSubmitted && !isQuestionLocked && game.status === 'question_active' && currentQuestion.type !== 'type_answer' && (
+      {game.status === 'question_active' && currentQuestion.type !== 'type_answer' && (
         <div className="grid grid-cols-2 gap-3 pt-2">
           {currentQuestion.options.map((opt, idx) => {
             if (hiddenOptions.includes(idx)) {
@@ -389,15 +592,22 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
               <button
                 key={idx}
                 onClick={() => handleSubmitOption(idx)}
-                disabled={isQuestionLocked}
-                className={`paper-btn h-32 sm:h-36 flex flex-col items-center justify-center p-3 rounded-2xl shadow-[4px_4px_0px_var(--shadow)] hover:-translate-y-0.5 active:translate-y-1 active:shadow-none transition-all select-none ${
+                disabled={hasSubmitted || isQuestionLocked}
+                className={`paper-btn h-32 sm:h-36 flex flex-col items-center justify-center p-3 rounded-2xl shadow-[4px_4px_0px_var(--shadow)] transition-all select-none ${
                   btn.bg
-                } ${isSelected ? 'ring-4 ring-[var(--border)] scale-95' : ''}`}
+                } ${
+                  isSelected ? 'ring-4 ring-[var(--border)] scale-95 opacity-100' : hasSubmitted ? 'opacity-40 cursor-not-allowed' : 'hover:-translate-y-0.5 active:translate-y-1 active:shadow-none'
+                }`}
               >
                 <div className="mb-1.5 sm:mb-2 shrink-0">{btn.icon}</div>
                 <span className="font-['Bricolage_Grotesque'] font-extrabold text-xs sm:text-base leading-tight text-center line-clamp-3 break-words px-1">
                   {opt}
                 </span>
+                {isSelected && hasSubmitted && (
+                  <span className="mt-1 text-[10px] font-black uppercase tracking-wider bg-[var(--surface)] text-[var(--text)] px-1.5 py-0.5 rounded border border-[var(--border)]">
+                    ✓ Locked In
+                  </span>
+                )}
               </button>
             );
           })}
@@ -481,20 +691,64 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
               </label>
 
               <label className="flex items-center justify-between cursor-pointer">
-                <span>Fewer Answer Options (Hide Distractor)</span>
+                <span>Fewer Answer Options (Hide 2 wrong)</span>
                 <input
                   type="checkbox"
                   checked={player.accommodations.fewerOptions}
                   onChange={e => {
                     sound.playClick();
+                    const newFewer = e.target.checked;
                     onUpdatePlayer({
                       ...player,
-                      accommodations: { ...player.accommodations, fewerOptions: e.target.checked },
+                      accommodations: { ...player.accommodations, fewerOptions: newFewer },
+                    });
+                    if (newFewer && currentQuestion) {
+                      setHiddenOptions(getFewerOptionsToHide(currentQuestion));
+                    } else {
+                      setHiddenOptions([]);
+                    }
+                  }}
+                  className="h-4 w-4 accent-[var(--accent)]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between cursor-pointer">
+                <span>Larger Text Size</span>
+                <input
+                  type="checkbox"
+                  checked={player.accommodations.largeText}
+                  onChange={e => {
+                    sound.playClick();
+                    onUpdatePlayer({
+                      ...player,
+                      accommodations: { ...player.accommodations, largeText: e.target.checked },
                     });
                   }}
                   className="h-4 w-4 accent-[var(--accent)]"
                 />
               </label>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]/20">
+                <label htmlFor="arenaExtraTimeSelect">Extra Time Allowance:</label>
+                <select
+                  id="arenaExtraTimeSelect"
+                  aria-label="Extra Time Allowance"
+                  value={player.accommodations.extraTimeMultiplier || 1}
+                  onChange={e => {
+                    sound.playClick();
+                    const val = Number(e.target.value);
+                    onUpdatePlayer({
+                      ...player,
+                      accommodations: { ...player.accommodations, extraTimeMultiplier: val },
+                    });
+                  }}
+                  className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs font-bold"
+                >
+                  <option value={1}>Standard Time (1.0x)</option>
+                  <option value={1.5}>+50% Extra Time (1.5x)</option>
+                  <option value={2}>Double Time (2.0x)</option>
+                </select>
+              </div>
             </div>
 
             <button

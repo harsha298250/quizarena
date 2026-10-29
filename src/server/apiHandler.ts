@@ -415,7 +415,6 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
     // Task 3(b): Use server-set questionStartTime for elapsed time calculation
     const now = Date.now();
     const timeLimitSec = gameData.timeLimit || 20;
-    const allowedWindowMs = timeLimitSec * 1000 + 3500;
     const questionStartMs =
       extractQuestionStartTimeMs(gameData.questionStartTime) ||
       gameData.questionStartTimeMs ||
@@ -424,12 +423,6 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
     let serverElapsedMs = rawResponseTimeMs || 1000;
     if (questionStartMs > 0) {
       serverElapsedMs = Math.max(0, now - questionStartMs);
-      if (serverElapsedMs > allowedWindowMs) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ error: 'Answer submitted too late: question time limit expired' }));
-        return;
-      }
     }
 
     const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
@@ -498,6 +491,17 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
         }
         const willUseDoublePoints = powerUpCheck.willUse;
 
+        // Accommodations validation: extra time multiplier & allowed submission window
+        const extraTimeMultiplier = Number(playerData.accommodations?.extraTimeMultiplier) || 1;
+        const effectiveTimeLimitSec = Math.round((secretQuestion.timeLimit || timeLimitSec) * extraTimeMultiplier);
+        const allowedWindowMs = effectiveTimeLimitSec * 1000 + 3500;
+
+        if (questionStartMs > 0 && serverElapsedMs > allowedWindowMs) {
+          const err: any = new Error('Answer submitted too late: question time limit expired');
+          err.statusCode = 400;
+          throw err;
+        }
+
         // Task 3(a): Stop trusting playerData.latencyMs, clamp to server-side maximum of 300 ms
         const clampedLatency = clampLatency(playerData.latencyMs);
 
@@ -509,7 +513,7 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
         const scoreResult = calculateFairScore({
           basePoints: secretQuestion.points || 1000,
           isCorrect,
-          timeLimitSeconds: secretQuestion.timeLimit || timeLimitSec,
+          timeLimitSeconds: effectiveTimeLimitSec,
           rawResponseTimeMs: serverElapsedMs,
           latencyMs: clampedLatency,
           clockOffsetMs: 0,

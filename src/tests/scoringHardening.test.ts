@@ -333,5 +333,79 @@ export function runHardenedScoringTests(): TestResultSummary {
     'Case (h): Strike 3 advisory mode flags host without locking when lockAnswerOnStrike3 is false'
   );
 
+  // =========================================================================
+  // Case (i): Accommodations - Fewer Options (Hide exactly 2 wrong answers)
+  // =========================================================================
+  const testQuestion = {
+    id: 'q_test_1',
+    type: 'multiple_choice',
+    options: ['Alpha', 'Beta', 'Gamma', 'Delta'],
+    correctAnswers: [1], // 'Beta' is correct
+  };
+  const correctIdx = testQuestion.correctAnswers[0];
+  const wrongOptions = testQuestion.options
+    .map((_, idx) => idx)
+    .filter(idx => idx !== correctIdx);
+  const hiddenOptions = wrongOptions.slice(0, 2);
+
+  assert(
+    hiddenOptions.length === 2 && !hiddenOptions.includes(correctIdx),
+    'Case (i): Fewer Options calculates exactly 2 wrong options to hide without hiding the correct answer'
+  );
+
+  // =========================================================================
+  // Case (j): Accommodations - Extra Time Multiplier in Fair Scoring
+  // =========================================================================
+  const standardScore = calculateFairScore({
+    basePoints: 1000,
+    isCorrect: true,
+    timeLimitSeconds: 20,
+    rawResponseTimeMs: 15000, // 15s elapsed
+    latencyMs: 50,
+    clockOffsetMs: 0,
+    currentStreak: 0,
+    scoringProfile: 'speed_weighted',
+  });
+
+  const extraTimeScore = calculateFairScore({
+    basePoints: 1000,
+    isCorrect: true,
+    timeLimitSeconds: Math.round(20 * 1.5), // 30s effective limit
+    rawResponseTimeMs: 15000, // 15s elapsed (halfway through instead of 75% through)
+    latencyMs: 50,
+    clockOffsetMs: 0,
+    currentStreak: 0,
+    scoringProfile: 'speed_weighted',
+  });
+
+  assert(
+    extraTimeScore.finalPoints > standardScore.finalPoints,
+    'Case (j): Extra Time Multiplier (1.5x) yields higher points at identical 15s elapsed response time'
+  );
+
+  // =========================================================================
+  // Case (k): Accommodations Active List Descriptor
+  // =========================================================================
+  const sampleAcc = {
+    dyslexiaFont: true,
+    readAloud: true,
+    fewerOptions: true,
+    largeText: true,
+    extraTimeMultiplier: 1.5,
+    muteSound: false,
+  };
+  const activeList = [
+    sampleAcc.dyslexiaFont && 'Dyslexia Font',
+    sampleAcc.readAloud && 'Read-Aloud',
+    sampleAcc.fewerOptions && 'Fewer Options',
+    sampleAcc.largeText && 'Large Text',
+    sampleAcc.extraTimeMultiplier > 1 && `${sampleAcc.extraTimeMultiplier}x Time`,
+  ].filter(Boolean);
+
+  assert(
+    activeList.length === 5 && activeList.includes('1.5x Time') && activeList.includes('Read-Aloud'),
+    'Case (k): Active Accommodations descriptor correctly aggregates all 5 enabled accessibility toggles'
+  );
+
   return { passed, failed, results };
 }

@@ -230,34 +230,73 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
         </div>
 
         {showAccommodations && (
-          <div className="p-3 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] space-y-2 text-xs font-bold text-[var(--text)] animate-fadeIn">
-            <label className="flex items-center justify-between">
+          <div className="p-3 bg-[var(--surface-2)] rounded-xl border-2 border-[var(--border)] space-y-2.5 text-xs font-bold text-[var(--text)] animate-fadeIn">
+            <label className="flex items-center justify-between cursor-pointer">
               <span>Dyslexia-friendly Font</span>
               <input
                 type="checkbox"
                 checked={accommodations.dyslexiaFont}
                 onChange={e => setAccommodations({ ...accommodations, dyslexiaFont: e.target.checked })}
-                className="accent-[var(--accent)]"
+                className="h-4 w-4 accent-[var(--accent)]"
               />
             </label>
-            <label className="flex items-center justify-between">
-              <span>Read Questions Aloud (TTS)</span>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span>Read Questions & Options Aloud (TTS)</span>
               <input
                 type="checkbox"
                 checked={accommodations.readAloud}
                 onChange={e => setAccommodations({ ...accommodations, readAloud: e.target.checked })}
-                className="accent-[var(--accent)]"
+                className="h-4 w-4 accent-[var(--accent)]"
               />
             </label>
-            <label className="flex items-center justify-between">
-              <span>Fewer Answer Options (Hide 2 wrong)</span>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span>Fewer Options (Hide 2 wrong answers)</span>
               <input
                 type="checkbox"
                 checked={accommodations.fewerOptions}
                 onChange={e => setAccommodations({ ...accommodations, fewerOptions: e.target.checked })}
-                className="accent-[var(--accent)]"
+                className="h-4 w-4 accent-[var(--accent)]"
               />
             </label>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span>Larger Text Size</span>
+              <input
+                type="checkbox"
+                checked={accommodations.largeText}
+                onChange={e => setAccommodations({ ...accommodations, largeText: e.target.checked })}
+                className="h-4 w-4 accent-[var(--accent)]"
+              />
+            </label>
+            <div className="flex items-center justify-between pt-1 border-t border-[var(--border)]/20">
+              <label htmlFor="joinExtraTimeSelect">Extra Time Allowance:</label>
+              <select
+                id="joinExtraTimeSelect"
+                aria-label="Extra Time Allowance"
+                value={accommodations.extraTimeMultiplier}
+                onChange={e => setAccommodations({ ...accommodations, extraTimeMultiplier: Number(e.target.value) })}
+                className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs font-bold"
+              >
+                <option value={1}>Standard Time (1.0x)</option>
+                <option value={1.5}>+50% Extra Time (1.5x)</option>
+                <option value={2}>Double Time (2.0x)</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Accommodations active confirmation banner */}
+        {(accommodations.dyslexiaFont || accommodations.readAloud || accommodations.fewerOptions || accommodations.largeText || accommodations.extraTimeMultiplier > 1) && (
+          <div className="p-2 rounded-lg bg-[var(--surface-2)] border border-[var(--ok)] text-[11px] font-bold text-[var(--ok)] dark:text-[var(--accent-2)] flex items-center gap-1.5">
+            <span>♿ Active Accommodations:</span>
+            <span className="font-semibold">
+              {[
+                accommodations.dyslexiaFont && 'Dyslexia Font',
+                accommodations.readAloud && 'Read-Aloud',
+                accommodations.fewerOptions && 'Fewer Options',
+                accommodations.largeText && 'Large Text',
+                accommodations.extraTimeMultiplier > 1 && `${accommodations.extraTimeMultiplier}x Time`,
+              ].filter(Boolean).join(', ')}
+            </span>
           </div>
         )}
 
