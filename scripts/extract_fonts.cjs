@@ -72,3 +72,4 @@ export const NOTO_SANS_DEVANAGARI_BASE64 = ${JSON.stringify(devanagariTtf.toStri
 
 fs.writeFileSync(outPath, fileContent, 'utf-8');
 console.log('Successfully generated src/services/unicodeFontData.ts');
+

@@ -200,7 +200,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Face Shape / Species:
               </label>
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5" role="radiogroup" aria-label="Face Shape">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Face Shape">
                 {FACE_SHAPES.map(f => {
                   const isChecked = config.faceShape === f.id;
                   return (
@@ -209,14 +209,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={f.label}
                       onClick={() => updateTrait('faceShape', f.id as FaceShape)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {f.label}
+                      <span className="truncate">{f.label}</span>
                     </button>
                   );
                 })}
@@ -259,7 +260,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Eyes:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Eye Style">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Eye Style">
                 {EYE_STYLES.map(e => {
                   const isChecked = config.eyes === e.id;
                   return (
@@ -268,14 +269,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={e.label}
                       onClick={() => updateTrait('eyes', e.id as EyeStyle)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {e.label}
+                      <span className="truncate">{e.label}</span>
                     </button>
                   );
                 })}
@@ -287,7 +289,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Eyebrows:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Eyebrow Style">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Eyebrow Style">
                 {EYEBROW_STYLES.map(b => {
                   const isChecked = config.eyebrows === b.id;
                   return (
@@ -296,14 +298,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={b.label}
                       onClick={() => updateTrait('eyebrows', b.id as EyebrowStyle)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {b.label}
+                      <span className="truncate">{b.label}</span>
                     </button>
                   );
                 })}
@@ -315,7 +318,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Mouth:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Mouth Style">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Mouth Style">
                 {MOUTH_STYLES.map(m => {
                   const isChecked = config.mouth === m.id;
                   return (
@@ -324,14 +327,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={m.label}
                       onClick={() => updateTrait('mouth', m.id as MouthStyle)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {m.label}
+                      <span className="truncate">{m.label}</span>
                     </button>
                   );
                 })}
@@ -348,7 +352,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Hair / Headwear:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" role="radiogroup" aria-label="Hair or Hat Style">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5" role="radiogroup" aria-label="Hair or Hat Style">
                 {HAIR_HAT_STYLES.map(h => {
                   const isChecked = config.hairHat === h.id;
                   return (
@@ -357,14 +361,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={h.label}
                       onClick={() => updateTrait('hairHat', h.id as HairHatStyle)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {h.label}
+                      <span className="truncate">{h.label}</span>
                     </button>
                   );
                 })}
@@ -376,7 +381,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Glasses:
               </label>
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5" role="radiogroup" aria-label="Glasses Style">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Glasses Style">
                 {GLASSES_STYLES.map(g => {
                   const isChecked = config.glasses === g.id;
                   return (
@@ -385,14 +390,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={g.label}
                       onClick={() => updateTrait('glasses', g.id as GlassesStyle)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {g.label}
+                      <span className="truncate">{g.label}</span>
                     </button>
                   );
                 })}
@@ -404,7 +410,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
               <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
                 Accessories &amp; Stickers:
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" role="radiogroup" aria-label="Accessory Style">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Accessory Style">
                 {ACCESSORY_STYLES.map(a => {
                   const isChecked = config.accessory === a.id;
                   return (
@@ -413,14 +419,15 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={isChecked}
+                      title={a.label}
                       onClick={() => updateTrait('accessory', a.id as AccessoryStyle)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-xs font-bold transition-all ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      {a.label}
+                      <span className="truncate">{a.label}</span>
                     </button>
                   );
                 })}
