@@ -25,6 +25,18 @@ export interface AIInsightsReport {
   actionableNextSteps: string[];
 }
 
+export interface GenerateProgress {
+  percent: number;
+  phase: string;
+  receivedCount: number;
+  totalCount: number;
+}
+
+export interface GenerateOptions {
+  signal?: AbortSignal;
+  onProgress?: (p: GenerateProgress) => void;
+}
+
 class AIService {
   private endpoint: string;
 
@@ -33,33 +45,131 @@ class AIService {
   }
 
   /**
-   * Primary adapter: Calls server-side endpoint holding the GEMINI_API_KEY
-   * Authenticated via Firebase ID token; throws directly without fake fallback.
+   * Primary adapter: Calls server-side endpoint in parallel batches of about 10.
+   * Validates all questions in ONE batched call.
    */
-  public async generateQuestions(params: GenerateQuizParams): Promise<Question[]> {
+  public async generateQuestions(params: GenerateQuizParams, options?: GenerateOptions): Promise<Question[]> {
     const user = auth.currentUser || (await ensureAnonymousAuth());
     const idToken = (await user?.getIdToken()) || '';
 
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-      },
-      body: JSON.stringify(params),
+    const totalQuestions = Math.max(1, Math.min(50, params.numQuestions));
+
+    // Divide into parallel batches of at most 10 questions
+    const batchSizes: number[] = [];
+    let remaining = totalQuestions;
+    while (remaining > 0) {
+      const batch = Math.min(10, remaining);
+      batchSizes.push(batch);
+      remaining -= batch;
+    }
+
+    options?.onProgress?.({
+      percent: 10,
+      phase: `Starting parallel generation across ${batchSizes.length} batch${batchSizes.length > 1 ? 'es' : ''}...`,
+      receivedCount: 0,
+      totalCount: totalQuestions,
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Server responded with ${response.status}`);
+    let completedBatches = 0;
+    const allQuestions: Question[] = [];
+
+    // Parallel execution across batches
+    const batchPromises = batchSizes.map(async (batchSize, batchIdx) => {
+      const batchParams: GenerateQuizParams = {
+        ...params,
+        numQuestions: batchSize,
+      };
+
+      const res = await fetch(this.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify(batchParams),
+        signal: options?.signal,
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Server responded with ${res.status}`);
+      }
+
+      const data = await res.json();
+      if (!Array.isArray(data.questions)) {
+        throw new Error('Invalid question response format from server.');
+      }
+
+      completedBatches++;
+      allQuestions.push(...data.questions);
+
+      const pct = Math.min(85, Math.round(10 + (completedBatches / batchSizes.length) * 70));
+      options?.onProgress?.({
+        percent: pct,
+        phase: `Received batch ${completedBatches} of ${batchSizes.length} (${allQuestions.length} / ${totalQuestions} questions)...`,
+        receivedCount: allQuestions.length,
+        totalCount: totalQuestions,
+      });
+
+      return data.questions;
+    });
+
+    await Promise.all(batchPromises);
+
+    // Ensure IDs are unique
+    const formatted: Question[] = allQuestions.map((q, idx) => ({
+      ...q,
+      id: `ai_q_${Date.now()}_${idx}`,
+      sourcePage: q.sourcePage || 1,
+      sourceQuote: q.sourceQuote || '',
+    }));
+
+    // Step 2: Validate all questions in ONE batched call
+    options?.onProgress?.({
+      percent: 90,
+      phase: 'Validating pedagogical alignment & citations in one batched audit...',
+      receivedCount: formatted.length,
+      totalCount: totalQuestions,
+    });
+
+    try {
+      const valRes = await fetch('/api/batch-validate-questions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({ questions: formatted }),
+        signal: options?.signal,
+      });
+
+      if (valRes.ok) {
+        const valData = await valRes.json();
+        const resultMap = new Map<string, string>();
+        if (Array.isArray(valData.results)) {
+          valData.results.forEach((r: any) => {
+            if (r.id) resultMap.set(r.id, r.qualityBadge);
+          });
+        }
+
+        formatted.forEach(q => {
+          if (resultMap.has(q.id)) {
+            q.validationBadge = (resultMap.get(q.id) as any) || 'good';
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Batch validation non-fatal warning:', e);
     }
 
-    const data = await response.json();
-    if (!data.questions || !Array.isArray(data.questions)) {
-      throw new Error('Invalid response structure received from quiz generator.');
-    }
+    options?.onProgress?.({
+      percent: 100,
+      phase: `Complete! ${formatted.length} questions ready for teacher review.`,
+      receivedCount: formatted.length,
+      totalCount: totalQuestions,
+    });
 
-    return data.questions;
+    return formatted;
   }
 
   /**

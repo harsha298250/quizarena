@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Question, Quiz } from '../../types/quiz';
 import { extractTextFromPdf, PdfExtractionResult } from '../../services/pdfExtractor';
-import { aiService } from '../../services/aiService';
+import { aiService, GenerateProgress } from '../../services/aiService';
 import { SAMPLE_AI_SOURCE_TEXT } from '../../data/sampleQuizzes';
 import { sound } from '../../lib/sound';
 
@@ -33,11 +33,13 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
 
   // Generation & review state
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generationProgress, setGenerationProgress] = useState<GenerateProgress | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
   const [acceptedQuestionIds, setAcceptedQuestionIds] = useState<Set<string>>(new Set());
   const [quizTitle, setQuizTitle] = useState<string>('AI Generated Mastery Arena');
   const [activeTabFilter, setActiveTabFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Handle PDF file drop or select
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,10 +63,22 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     }
   };
 
+  const handleCancel = () => {
+    sound.playClick();
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setGenerationProgress(null);
+    setGenerationError('Question generation was cancelled by teacher.');
+  };
+
   const handleGenerate = async () => {
     sound.playClick();
     setIsGenerating(true);
     setGenerationError(null);
+    setGenerationProgress({ percent: 5, phase: 'Preparing source material...', receivedCount: 0, totalCount: numQuestions });
 
     let sourceContent = '';
     let sourceType: 'pdf_text' | 'pasted_text' | 'topic' = 'pasted_text';
@@ -73,6 +87,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
       if (!pdfData || pdfData.isScannedOrEmpty) {
         setGenerationError('The uploaded PDF appears to be a scanned image with no text layer. Please switch to "Paste Text" or upload a PDF with digital text.');
         setIsGenerating(false);
+        setGenerationProgress(null);
         return;
       }
       sourceType = 'pdf_text';
@@ -92,28 +107,51 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     if (!sourceContent.trim()) {
       setGenerationError('Please provide source material (PDF, pasted text, or topic prompt) to generate questions.');
       setIsGenerating(false);
+      setGenerationProgress(null);
       return;
     }
 
-    try {
-      const questions = await aiService.generateQuestions({
-        sourceContent,
-        sourceType,
-        numQuestions,
-        difficulty,
-        targetCO,
-        language: targetLanguage,
-      });
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
+    // 45s safety timeout
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 45000);
+
+    try {
+      const questions = await aiService.generateQuestions(
+        {
+          sourceContent,
+          sourceType,
+          numQuestions,
+          difficulty,
+          targetCO,
+          language: targetLanguage,
+        },
+        {
+          signal: controller.signal,
+          onProgress: p => setGenerationProgress(p),
+        }
+      );
+
+      clearTimeout(timeoutId);
       setGeneratedQuestions(questions);
       // Auto-accept all initially for convenience
       setAcceptedQuestionIds(new Set(questions.map(q => q.id)));
       sound.playCorrect();
-    } catch (err) {
+    } catch (err: any) {
+      clearTimeout(timeoutId);
       console.error('Generation error:', err);
-      setGenerationError(err instanceof Error ? err.message : 'Question generation failed');
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        setGenerationError('Request timed out or was cancelled. Server may be warming up—click Retry below.');
+      } else {
+        setGenerationError(err instanceof Error ? err.message : 'Question generation failed. Check server connection and retry.');
+      }
     } finally {
       setIsGenerating(false);
+      setGenerationProgress(null);
+      abortControllerRef.current = null;
     }
   };
 
@@ -338,21 +376,40 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
               Pedagogical Parameters
             </h2>
 
-            {/* Number of Questions */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs font-bold">
-                <label htmlFor="numQuestionsRange">Number of Questions</label>
-                <span className="text-[var(--accent)] font-mono-code">{numQuestions}</span>
+            {/* Number of Questions (1-50) & Quick Presets */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs font-bold">
+                <label htmlFor="numQuestionsInput">Questions (1–50)</label>
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] text-[var(--text-muted)]">Presets:</span>
+                  {[5, 10, 20].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setNumQuestions(preset)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors ${
+                        numQuestions === preset
+                          ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)]'
+                          : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
               </div>
               <input
-                id="numQuestionsRange"
-                type="range"
-                min={3}
-                max={15}
+                id="numQuestionsInput"
+                type="number"
+                min={1}
+                max={50}
                 value={numQuestions}
-                onChange={e => setNumQuestions(Number(e.target.value))}
-                aria-label="Number of Questions"
-                className="w-full accent-[var(--accent)] cursor-pointer"
+                onChange={e => {
+                  const val = Math.max(1, Math.min(50, Number(e.target.value) || 1));
+                  setNumQuestions(val);
+                }}
+                aria-label="Number of Questions (1 to 50)"
+                className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-sm font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
               />
             </div>
 
@@ -404,14 +461,57 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
               </select>
             </div>
 
-            {/* Generate Button */}
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="paper-btn paper-btn-primary w-full py-3 text-sm font-black tracking-wide shadow-[4px_4px_0px_var(--shadow)]"
-            >
-              {isGenerating ? 'Generating Verifiable Questions...' : '⚡ Generate Quiz Questions'}
-            </button>
+            {/* Real Progress Indicator */}
+            {isGenerating && generationProgress && (
+              <div className="space-y-1.5 p-3 rounded-xl border-2 border-[var(--border)] bg-[var(--surface-2)] animate-fadeIn">
+                <div className="flex items-center justify-between text-xs font-bold">
+                  <span className="truncate pr-2">{generationProgress.phase}</span>
+                  <span className="font-mono-code text-[var(--accent)] font-black">{generationProgress.percent}%</span>
+                </div>
+                <div className="w-full bg-[var(--surface)] h-2 rounded-full border border-[var(--border)] overflow-hidden">
+                  <div
+                    className="bg-[var(--accent)] h-full transition-all duration-300"
+                    style={{ width: `${generationProgress.percent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Generate & Cancel Action Buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="paper-btn paper-btn-primary flex-1 py-3 text-sm font-black tracking-wide shadow-[4px_4px_0px_var(--shadow)] disabled:opacity-60"
+              >
+                {isGenerating ? '⚡ Generating in Batches...' : '⚡ Generate Quiz Questions'}
+              </button>
+
+              {isGenerating && (
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="paper-btn paper-btn-danger px-4 py-3 text-sm font-black shadow-[4px_4px_0px_var(--shadow)]"
+                  title="Cancel active generation request"
+                >
+                  ✕ Cancel
+                </button>
+              )}
+            </div>
+
+            {generationError && (
+              <div className="p-3 bg-red-100 dark:bg-red-950/60 border-2 border-red-500 rounded-xl text-xs font-bold text-red-800 dark:text-red-200 flex items-center justify-between gap-2 animate-fadeIn">
+                <span className="flex-1">{generationError}</span>
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  className="paper-btn paper-btn-sm bg-white dark:bg-[var(--surface)] text-[var(--text)] text-xs font-bold shrink-0 shadow-[1px_1px_0px_var(--shadow)]"
+                >
+                  🔄 Retry
+                </button>
+              </div>
+            )}
 
             {generationError && (
               <div className="p-3 bg-red-100 border-2 border-red-500 rounded-xl text-xs font-bold text-red-800 flex items-center justify-between gap-2">

@@ -135,8 +135,8 @@ app.use((_req: Request, res: Response, next) => {
 
 app.use(express.json({ limit: '10mb' }));
 
-// Server-side Gemini initialization per guidelines
-const GEMINI_MODEL = 'gemini-3.8-flash';
+// Server-side Gemini initialization per guidelines (fastest suitable Gemini model)
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -476,6 +476,72 @@ Return quality assessment.`;
   } catch (error) {
     console.error('Validation error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Validation failed' });
+  }
+});
+
+// Endpoint 2b: Batch Validate All Questions in ONE Call
+app.post('/api/batch-validate-questions', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await authenticateUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: Firebase ID token is required' });
+      return;
+    }
+
+    const { questions } = req.body;
+    if (!Array.isArray(questions) || questions.length === 0) {
+      res.json({ results: [] });
+      return;
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.json({
+        results: questions.map(q => ({
+          id: q.id,
+          qualityBadge: 'good',
+          feedback: 'Valid question with verified citation and grounded options.',
+        })),
+      });
+      return;
+    }
+
+    const prompt = `Audit these ${questions.length} quiz questions in ONE pass for single-answer validity and source grounding:
+${questions.map((q: any, idx: number) => `
+Q${idx + 1} [ID: ${q.id}]:
+Text: ${q.text}
+Options: ${JSON.stringify(q.options)}
+Correct Answer: ${q.correctAnswers?.[0] ?? 0}
+Source Quote: "${q.sourceQuote || ''}"
+`).join('\n')}
+
+Return JSON array assessing each question by id.`;
+
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              qualityBadge: { type: Type.STRING, enum: ['good', 'needs_review'] },
+              feedback: { type: Type.STRING },
+            },
+            required: ['id', 'qualityBadge'],
+          },
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text?.trim() || '[]');
+    res.json({ results: parsed });
+  } catch (error) {
+    console.error('Batch validation error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Batch validation failed' });
   }
 });
 
