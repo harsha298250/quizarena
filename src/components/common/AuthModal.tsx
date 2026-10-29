@@ -8,12 +8,53 @@ import {
   auth,
   googleProvider,
   signInWithPopup,
+  signInWithRedirect,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   sendEmailVerification,
 } from '../../lib/firebase';
 import { sound } from '../../lib/sound';
+
+export function getAuthErrorMessage(code: string, fallbackMessage?: string): string {
+  switch (code) {
+    case 'auth/popup-blocked':
+      return "Your browser blocked the sign-in popup. Automatically falling back to redirect sign-in. To allow popups in the future, click the popup blocker icon in your browser's address bar and select 'Always allow popups for QuizArena'.";
+    case 'auth/popup-closed-by-user':
+      return 'The Google sign-in window was closed before completing. Please try again.';
+    case 'auth/cancelled-popup-request':
+      return 'Another sign-in attempt is already active. Please finish or close the other window.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address (e.g. teacher@school.edu).';
+    case 'auth/user-disabled':
+      return 'This user account has been disabled. Please contact your administrator.';
+    case 'auth/user-not-found':
+      return 'No account was found with this email. Click "Need an account? Create one here" below to sign up.';
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Incorrect email or password. Please verify your credentials or click "Forgot password?" to reset it.';
+    case 'auth/email-already-in-use':
+      return 'An account already exists with this email address. Please switch to Sign In or reset your password.';
+    case 'auth/weak-password':
+      return 'Password is too short or weak. Please enter at least 6 characters with letters and numbers.';
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is currently disabled in your Firebase console.';
+    case 'auth/network-request-failed':
+      return 'Network connection lost. Please check your internet connection and try again.';
+    case 'auth/too-many-requests':
+      return 'Too many unsuccessful attempts. For your security, please wait a moment or reset your password.';
+    case 'auth/requires-recent-login':
+      return 'For your security, please log out and sign in again before modifying account settings.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with this email using a different sign-in provider.';
+    case 'auth/expired-action-code':
+      return 'The password reset or verification link has expired. Please request a new one.';
+    case 'auth/invalid-action-code':
+      return 'The password reset link is invalid or has already been used.';
+    default:
+      return fallbackMessage || 'Authentication failed. Please verify your credentials and try again.';
+  }
+}
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -33,13 +74,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const handleGoogleSignIn = async () => {
     sound.playClick();
     setErrorMsg(null);
+    setInfoMsg(null);
     setLoading(true);
     try {
       await signInWithPopup(auth, googleProvider);
       onClose();
     } catch (e: any) {
-      console.warn('Google sign-in error:', e);
-      setErrorMsg(e?.message || 'Google sign-in was cancelled or failed.');
+      const code = e?.code || '';
+      console.warn('Google sign-in error:', code, e);
+      if (code === 'auth/popup-blocked') {
+        setInfoMsg(
+          "Your browser blocked the popup. Redirecting you to Google sign-in... Tip: Click the popup icon in your URL address bar to enable popups for instant sign-ins."
+        );
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          setErrorMsg(getAuthErrorMessage(redirectErr?.code, redirectErr?.message));
+        }
+      } else {
+        setErrorMsg(getAuthErrorMessage(code, e?.message));
+      }
     } finally {
       setLoading(false);
     }
@@ -63,6 +118,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         if (userCred?.user) {
           try {
             await sendEmailVerification(userCred.user);
+            setInfoMsg('Account created! A verification email has been dispatched to your inbox.');
           } catch (verifErr) {
             console.warn('Could not dispatch verification email:', verifErr);
           }
@@ -73,17 +129,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       onClose();
     } catch (e: any) {
       const code = e?.code || '';
-      let msg = e?.message || 'Authentication failed.';
-      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
-        msg = 'Incorrect email or password. Please try again.';
-      } else if (code === 'auth/user-not-found') {
-        msg = 'No account found with this email. You can create one below!';
-      } else if (code === 'auth/email-already-in-use') {
-        msg = 'An account already exists with this email. Please sign in instead.';
-      } else if (code === 'auth/weak-password') {
-        msg = 'Password should be at least 6 characters.';
-      }
-      setErrorMsg(msg);
+      setErrorMsg(getAuthErrorMessage(code, e?.message));
     } finally {
       setLoading(false);
     }
@@ -104,7 +150,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       await sendPasswordResetEmail(auth, email.trim());
       setInfoMsg(`✓ Password reset email sent to ${email.trim()}! Please check your inbox.`);
     } catch (e: any) {
-      setErrorMsg(e?.message || 'Could not send reset email. Ensure the email address is valid.');
+      const code = e?.code || '';
+      setErrorMsg(getAuthErrorMessage(code, e?.message || 'Could not send reset email. Ensure the email address is valid.'));
     } finally {
       setLoading(false);
     }

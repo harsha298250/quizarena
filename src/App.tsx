@@ -24,7 +24,7 @@ import { GameEngine } from './services/gameEngine';
 import { runSelfTests } from './tests/quizArena.test';
 import { sound } from './lib/sound';
 import { SupportedLanguage } from './lib/i18n';
-import { testConnection, ensureAnonymousAuth, auth, isFirebaseConfigured } from './lib/firebase';
+import { testConnection, ensureAnonymousAuth, auth, isFirebaseConfigured, getRedirectResult } from './lib/firebase';
 import { saveQuiz, loadUserQuizzes, deleteQuiz, deleteMyData } from './services/quizService';
 import { autoSendGameResults } from './services/emailService';
 import { useTheme } from './hooks/useTheme';
@@ -79,6 +79,11 @@ export default function App() {
 
   // Test Firebase connection on boot, ensure auth, and load teacher's Firestore quizzes
   useEffect(() => {
+    // Check if returning from a sign-in redirect
+    getRedirectResult(auth).catch(err => {
+      console.warn('Redirect auth result warning:', err);
+    });
+
     ensureAnonymousAuth();
     testConnection().then(connected => {
       setIsFirebaseOnline(connected);
