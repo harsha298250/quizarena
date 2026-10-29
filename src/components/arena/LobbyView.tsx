@@ -218,81 +218,30 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                sound.playClick();
-                onUpdateSettings?.({
-                  secureMode: game.settings.secureMode === false ? true : false,
-                });
-              }}
-              className={`paper-btn paper-btn-sm font-black text-xs px-3.5 py-1.5 transition-all ${
-                game.settings.secureMode !== false ? 'paper-btn-ok' : 'paper-btn-secondary'
-              }`}
-            >
-              {game.settings.secureMode !== false ? '✓ Secure Mode Active' : '✕ Secure Mode Disabled'}
-            </button>
+            <div className="flex items-center gap-2">
+              <span className="sticker-badge sticker-badge-ok text-xs font-black">
+                ✓ Always Active (Strict Integrity)
+              </span>
+            </div>
           </div>
 
-          {game.settings.secureMode !== false && (
-            <div className="pt-2 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-bold text-[var(--text)]">
-              <label className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={Boolean(game.settings.requireFullscreen)}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdateSettings?.({ requireFullscreen: e.target.checked });
-                  }}
-                  className="w-4 h-4 accent-[var(--accent)]"
-                />
-                <span>Require Fullscreen</span>
-              </label>
-
-              <label className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={game.settings.preventCopyPaste !== false}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdateSettings?.({ preventCopyPaste: e.target.checked });
-                  }}
-                  className="w-4 h-4 accent-[var(--accent)]"
-                />
-                <span>Lock Copy / Right-Click</span>
-              </label>
-
-              <label className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={game.settings.lockAnswerOnStrike3 !== false}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdateSettings?.({ lockAnswerOnStrike3: e.target.checked });
-                  }}
-                  className="w-4 h-4 accent-[var(--accent)]"
-                />
-                <span>Lock Q on Strike 3</span>
-              </label>
-
-              <div className="flex items-center justify-between p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
-                <span>Strike 2 Penalty:</span>
-                <select
-                  value={game.settings.strike2PointPenalty ?? 50}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdateSettings?.({ strike2PointPenalty: Number(e.target.value) });
-                  }}
-                  className="paper-input text-xs font-bold py-0.5 px-1 rounded-lg"
-                >
-                  <option value={0}>0 pts (Warning)</option>
-                  <option value={25}>-25 pts</option>
-                  <option value={50}>-50 pts</option>
-                  <option value={100}>-100 pts</option>
-                </select>
-              </div>
+          <div className="pt-2 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-bold text-[var(--text)]">
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+              <span>📺 Mandatory Fullscreen</span>
             </div>
-          )}
+
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+              <span>🚫 Copy/Paste Locked</span>
+            </div>
+
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+              <span>⚡ Strike 3 Auto-Lock</span>
+            </div>
+
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+              <span>♿ Assistive Tools Allowed</span>
+            </div>
+          </div>
 
           <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-[11px] font-semibold text-[var(--text-muted)] flex items-start gap-2">
             <span className="text-sm shrink-0">♿</span>
