@@ -411,3 +411,4 @@ export async function loadGameData(gameId: string): Promise<{
 
   return { game, questions, players, answers };
 }
+

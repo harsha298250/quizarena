@@ -17,3 +17,4 @@ assert.strictEqual(isGeminiModelNotFoundError(new Error('Network timeout')), fal
 assert.strictEqual(isGeminiModelNotFoundError(null), false);
 
 console.log('✅ AI Model Configuration & 404 Normalization tests passed successfully!');
+
