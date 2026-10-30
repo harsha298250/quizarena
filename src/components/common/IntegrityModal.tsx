@@ -11,6 +11,7 @@ interface IntegrityModalProps {
   onDismiss: () => void;
   blockedByExtension?: boolean;
   extensionReason?: string;
+  onReScanClean?: () => void;
   requireFullscreen?: boolean;
   isFullscreen?: boolean;
   onRequestFullscreen?: () => void;
@@ -21,6 +22,7 @@ export const IntegrityModal: React.FC<IntegrityModalProps> = ({
   onDismiss,
   blockedByExtension,
   extensionReason,
+  onReScanClean,
   requireFullscreen,
   isFullscreen,
   onRequestFullscreen,
@@ -35,18 +37,30 @@ export const IntegrityModal: React.FC<IntegrityModalProps> = ({
             Security Notice
           </h2>
           <p className="text-xs sm:text-sm font-semibold text-[var(--text)] leading-relaxed">
-            {extensionReason ||
-              'A browser extension or overlay has been detected modifying this assessment. To ensure fair competition, please disable third-party extensions for this domain and reload the page.'}
+            Turn off all extensions that read or modify this page, then reload.
           </p>
+          <div className="p-3 bg-red-100 dark:bg-red-950/40 border border-red-300 rounded-xl text-xs font-mono font-bold text-red-800 dark:text-red-200 text-left break-words">
+            Signal: {extensionReason || 'Third-party extension/overlay detected modifying DOM'}
+          </div>
           <div className="p-3 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-bold text-[var(--text-muted)]">
             ♿ Note: Built-in operating system screen readers, dyslexia fonts, and approved accessibility tools are always permitted.
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="paper-btn paper-btn-primary w-full py-2.5 text-sm font-black shadow-[3px_3px_0px_var(--shadow)]"
-          >
-            🔄 Reload Arena
-          </button>
+          <div className="flex gap-2">
+            {onReScanClean && (
+              <button
+                onClick={onReScanClean}
+                className="paper-btn paper-btn-secondary flex-1 py-2.5 text-xs font-black shadow-[3px_3px_0px_var(--shadow)]"
+              >
+                🔍 Re-Scan Now
+              </button>
+            )}
+            <button
+              onClick={() => window.location.reload()}
+              className="paper-btn paper-btn-primary flex-1 py-2.5 text-xs font-black shadow-[3px_3px_0px_var(--shadow)]"
+            >
+              🔄 Reload Arena
+            </button>
+          </div>
         </div>
       </div>
     );

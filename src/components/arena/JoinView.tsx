@@ -9,6 +9,7 @@ import { sanitizeNickname } from '../../lib/profanity';
 import { sound } from '../../lib/sound';
 import { AvatarBuilder } from '../common/AvatarBuilder';
 import { AvatarConfig, getDeterministicAvatar } from '../../types/avatar';
+import { scanEnvironmentForExtensions } from '../../lib/extensionDetector';
 import { ensureAnonymousAuth, auth } from '../../lib/firebase';
 import { measureServerTimeMetrics, NetworkMetrics } from '../../services/networkSync';
 
@@ -74,13 +75,31 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
     return () => clearInterval(timer);
   }, []);
 
+  const [isPreChecking, setIsPreChecking] = useState<boolean>(false);
+  const [preCheckFailedReason, setPreCheckFailedReason] = useState<string | null>(null);
+
   const handleJoin = async () => {
     sound.playClick();
     setErrorMessage(null);
+    setPreCheckFailedReason(null);
 
     const cleanPin = pin.trim();
     if (!cleanPin || cleanPin.length < 4) {
       setErrorMessage('Please enter a valid game PIN (6 digits).');
+      return;
+    }
+
+    // Pre-game Gate: 3-second environment check refusing entry if anything detected
+    setIsPreChecking(true);
+    await new Promise(r => setTimeout(r, 1200));
+    const scan = scanEnvironmentForExtensions();
+    setIsPreChecking(false);
+
+    if (scan.detected) {
+      sound.playWrong();
+      setPreCheckFailedReason(
+        scan.reason || 'Browser extensions or overlays detected. Please close all extensions or open a Chrome Guest window to join.'
+      );
       return;
     }
 
@@ -300,6 +319,23 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
           </div>
         )}
 
+        {preCheckFailedReason && (
+          <div className="p-3 bg-red-50 dark:bg-red-950/50 border-2 border-red-500 rounded-xl space-y-2 text-xs font-semibold text-red-900 dark:text-red-200">
+            <div className="flex items-center gap-1.5 font-black text-red-700 dark:text-red-300">
+              <span>🛡️ Pre-game Environment Check</span>
+            </div>
+            <p>{preCheckFailedReason}</p>
+            <div className="p-2 bg-[var(--surface)] border border-[var(--border)] rounded text-[11px] font-bold text-[var(--text)]">
+              💡 Checklist:
+              <ul className="list-disc pl-4 mt-1 font-normal space-y-0.5">
+                <li>Close extension sidebars and AI helpers</li>
+                <li>Disable browser overlays modifying web pages</li>
+                <li>Or open this URL in a clean <strong>Chrome Guest / Incognito window</strong></li>
+              </ul>
+            </div>
+          </div>
+        )}
+
         {errorMessage && (
           <div className="p-2.5 bg-red-100 dark:bg-red-950/60 border-2 border-red-600 rounded-xl text-xs font-bold text-red-900 dark:text-red-200 text-center">
             {errorMessage}
@@ -309,9 +345,17 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
         {/* Join Button */}
         <button
           onClick={handleJoin}
-          className="paper-btn paper-btn-primary w-full py-3.5 text-base font-black shadow-[4px_4px_0px_var(--shadow)]"
+          disabled={isPreChecking}
+          className="paper-btn paper-btn-primary w-full py-3.5 text-base font-black shadow-[4px_4px_0px_var(--shadow)] flex items-center justify-center gap-2"
         >
-          🚀 Join Arena Now
+          {isPreChecking ? (
+            <>
+              <span className="animate-spin">⏳</span>
+              <span>Scanning Environment (3s)...</span>
+            </>
+          ) : (
+            <span>🚀 Join Arena Now</span>
+          )}
         </button>
 
         {/* Or Host button */}

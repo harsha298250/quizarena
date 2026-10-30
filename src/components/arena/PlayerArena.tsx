@@ -54,6 +54,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     isQuestionLocked,
     blockedByExtension,
     extensionReason,
+    reScanClean,
     requireFullscreen,
     isFullscreen,
     fullscreenPaused,
@@ -788,6 +789,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         onDismiss={dismissWarningModal}
         blockedByExtension={blockedByExtension}
         extensionReason={extensionReason}
+        onReScanClean={reScanClean}
         requireFullscreen={requireFullscreen}
         isFullscreen={isFullscreen}
         onRequestFullscreen={requestFullscreen}

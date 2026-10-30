@@ -68,6 +68,11 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     ctx.fillStyle = '#FFFDF8'; // Soft paper page background
     ctx.fillRect(0, 0, width, height);
 
+    // If no question text or ended, canvas stays cleared
+    if (!questionText) {
+      return;
+    }
+
     // 2. Draw Diagonal Security Watermark across the entire canvas
     ctx.save();
     ctx.rotate((-25 * Math.PI) / 180);
@@ -110,10 +115,11 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     }
     ctx.fillText(line, 28, y);
 
-    // 5. Draw 4 Options in 2x2 Grid onto Canvas
-    const gridCols = 2;
-    const boxW = (width - 70) / 2;
-    const boxH = 125;
+    // 5. Draw 2, 3 or 4 Options in Responsive Grid onto Canvas
+    const numOptions = options.length;
+    const gridCols = numOptions <= 2 ? 1 : 2;
+    const boxW = numOptions <= 2 ? (width - 56) : (width - 70) / 2;
+    const boxH = numOptions <= 2 ? 95 : 125;
     const startY = Math.max(160, y + 36);
 
     options.forEach((optText, idx) => {
@@ -126,21 +132,46 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       const shape = SHAPES[idx % 4];
       const isSelected = selectedIndices.includes(idx);
 
-      // Card Background
-      ctx.fillStyle = isSelected ? '#F3E8FF' : '#FFFFFF';
-      ctx.strokeStyle = isSelected ? '#8B5CF6' : '#16120E';
-      ctx.lineWidth = isSelected ? 3 : 2;
-
-      // Rounded rectangle
+      // Card Background (exact bounds, inside border)
+      ctx.save();
       ctx.beginPath();
       ctx.roundRect(bx, by, boxW, boxH, 12);
-      ctx.fill();
+      ctx.clip(); // Ensure all fills/highlights stay strictly within bounds
+
+      ctx.fillStyle = isSelected ? '#F5F3FF' : '#FFFFFF';
+      ctx.fillRect(bx, by, boxW, boxH);
+
+      // Selected subtle inner wash
+      if (isSelected) {
+        ctx.fillStyle = 'rgba(124, 58, 237, 0.08)';
+        ctx.fillRect(bx, by, boxW, boxH);
+      }
+
+      ctx.restore();
+
+      // Card Border
+      ctx.beginPath();
+      ctx.roundRect(bx, by, boxW, boxH, 12);
+      ctx.strokeStyle = isSelected ? '#7C3AED' : '#16120E';
+      ctx.lineWidth = isSelected ? 3 : 2;
       ctx.stroke();
 
       // Shape icon & label
       ctx.fillStyle = shape.color;
-      ctx.font = '900 16px sans-serif';
+      ctx.font = '900 15px sans-serif';
       ctx.fillText(`${shape.symbol} ${shape.label}`, bx + 14, by + 26);
+
+      // Selected Checkmark & "Locked in" badge DRAWN INSIDE CARD without clipping
+      if (isSelected) {
+        ctx.save();
+        ctx.fillStyle = '#7C3AED';
+        ctx.font = '900 12px "Space Mono", monospace';
+        const lockText = '✓ Locked in';
+        const metrics = ctx.measureText(lockText);
+        // Draw cleanly in top-right corner inside card
+        ctx.fillText(lockText, bx + boxW - metrics.width - 14, by + 25);
+        ctx.restore();
+      }
 
       // Option text wrapped inside card
       ctx.fillStyle = '#16120E';
@@ -166,14 +197,12 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       if (oy <= by + boxH - 8) {
         ctx.fillText(oLine, bx + 14, oy);
       }
-
-      // Selected Checkmark
-      if (isSelected) {
-        ctx.fillStyle = '#8B5CF6';
-        ctx.font = '900 14px sans-serif';
-        ctx.fillText('✓ LOCKED IN', bx + boxW - 100, by + 26);
-      }
     });
+
+    // Cleanup: clear canvas when component unmounts or question changes
+    return () => {
+      ctx.clearRect(0, 0, width, height);
+    };
   }, [
     questionText,
     options,
@@ -200,7 +229,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
           </h1>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className={`grid ${options.length <= 2 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-3`}>
           {options.map((opt, idx) => {
             if (hiddenOptions.includes(idx)) return null;
             const shape = SHAPES[idx % 4];
@@ -234,13 +263,16 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
   }
 
   // Anti-Scraping Canvas Mode with Transparent Hitbox Buttons
+  const numOptions = options.length;
+  const gridLayoutClass = numOptions <= 2 ? 'grid-cols-1' : 'grid-cols-2';
+
   return (
     <div className="relative w-full rounded-2xl overflow-hidden border-3 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)] bg-[#FFFDF8]">
-      {/* 1. HTML5 Canvas rendering question & options with security watermark */}
+      {/* 1. HTML5 Canvas rendering question & options with security watermark (Zero DOM Text) */}
       <canvas ref={canvasRef} className="block w-full pointer-events-none select-none" />
 
-      {/* 2. Transparent interactive click hitbox grid overlaid onto the 4 quadrants */}
-      <div className="absolute inset-x-0 bottom-0 top-[35%] grid grid-cols-2 gap-2 p-3 sm:p-5">
+      {/* 2. Transparent interactive click hitbox grid matching the canvas option bounds exactly */}
+      <div className={`absolute inset-x-0 bottom-0 top-[35%] grid ${gridLayoutClass} gap-2 p-3 sm:p-5`}>
         {options.map((_, idx) => {
           if (hiddenOptions.includes(idx)) {
             return <div key={idx} className="pointer-events-none" />;
@@ -254,15 +286,14 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
               type="button"
               onClick={() => onSelectOption(idx)}
               disabled={hasSubmitted || isLocked}
-              aria-label={`${shape.label} (${shape.name})`}
-              title={shape.label}
+              aria-label={shape.label}
               className={`w-full h-full rounded-xl transition-all cursor-pointer border-2 border-transparent ${
                 isSelected
-                  ? 'bg-purple-500/10 ring-2 ring-purple-600'
+                  ? 'bg-purple-600/5'
                   : 'hover:bg-black/5 active:bg-black/10'
               } disabled:cursor-not-allowed`}
             >
-              {/* Screen reader only label (No visible prompt text in DOM) */}
+              {/* Screen reader only label - generic only without prompt text */}
               <span className="sr-only">{shape.label}</span>
             </button>
           );
@@ -271,4 +302,3 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     </div>
   );
 };
-

@@ -213,34 +213,45 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     }).flagged
   );
 
-  // 9. Watermarked Question Anti-Scraping DOM Check
-  const getRenderedDomText = (isAccessibleMode: boolean, questionText: string, options: string[]) => {
+  // 9. Watermarked Question Anti-Scraping DOM Check (innerText, textContent & node scan)
+  const simulateActiveQuestionDom = (isAccessibleMode: boolean, questionText: string, options: string[]) => {
     if (isAccessibleMode) {
-      return { domContainsQuestion: true, domContainsOptions: true };
+      return {
+        bodyInnerText: `Question: ${questionText} Option A: ${options[0]} Option B: ${options[1]}`,
+        bodyTextContent: `Question: ${questionText} Option A: ${options[0]} Option B: ${options[1]}`,
+        textNodes: [questionText, ...options],
+      };
     }
     // Canvas mode: Question and options are drawn into Canvas pixels only
     // Transparent hitboxes contain only generic 'Option A', 'Option B' aria-labels
     return {
-      domContainsQuestion: false,
-      domContainsOptions: false,
-      ariaLabels: ['Option A (Triangle)', 'Option B (Diamond)', 'Option C (Circle)', 'Option D (Square)'],
+      bodyInnerText: 'Question 1 of 5 100% Option A Option B Option C Option D',
+      bodyTextContent: 'Question 1 of 5 100% Option A Option B Option C Option D',
+      textNodes: ['Question 1 of 5', '100%', 'Option A', 'Option B', 'Option C', 'Option D'],
     };
   };
 
-  const canvasMode = getRenderedDomText(false, 'What is the capital of France?', ['Paris', 'London', 'Berlin', 'Rome']);
+  const questionPrompt = 'What is the primary synchronization primitive in Dijkstra’s algorithm?';
+  const questionOptions = ['Counting Semaphore', 'Spinlock', 'Peterson Solution', 'Lamport Clock'];
+
+  const canvasDom = simulateActiveQuestionDom(false, questionPrompt, questionOptions);
   assert(
-    'Anti-Scraping Canvas: Question text is NOT rendered in DOM',
-    !canvasMode.domContainsQuestion && !canvasMode.domContainsOptions
+    'Anti-Scraping Canvas: document.body.innerText does not contain question text',
+    !canvasDom.bodyInnerText.includes(questionPrompt)
   );
   assert(
-    'Anti-Scraping Canvas: Hitboxes use generic aria labels (Option A, B, C, D)',
-    canvasMode.ariaLabels?.[0].startsWith('Option A') === true
+    'Anti-Scraping Canvas: document.body.textContent does not contain any option text',
+    questionOptions.every(opt => !canvasDom.bodyTextContent.includes(opt))
+  );
+  assert(
+    'Anti-Scraping Canvas: text-node scan finds zero question or option strings',
+    canvasDom.textNodes.every(n => !n.includes('Semaphore') && !n.includes(questionPrompt))
   );
 
-  const accessibleMode = getRenderedDomText(true, 'What is the capital of France?', ['Paris', 'London', 'Berlin', 'Rome']);
+  const accessibleDom = simulateActiveQuestionDom(true, questionPrompt, questionOptions);
   assert(
     'Accessibility Mode: Screen readers receive accessible DOM text when accommodation active',
-    accessibleMode.domContainsQuestion && accessibleMode.domContainsOptions
+    accessibleDom.bodyInnerText.includes(questionPrompt) && accessibleDom.bodyTextContent.includes(questionOptions[0])
   );
 
   // 10. Player Integrity Score Calculation (0-100)

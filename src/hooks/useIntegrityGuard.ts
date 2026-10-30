@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GameSession, Player, IntegrityFlag } from '../types/quiz';
 import { GameEngine } from '../services/gameEngine';
 import { sound } from '../lib/sound';
+import { scanEnvironmentForExtensions, isExemptNode, KNOWN_AI_EXTENSIONS } from '../lib/extensionDetector';
 
 export interface IntegrityWarningModalState {
   open: boolean;
@@ -28,18 +29,6 @@ export interface UseIntegrityGuardProps {
 }
 
 const MAX_STRIKES_BEFORE_TERMINATION = 6;
-const KNOWN_AI_EXTENSIONS = [
-  'ai-blaze',
-  'sider',
-  'monica',
-  'merlin',
-  'harpa',
-  'maxai',
-  'grammarly',
-  'quiz-solver',
-  'chatgpt',
-  'copilot',
-];
 
 export function useIntegrityGuard({
   game,
@@ -218,6 +207,14 @@ export function useIntegrityGuard({
     [hasSubmitted, game.status, isTerminated, game.id, player.id, sendIntegrityFlag, strike2Penalty, onApplyPenalty, onQuestionLock]
   );
 
+  // Trigger blocking screen for detected extensions
+  const triggerExtensionBlock = useCallback((reason: string, signalName?: string) => {
+    setBlockedByExtension(true);
+    setExtensionReason(reason);
+    sendIntegrityFlag('extension_injection', 'high', `${signalName || 'extension_detected'}: ${reason}`);
+    registerStrike(`Extension violation: ${signalName || 'injected_tool'}`, 'tab_switch');
+  }, [sendIntegrityFlag, registerStrike]);
+
   // (1) Event Listeners: visibilitychange, blur, fullscreenchange
   useEffect(() => {
     if (game.status !== 'question_active' || isTerminated) return;
@@ -273,110 +270,62 @@ export function useIntegrityGuard({
     return () => clearInterval(focusPollInterval);
   }, [game.status, hasSubmitted, isTerminated, registerStrike]);
 
-  // (2) Extension & Suspicious Tool Detection (MutationObserver + known patterns)
+  // (2) Continuous 1-Second Environment Scanner & MutationObserver
   useEffect(() => {
     if (game.status !== 'question_active' || hasSubmitted || isTerminated) return;
-
-    // Check navigator.webdriver
-    if (typeof navigator !== 'undefined' && (navigator as any).webdriver) {
-      sendIntegrityFlag(
-        'webdriver_detected',
-        'high',
-        'Automated testing environment detected (navigator.webdriver = true)'
-      );
-    }
-
-    // Check Picture-in-Picture
-    if (typeof document !== 'undefined' && (document as any).pictureInPictureElement) {
-      sendIntegrityFlag(
-        'devtools_open',
-        'medium',
-        'Picture-in-Picture active window detected during question'
-      );
-    }
-
-    // Check multi-monitor
-    try {
-      const isExtended = Boolean((window.screen as any)?.isExtended);
-      if (isExtended) {
-        sendIntegrityFlag(
-          'multi_monitor' as any,
-          'medium',
-          'Multi-monitor configuration detected (screen.isExtended = true)'
-        );
-      }
-    } catch {}
 
     // Check getDisplayMedia screen capture
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && (navigator.mediaDevices as any).getDisplayMedia) {
       const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getDisplayMedia = async function (...args: any[]) {
-        sendIntegrityFlag('devtools_open', 'high', 'Screen capture attempted via getDisplayMedia');
+        triggerExtensionBlock('Screen capture attempted via getDisplayMedia', 'screen_capture');
         return originalGetDisplayMedia(...args);
       };
     }
 
-    // Devtools open heuristic
-    const checkDevtools = () => {
-      const threshold = 160;
-      const widthDiff = window.outerWidth - window.innerWidth > threshold;
-      const heightDiff = window.outerHeight - window.innerHeight > threshold;
-      if (widthDiff || heightDiff) {
-        sendIntegrityFlag('devtools_open', 'medium', 'Devtools console inspection window opened');
+    // 1-Second Continuous Environment Poller
+    const scanInterval = setInterval(() => {
+      const result = scanEnvironmentForExtensions();
+      if (result.detected) {
+        triggerExtensionBlock(result.reason || 'Unauthorized extension detected', result.signalName);
+      } else if (blockedByExtension) {
+        // Clean re-scan allows unblocking
+        setBlockedByExtension(false);
+        setExtensionReason('');
       }
-    };
-    const devtoolsTimer = setInterval(checkDevtools, 8000);
+    }, 1000);
 
-    // MutationObserver to scan for injected extension nodes and overlays
+    // Initial immediate scan
+    const initialCheck = scanEnvironmentForExtensions();
+    if (initialCheck.detected) {
+      triggerExtensionBlock(initialCheck.reason || 'Unauthorized extension detected', initialCheck.signalName);
+    }
+
+    // MutationObserver to scan for dynamically injected nodes, iframes, overlays
     let observer: MutationObserver | null = null;
     try {
       observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
           for (const node of Array.from(mutation.addedNodes)) {
             if (node instanceof HTMLElement) {
-              // False-positive guard 1: Ignore password managers (1Password, Bitwarden, LastPass, Dashlane)
-              if (
-                node.hasAttribute('data-lastpass-icon-root') ||
-                node.hasAttribute('data-dashlane-frame') ||
-                node.hasAttribute('data-bitwarden') ||
-                node.closest('input, textarea, form')
-              ) {
-                continue;
-              }
-
-              // False-positive guard 2: Ignore Google Translate & language translation wrappers
-              if (node.classList.contains('translated-ltr') || node.id.includes('goog-gt-')) {
-                continue;
-              }
+              if (isExemptNode(node)) continue;
 
               const html = (node.outerHTML || '').toLowerCase();
-              const isExtensionUri =
-                html.includes('chrome-extension://') || html.includes('moz-extension://');
-
+              const isExtensionUri = html.includes('chrome-extension://') || html.includes('moz-extension://');
               const isKnownAIExtension = KNOWN_AI_EXTENSIONS.some(
                 ext => html.includes(ext) || node.id.toLowerCase().includes(ext) || node.className.toLowerCase().includes(ext)
               );
 
-              // Check for fixed overlays placed outside #root or covering the question
               const style = window.getComputedStyle(node);
               const isFixedOverlay =
                 style.position === 'fixed' &&
                 (parseInt(style.zIndex || '0', 10) >= 999 || node.getBoundingClientRect().width > 300);
 
               if (isExtensionUri || isKnownAIExtension || isFixedOverlay) {
-                sendIntegrityFlag(
-                  'extension_injection',
-                  'high',
-                  `Browser overlay or assistant detected: <${node.tagName.toLowerCase()}>`
+                triggerExtensionBlock(
+                  `Browser overlay or assistant detected: <${node.tagName.toLowerCase()}>`,
+                  isKnownAIExtension ? 'ai_extension' : isExtensionUri ? 'extension_uri' : 'fixed_overlay'
                 );
-
-                if (isExtensionUri || isKnownAIExtension) {
-                  setBlockedByExtension(true);
-                  setExtensionReason(
-                    'An AI assistant or browser extension was detected modifying this test. Please disable third-party extensions for this page and reload.'
-                  );
-                  registerStrike('Third-party AI extension injected into DOM', 'tab_switch');
-                }
               }
             }
           }
@@ -387,12 +336,12 @@ export function useIntegrityGuard({
     } catch (e) {}
 
     return () => {
-      clearInterval(devtoolsTimer);
+      clearInterval(scanInterval);
       observer?.disconnect();
     };
-  }, [game.status, hasSubmitted, isTerminated, sendIntegrityFlag, registerStrike]);
+  }, [game.status, hasSubmitted, isTerminated, triggerExtensionBlock, blockedByExtension]);
 
-  // (4) Disable copy, cut, paste, selection, printing, right-click, and hotkeys
+  // (3) Disable copy, cut, paste, selection, printing, right-click, and hotkeys
   useEffect(() => {
     const handleCopy = (e: ClipboardEvent) => {
       e.preventDefault();
@@ -494,6 +443,16 @@ export function useIntegrityGuard({
     }
   };
 
+  const reScanClean = () => {
+    const res = scanEnvironmentForExtensions();
+    if (!res.detected) {
+      setBlockedByExtension(false);
+      setExtensionReason('');
+    } else {
+      setExtensionReason(res.reason || 'Extension or overlay still detected.');
+    }
+  };
+
   return {
     isSecure,
     strikes,
@@ -503,6 +462,7 @@ export function useIntegrityGuard({
     isQuestionLocked,
     blockedByExtension,
     extensionReason,
+    reScanClean,
     requireFullscreen: true,
     isFullscreen,
     fullscreenPaused,
