@@ -118,7 +118,7 @@ export function updateOutboxItemStatus(
 
 
 /**
- * Dispatch a single test email via Express server POST /api/send-test-email with host token
+ * Dispatch a single test email via Express server POST /api/send-test-email with host token and 20s timeout
  */
 export async function sendTestEmailViaApi(payload: {
   to: string;
@@ -137,25 +137,90 @@ export async function sendTestEmailViaApi(payload: {
   }
   const idToken = (await user?.getIdToken()) || '';
 
-  const resp = await fetch('/api/send-test-email', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-  if (!resp.ok) {
-    const errorJson = await resp.json().catch(() => ({}));
+  try {
+    const resp = await fetch('/api/send-test-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      const errorJson = await resp.json().catch(() => ({}));
+      return {
+        success: false,
+        status: 'failed',
+        error: errorJson.error || `Server responded with ${resp.status}`,
+      };
+    }
+
+    return await resp.json();
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError' || controller.signal.aborted) {
+      return {
+        success: false,
+        status: 'failed',
+        error: 'Test email dispatch timed out after 20 seconds. Check SMTP server settings.',
+      };
+    }
     return {
       success: false,
       status: 'failed',
-      error: errorJson.error || `Server responded with ${resp.status}`,
+      error: err instanceof Error ? err.message : String(err),
     };
   }
+}
 
-  return await resp.json();
+/**
+ * Check SMTP transporter health via GET /api/smtp-health with host token
+ */
+export async function checkSmtpHealthViaApi(): Promise<{
+  connected: boolean;
+  host?: string;
+  error?: string;
+}> {
+  let user = auth.currentUser;
+  if (!user) {
+    user = await ensureAnonymousAuth();
+  }
+  const idToken = (await user?.getIdToken()) || '';
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const resp = await fetch('/api/smtp-health', {
+      headers: {
+        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      return await resp.json();
+    }
+    const errJson = await resp.json().catch(() => ({}));
+    return {
+      connected: false,
+      error: errJson.error || `HTTP ${resp.status}`,
+    };
+  } catch (err: any) {
+    clearTimeout(timeoutId);
+    return {
+      connected: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**
@@ -192,6 +257,7 @@ export async function sendResultsViaApi(payload: SendResultsPayload): Promise<{
 
 /**
  * Resend a single email from outbox
+ * Automatically routes test emails to /api/send-test-email and real games to /api/send-results
  */
 export async function resendOutboxEmail(id: string): Promise<boolean> {
   const emails = getLocalOutboxEmails();
@@ -200,9 +266,32 @@ export async function resendOutboxEmail(id: string): Promise<boolean> {
 
   updateOutboxItemStatus(id, 'queued');
 
+  const isTestItem =
+    !target.metadata?.gameId ||
+    target.metadata.gameId === 'test_dispatch' ||
+    target.metadata.gameId === 'game_demo' ||
+    target.metadata.gameId.startsWith('test_');
+
+  if (isTestItem) {
+    const res = await sendTestEmailViaApi({
+      to: target.to,
+      recipientName: target.recipientName,
+      subject: target.subject,
+      htmlContent: target.htmlContent,
+    });
+
+    if (res.success && res.status === 'sent') {
+      updateOutboxItemStatus(id, 'sent');
+      return true;
+    } else {
+      updateOutboxItemStatus(id, 'failed', res.error || 'Failed to dispatch test email');
+      return false;
+    }
+  }
+
   try {
     const payload: SendResultsPayload = {
-      gameId: target.metadata.gameId || 'direct_resend',
+      gameId: target.metadata.gameId,
       isAutomatic: false,
       emails: [
         {

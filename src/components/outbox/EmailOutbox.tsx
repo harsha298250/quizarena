@@ -3,9 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MailQueueItem } from '../../types/quiz';
-import { getLocalOutboxEmails, updateOutboxItemStatus, queueResultEmail, resendOutboxEmail, sendTestEmailViaApi } from '../../services/emailService';
+import {
+  getLocalOutboxEmails,
+  updateOutboxItemStatus,
+  queueResultEmail,
+  resendOutboxEmail,
+  sendTestEmailViaApi,
+  checkSmtpHealthViaApi,
+} from '../../services/emailService';
+import { auth } from '../../lib/firebase';
 import { sound } from '../../lib/sound';
 
 export const EmailOutbox: React.FC = () => {
@@ -13,23 +21,68 @@ export const EmailOutbox: React.FC = () => {
   const [selectedEmail, setSelectedEmail] = useState<MailQueueItem | null>(null);
   const [isResending, setIsResending] = useState<boolean>(false);
   const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
+  const [testErrorMessage, setTestErrorMessage] = useState<string | null>(null);
+  const [smtpStatus, setSmtpStatus] = useState<{
+    checking: boolean;
+    connected: boolean | null;
+    error?: string;
+    host?: string;
+  }>({ checking: true, connected: null });
+
   const [templateName, setTemplateName] = useState<string>('Standard Student Result');
   const [templateHtml, setTemplateHtml] = useState<string>(
     'Great job {{name}}! You scored {{score}} points and secured Rank #{{rank}} in the arena!'
   );
-  const [testEmailTo, setTestEmailTo] = useState<string>('student@example.com');
+  const [testEmailTo, setTestEmailTo] = useState<string>(auth.currentUser?.email || '');
+
+  const dispatchTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     loadEmails();
+    runSmtpHealthCheck();
+    if (auth.currentUser?.email) {
+      setTestEmailTo(auth.currentUser.email);
+    }
   }, []);
 
+  const runSmtpHealthCheck = async () => {
+    setSmtpStatus(prev => ({ ...prev, checking: true }));
+    try {
+      const res = await checkSmtpHealthViaApi();
+      setSmtpStatus({
+        checking: false,
+        connected: res.connected,
+        host: res.host,
+        error: res.error,
+      });
+    } catch (e: any) {
+      setSmtpStatus({
+        checking: false,
+        connected: false,
+        error: e.message || String(e),
+      });
+    }
+  };
+
   const loadEmails = () => {
-    let list = getLocalOutboxEmails();
-    // Remove seeded/dummy fake emails from previous sessions
-    list = list.filter(item => item.to !== 'teacher@quizarena.app' && item.recipientName !== 'Sample Teacher');
-    setEmails(list);
-    if (list.length > 0) {
-      setSelectedEmail(prev => (prev ? list.find(e => e.id === prev.id) || list[0] : list[0]));
+    const list = getLocalOutboxEmails();
+    // Permanently purge all seeded sample rows (Alex Student, teacher@quizarena.app, sample domains)
+    const cleaned = list.filter(
+      item =>
+        item.to !== 'teacher@quizarena.app' &&
+        item.to !== 'student@example.com' &&
+        item.recipientName !== 'Sample Teacher' &&
+        item.recipientName !== 'Alex Student' &&
+        !item.to.endsWith('@example.com')
+    );
+    if (cleaned.length !== list.length) {
+      try {
+        localStorage.setItem('quizarena_local_mail_outbox', JSON.stringify(cleaned));
+      } catch (e) {}
+    }
+    setEmails(cleaned);
+    if (cleaned.length > 0) {
+      setSelectedEmail(prev => (prev ? cleaned.find(e => e.id === prev.id) || cleaned[0] : cleaned[0]));
     } else {
       setSelectedEmail(null);
     }
@@ -38,16 +91,26 @@ export const EmailOutbox: React.FC = () => {
   const handleResend = async (id: string) => {
     sound.playClick();
     setIsResending(true);
+    setTestErrorMessage(null);
+
+    const safetyTimer = setTimeout(() => {
+      setIsResending(false);
+      setTestErrorMessage('Resend request timed out after 20 seconds. Check SMTP credentials.');
+    }, 20000);
+
     try {
       const success = await resendOutboxEmail(id);
+      clearTimeout(safetyTimer);
       loadEmails();
       if (success) {
         alert('Email resent successfully via SMTP server!');
       } else {
-        alert('Resend attempt recorded. Check outbox for updated status and error details.');
+        const item = getLocalOutboxEmails().find(e => e.id === id);
+        setTestErrorMessage(item?.errorMessage || 'Resend failed. Check SMTP configuration.');
       }
-    } catch (e) {
-      alert('Error during resend: ' + String(e));
+    } catch (e: any) {
+      clearTimeout(safetyTimer);
+      setTestErrorMessage('Error during resend: ' + (e.message || String(e)));
     } finally {
       setIsResending(false);
     }
@@ -55,29 +118,48 @@ export const EmailOutbox: React.FC = () => {
 
   const handleSendTest = async () => {
     sound.playClick();
+    setTestErrorMessage(null);
+
+    const hostUser = auth.currentUser;
+    const destination = (testEmailTo || hostUser?.email || '').trim();
+
+    if (!destination) {
+      setTestErrorMessage('Please sign in or enter your verified host email address.');
+      return;
+    }
+
     setIsSendingTest(true);
 
+    // 20s safety timeout to strictly prevent stuck "Dispatching..." state
+    if (dispatchTimeoutRef.current) clearTimeout(dispatchTimeoutRef.current);
+    dispatchTimeoutRef.current = setTimeout(() => {
+      setIsSendingTest(false);
+      setTestErrorMessage('Dispatch timed out after 20 seconds. Please check SMTP settings.');
+    }, 20000);
+
+    const recipientName = hostUser?.displayName || 'Host Administrator';
     const rendered = templateHtml
-      .replace('{{name}}', 'Alex Student')
-      .replace('{{score}}', '8500')
+      .replace('{{name}}', recipientName)
+      .replace('{{score}}', '9200')
       .replace('{{rank}}', '1');
 
     const mailItem = {
-      to: testEmailTo.trim(),
-      recipientName: 'Alex Student',
-      subject: `Your QuizArena Result: Rank #1`,
-      htmlContent: `<div style="font-family:sans-serif;padding:20px;border:3px solid #16120E;border-radius:12px;background:#FFF6E5;">
-        <h2 style="color:#FF5A36;">QuizArena Certificate & Results</h2>
-        <p>${rendered}</p>
-        <p style="font-size:12px;color:#666;">Dispatched via QuizArena SMTP Delivery Pipeline.</p>
+      to: destination,
+      recipientName,
+      subject: `QuizArena Result Test Preview: ${templateName}`,
+      htmlContent: `<div style="font-family:sans-serif;padding:24px;border:3px solid #16120E;border-radius:12px;background:#FFF6E5;">
+        <h2 style="color:#FF5A36;margin-top:0;">QuizArena Verified Result Dispatch</h2>
+        <p style="font-size:15px;line-height:1.5;">${rendered}</p>
+        <hr style="border:none;border-top:1px dashed #ccc;margin:20px 0;" />
+        <p style="font-size:12px;color:#666;">Authenticated test email dispatched via QuizArena SMTP delivery pipeline to verified host: ${destination}</p>
       </div>`,
       status: 'queued' as const,
       metadata: {
         gameId: 'test_dispatch',
-        quizTitle: 'Live Arena Assessment',
-        score: 8500,
+        quizTitle: 'Live Arena Test Dispatch',
+        score: 9200,
         rank: 1,
-        accuracy: 0.9,
+        accuracy: 0.95,
       },
     };
 
@@ -86,23 +168,27 @@ export const EmailOutbox: React.FC = () => {
 
     try {
       const res = await sendTestEmailViaApi({
-        to: mailItem.to,
-        recipientName: mailItem.recipientName,
+        to: destination,
+        recipientName,
         subject: mailItem.subject,
         htmlContent: mailItem.htmlContent,
       });
 
+      if (dispatchTimeoutRef.current) clearTimeout(dispatchTimeoutRef.current);
+
       if (res.success && res.status === 'sent') {
         updateOutboxItemStatus(mailId, 'sent');
-        alert(res.simulated ? 'Test email simulated (SMTP credentials not configured on server).' : 'Test email successfully dispatched via SMTP!');
+        alert(`Test email successfully dispatched to ${destination} via SMTP!`);
       } else {
-        updateOutboxItemStatus(mailId, 'failed', res.error || 'SMTP delivery failed');
-        alert(`Email dispatch failed: ${res.error || 'SMTP error'}`);
+        const errorDesc = res.error || 'SMTP delivery failed';
+        updateOutboxItemStatus(mailId, 'failed', errorDesc);
+        setTestErrorMessage(`Dispatch failed: ${errorDesc}`);
       }
     } catch (err: any) {
+      if (dispatchTimeoutRef.current) clearTimeout(dispatchTimeoutRef.current);
       const errMsg = err instanceof Error ? err.message : String(err);
       updateOutboxItemStatus(mailId, 'failed', errMsg);
-      alert(`Dispatch error: ${errMsg}`);
+      setTestErrorMessage(`Dispatch error: ${errMsg}`);
     } finally {
       setIsSendingTest(false);
       loadEmails();
@@ -114,9 +200,38 @@ export const EmailOutbox: React.FC = () => {
       {/* Header Banner */}
       <div className="paper-card p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <span className="sticker-badge bg-[var(--ok)] text-white text-xs mb-1">
-            Communication Layer
-          </span>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="sticker-badge bg-[var(--ok)] text-white text-xs">
+              Communication Layer
+            </span>
+            {/* SMTP Health Pill */}
+            {smtpStatus.checking ? (
+              <span className="sticker-badge bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-[10px] animate-pulse">
+                Checking SMTP...
+              </span>
+            ) : smtpStatus.connected ? (
+              <span
+                className="sticker-badge sticker-badge-ok text-[10px] flex items-center gap-1"
+                title={`Host: ${smtpStatus.host || 'Connected'}`}
+              >
+                ● SMTP Connected
+              </span>
+            ) : (
+              <span
+                className="sticker-badge sticker-badge-tomato text-[10px] flex items-center gap-1"
+                title={smtpStatus.error || 'Failed'}
+              >
+                ✕ SMTP Failed: {smtpStatus.error || 'Not Configured'}
+              </span>
+            )}
+            <button
+              onClick={runSmtpHealthCheck}
+              className="text-[11px] font-bold text-[var(--accent)] hover:underline ml-1"
+              title="Re-verify SMTP Connection"
+            >
+              Verify
+            </button>
+          </div>
           <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[var(--text)]">
             Result Email Outbox & Template Editor
           </h1>
@@ -134,6 +249,18 @@ export const EmailOutbox: React.FC = () => {
           {isSendingTest ? '✉️ Dispatching...' : '✉️ Send Test Email'}
         </button>
       </div>
+
+      {testErrorMessage && (
+        <div className="p-3 bg-red-100 dark:bg-red-950/70 border-2 border-red-500 rounded-xl text-xs font-bold text-red-800 dark:text-red-200 flex items-center justify-between gap-2 animate-fadeIn">
+          <span>⚠️ {testErrorMessage}</span>
+          <button
+            onClick={() => setTestErrorMessage(null)}
+            className="text-xs font-black text-red-600 dark:text-red-400 hover:underline shrink-0"
+          >
+            ✕ Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Main Grid: Outbox list + Live HTML preview + Template editor */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -271,12 +398,13 @@ export const EmailOutbox: React.FC = () => {
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="inputTestEmailTo" className="text-xs font-bold text-[var(--text-muted)] uppercase">Recipient Test Address</label>
+            <label htmlFor="inputTestEmailTo" className="text-xs font-bold text-[var(--text-muted)] uppercase">Host Test Address (Verified Account)</label>
             <input
               id="inputTestEmailTo"
               type="email"
               value={testEmailTo}
               onChange={e => setTestEmailTo(e.target.value)}
+              placeholder="host@school.edu"
               className="paper-input w-full rounded-lg border-2 border-[var(--border)] p-2 text-xs font-bold"
             />
           </div>

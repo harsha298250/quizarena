@@ -40,6 +40,34 @@ export function resetHostEmailRateLimit(hostUid?: string): void {
   }
 }
 
+// Test email rate limiter: 3 requests per hour (3600000 ms) per hostUid
+const testEmailRateLimiter = new Map<string, { count: number; resetAt: number }>();
+
+export function checkTestEmailRateLimit(
+  hostUid: string,
+  now: number = Date.now()
+): { allowed: boolean; retryAfterSec?: number } {
+  const entry = testEmailRateLimiter.get(hostUid);
+  if (!entry || now > entry.resetAt) {
+    testEmailRateLimiter.set(hostUid, { count: 1, resetAt: now + 3600000 });
+    return { allowed: true };
+  }
+  if (entry.count >= 3) {
+    const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
+    return { allowed: false, retryAfterSec };
+  }
+  entry.count++;
+  return { allowed: true };
+}
+
+export function resetTestEmailRateLimit(hostUid?: string): void {
+  if (hostUid) {
+    testEmailRateLimiter.delete(hostUid);
+  } else {
+    testEmailRateLimiter.clear();
+  }
+}
+
 export function validateAndCapRecipients<T>(recipients: T[], maxAllowed = MAX_RECIPIENTS_PER_GAME): {
   capped: boolean;
   recipients: T[];
@@ -432,4 +460,158 @@ export async function handleSendResults(
     capped,
     results,
   });
+}
+
+/**
+ * Handles POST /api/send-test-email
+ * Verifies Firebase ID token, sends ONLY to the signed-in host's own verified email address,
+ * rate-limited to 3 per hour, using real SMTP settings, and returns the exact SMTP error if it fails.
+ */
+export async function handleSendTestEmail(
+  req: Request,
+  res: Response,
+  options: SendResultsOptions = {}
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Missing or malformed Authorization header with Bearer token' });
+    return;
+  }
+  const idToken = authHeader.split('Bearer ')[1].trim();
+
+  const adminAuth = options.adminAuth;
+  if (!adminAuth || typeof adminAuth.verifyIdToken !== 'function') {
+    res.status(500).json({ error: 'Authentication service unavailable' });
+    return;
+  }
+
+  let hostUid: string;
+  let hostEmail: string | undefined;
+  try {
+    const decoded = await adminAuth.verifyIdToken(idToken);
+    if (!decoded || !decoded.uid) {
+      res.status(401).json({ error: 'Invalid Firebase ID token' });
+      return;
+    }
+    hostUid = decoded.uid;
+    hostEmail = decoded.email;
+    if (!hostEmail && typeof adminAuth.getUser === 'function') {
+      try {
+        const u = await adminAuth.getUser(hostUid);
+        hostEmail = u.email;
+      } catch (e) {}
+    }
+  } catch (authError) {
+    res.status(401).json({ error: 'Invalid Firebase ID token' });
+    return;
+  }
+
+  if (!hostEmail || !isValidEmail(hostEmail)) {
+    res.status(400).json({
+      error: 'Host account does not have a verified email address. Test emails can only be sent to the signed-in host email.',
+    });
+    return;
+  }
+
+  const { to, subject, htmlContent } = req.body || {};
+  if (to && to.trim().toLowerCase() !== hostEmail.trim().toLowerCase()) {
+    res.status(403).json({
+      error: `Forbidden: Test emails can ONLY be sent to the signed-in host's verified email (${hostEmail}).`,
+    });
+    return;
+  }
+
+  // Rate limit: 3 per hour
+  const rateResult = checkTestEmailRateLimit(hostUid);
+  if (!rateResult.allowed) {
+    res.setHeader('Retry-After', String(rateResult.retryAfterSec));
+    res.status(429).json({
+      error: `Rate limit exceeded: maximum 3 test emails per hour per host. Try again in ${rateResult.retryAfterSec} seconds.`,
+    });
+    return;
+  }
+
+  const transporter = options.transporter !== undefined ? options.transporter : getSmtpTransporter();
+  if (!transporter) {
+    res.status(503).json({
+      success: false,
+      status: 'failed',
+      error: 'SMTP transporter is not configured on the server. Please configure SMTP_USER and SMTP_PASS.',
+    });
+    return;
+  }
+
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || '"QuizArena" <noreply@quizarena.app>';
+  try {
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to: hostEmail,
+      subject: subject || 'QuizArena Test Result Email',
+      html: htmlContent || '<p>QuizArena Test Email</p>',
+    });
+    res.json({
+      success: true,
+      status: 'sent',
+      to: hostEmail,
+      messageId: info?.messageId,
+      message: `Test email successfully dispatched to host (${hostEmail}) via SMTP.`,
+    });
+  } catch (smtpErr: any) {
+    const errMsg = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
+    res.status(502).json({
+      success: false,
+      status: 'failed',
+      error: errMsg,
+    });
+  }
+}
+
+/**
+ * Handles GET /api/smtp-health
+ * Verifies SMTP connection using transporter.verify() and reports connection status and error reason.
+ */
+export async function handleSmtpHealth(
+  req: Request,
+  res: Response,
+  options: SendResultsOptions = {}
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ connected: false, error: 'Unauthorized: Bearer token required' });
+    return;
+  }
+  const idToken = authHeader.split('Bearer ')[1].trim();
+  const adminAuth = options.adminAuth;
+
+  if (adminAuth && typeof adminAuth.verifyIdToken === 'function') {
+    try {
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      if (!decoded || !decoded.uid) {
+        res.status(401).json({ connected: false, error: 'Invalid Firebase ID token' });
+        return;
+      }
+    } catch {
+      res.status(401).json({ connected: false, error: 'Invalid Firebase ID token' });
+      return;
+    }
+  }
+
+  const transporter = options.transporter !== undefined ? options.transporter : getSmtpTransporter();
+  if (!transporter) {
+    res.json({
+      connected: false,
+      error: 'SMTP credentials not configured (SMTP_USER / SMTP_PASS missing in environment)',
+    });
+    return;
+  }
+
+  try {
+    await transporter.verify();
+    res.json({ connected: true, host: process.env.SMTP_HOST || 'Connected' });
+  } catch (verifyErr: any) {
+    res.json({
+      connected: false,
+      error: verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
+    });
+  }
 }

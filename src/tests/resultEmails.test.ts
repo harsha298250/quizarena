@@ -10,6 +10,9 @@ import {
   validateAndCapRecipients,
   filterEligibleRecipients,
   handleSendResults,
+  handleSendTestEmail,
+  handleSmtpHealth,
+  resetTestEmailRateLimit,
   MAX_HOST_EMAIL_REQUESTS_PER_MIN,
   MAX_RECIPIENTS_PER_GAME,
 } from '../server/resultEmailsHandler.ts';
@@ -185,6 +188,9 @@ async function runAllTests() {
     const res: any = {
       status: (code: number) => {
         statusCode = code;
+        return res;
+      },
+      setHeader: (_name: string, _value: string) => {
         return res;
       },
       json: (data: any) => {
@@ -403,6 +409,137 @@ async function runAllTests() {
     assert.ok(sentMails[0].html.includes('Great effort, Alice!'), 'HTML generated server-side for Alice');
     assert.ok(!sentMails.some(m => m.to === 'hacker_target@spam.com'), 'Malicious client recipient completely ignored');
     assert.ok(!sentMails.some(m => m.to === 'bob@test.com'), 'Opted out student Bob was not emailed');
+  });
+
+  await test('11. POST /api/send-test-email sends ONLY to host verified email, rejects other targets', async () => {
+    resetTestEmailRateLimit();
+    const mockAdminAuth = {
+      verifyIdToken: async (tok: string) => {
+        if (tok === 'host_token') return { uid: 'host_123', email: 'verified_host@school.edu' };
+        throw new Error('Invalid token');
+      },
+    };
+
+    let sentMail: any = null;
+    const mockTransporter = {
+      sendMail: async (opts: any) => {
+        sentMail = opts;
+        return { messageId: 'msg_test_123' };
+      },
+    } as any;
+
+    // A) Attempt to send to third party email -> 403 Forbidden
+    const { res: resForbidden, getStatusCode: getForbiddenCode, getBody: getForbiddenBody } = createMockResponse();
+    const reqForbidden = {
+      headers: { authorization: 'Bearer host_token' },
+      body: { to: 'victim@external.com', htmlContent: '<p>test</p>' },
+    } as any;
+
+    await handleSendTestEmail(reqForbidden, resForbidden, {
+      adminAuth: mockAdminAuth,
+      transporter: mockTransporter,
+    });
+    assert.strictEqual(getForbiddenCode(), 403, 'Must reject sending test email to non-host address');
+    assert.ok(getForbiddenBody().error.includes('ONLY be sent to the signed-in host'), 'Clear forbidden explanation');
+
+    // B) Send to host's own verified email -> 200 OK
+    const { res: resOk, getStatusCode: getOkCode, getBody: getOkBody } = createMockResponse();
+    const reqOk = {
+      headers: { authorization: 'Bearer host_token' },
+      body: { to: 'verified_host@school.edu', htmlContent: '<p>Host Preview</p>' },
+    } as any;
+
+    await handleSendTestEmail(reqOk, resOk, {
+      adminAuth: mockAdminAuth,
+      transporter: mockTransporter,
+    });
+    assert.strictEqual(getOkCode(), 200, 'Must succeed when sending to host verified email');
+    assert.strictEqual(getOkBody().success, true);
+    assert.strictEqual(sentMail?.to, 'verified_host@school.edu');
+  });
+
+  await test('12. POST /api/send-test-email rate limits to 3 per hour per host', async () => {
+    resetTestEmailRateLimit('host_rate_test');
+    const mockAdminAuth = {
+      verifyIdToken: async () => ({ uid: 'host_rate_test', email: 'rate_host@school.edu' }),
+    };
+    const mockTransporter = {
+      sendMail: async () => ({ messageId: 'msg_ok' }),
+    } as any;
+
+    const req = {
+      headers: { authorization: 'Bearer valid_token' },
+      body: { to: 'rate_host@school.edu', htmlContent: '<p>Test</p>' },
+    } as any;
+
+    // Requests 1, 2, 3 succeed
+    for (let i = 0; i < 3; i++) {
+      const { res, getStatusCode } = createMockResponse();
+      await handleSendTestEmail(req, res, { adminAuth: mockAdminAuth, transporter: mockTransporter });
+      assert.strictEqual(getStatusCode(), 200, `Request ${i + 1} must succeed`);
+    }
+
+    // Request 4 is rate limited (429)
+    const { res: res429, getStatusCode: getCode429, getBody: getBody429 } = createMockResponse();
+    await handleSendTestEmail(req, res429, { adminAuth: mockAdminAuth, transporter: mockTransporter });
+    assert.strictEqual(getCode429(), 429, '4th request within hour must be rate limited to 429');
+    assert.ok(getBody429().error.includes('Rate limit exceeded'), 'Clear rate limit error message');
+  });
+
+  await test('13. POST /api/send-test-email returns exact SMTP error on transporter failure', async () => {
+    resetTestEmailRateLimit('host_smtp_fail');
+    const mockAdminAuth = {
+      verifyIdToken: async () => ({ uid: 'host_smtp_fail', email: 'fail_host@school.edu' }),
+    };
+    const failingTransporter = {
+      sendMail: async () => {
+        throw new Error('535 5.7.8 Username and Password not accepted');
+      },
+    } as any;
+
+    const req = {
+      headers: { authorization: 'Bearer valid_token' },
+      body: { to: 'fail_host@school.edu', htmlContent: '<p>Test</p>' },
+    } as any;
+
+    const { res, getStatusCode, getBody } = createMockResponse();
+    await handleSendTestEmail(req, res, { adminAuth: mockAdminAuth, transporter: failingTransporter });
+    assert.strictEqual(getStatusCode(), 502, 'Failed SMTP connection must return 502 Bad Gateway');
+    assert.strictEqual(getBody().success, false);
+    assert.ok(getBody().error.includes('Username and Password not accepted'), 'Must return exact SMTP error');
+  });
+
+  await test('14. GET /api/smtp-health verifies transporter and returns Connected/Failed status', async () => {
+    const mockAdminAuth = {
+      verifyIdToken: async () => ({ uid: 'host_health_test' }),
+    };
+
+    // A) Transporter verify succeeds
+    const healthyTransporter = {
+      verify: async () => true,
+    } as any;
+
+    const { res: resHealthy, getBody: getBodyHealthy } = createMockResponse();
+    await handleSmtpHealth({ headers: { authorization: 'Bearer token' } } as any, resHealthy, {
+      adminAuth: mockAdminAuth,
+      transporter: healthyTransporter,
+    });
+    assert.strictEqual(getBodyHealthy().connected, true, 'Healthy SMTP must report connected: true');
+
+    // B) Transporter verify fails
+    const brokenTransporter = {
+      verify: async () => {
+        throw new Error('getaddrinfo ENOTFOUND smtp.invalidhost.com');
+      },
+    } as any;
+
+    const { res: resBroken, getBody: getBodyBroken } = createMockResponse();
+    await handleSmtpHealth({ headers: { authorization: 'Bearer token' } } as any, resBroken, {
+      adminAuth: mockAdminAuth,
+      transporter: brokenTransporter,
+    });
+    assert.strictEqual(getBodyBroken().connected, false, 'Broken SMTP must report connected: false');
+    assert.ok(getBodyBroken().error.includes('ENOTFOUND smtp.invalidhost.com'), 'Must report exact failure reason');
   });
 
   console.log(`\n========================================`);
