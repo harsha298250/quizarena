@@ -342,6 +342,12 @@ export async function handleSendResults(
       new Set(breakdown.filter(b => !b.isCorrect && b.topicTag).map(b => b.topicTag!))
     );
 
+    const strikeCount = p.strikes || 0;
+    const isTerminated = Boolean(p.isTerminated || p.status === 'terminated_integrity' || strikeCount >= 6);
+    const integrityScore = p.integrityScore !== undefined
+      ? p.integrityScore
+      : Math.max(0, 100 - strikeCount * 16 - (isTerminated ? 100 : 0));
+
     const html = generateStudentEmailHtml({
       studentName: p.nickname || 'Player',
       quizTitle: gameData.quizTitle || 'QuizArena Competition',
@@ -353,6 +359,12 @@ export async function handleSendResults(
       weakTopics,
       totalQuestions,
       questionBreakdown: breakdown,
+      integrityStatus: {
+        strikes: strikeCount,
+        flagsCount: strikeCount,
+        integrityScore,
+        terminated: isTerminated,
+      },
     });
 
     emailsToSend.push({
@@ -385,6 +397,15 @@ export async function handleSendResults(
         ? sortedPlayers.reduce((sum, pl) => sum + ((pl.correctCount || 0) / totalQuestions), 0) / sortedPlayers.length
         : 0;
 
+    const integritySummary = sortedPlayers
+      .filter(pl => (pl.strikes || 0) > 0 || pl.isTerminated)
+      .map(pl => ({
+        nickname: pl.nickname || 'Player',
+        strikes: pl.strikes || 0,
+        signals: pl.lastEvent ? [pl.lastEvent] : ['focus_loss'],
+        terminated: Boolean(pl.isTerminated || pl.status === 'terminated_integrity' || (pl.strikes || 0) >= 6),
+      }));
+
     const teacherHtml = generateTeacherReportHtml({
       teacherName: gameData.hostNickname || 'Teacher',
       quizTitle: gameData.quizTitle || 'QuizArena Competition',
@@ -398,6 +419,7 @@ export async function handleSendResults(
         score: pl.score || 0,
       })),
       toughQuestions: [],
+      integritySummary,
     });
 
     emailsToSend.push({

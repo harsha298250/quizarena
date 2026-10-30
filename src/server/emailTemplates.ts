@@ -24,6 +24,13 @@ export interface StudentEmailParams {
   weakTopics: string[];
   totalQuestions: number;
   questionBreakdown?: QuestionBreakdownItem[];
+  integrityStatus?: {
+    strikes: number;
+    flagsCount: number;
+    integrityScore: number;
+    signals?: string[];
+    terminated?: boolean;
+  };
 }
 
 export interface TeacherReportParams {
@@ -35,6 +42,12 @@ export interface TeacherReportParams {
   averageAccuracy: number;
   topPerformers: Array<{ rank: number; nickname: string; score: number }>;
   toughQuestions: Array<{ questionNumber: number; text: string; correctPercentage: number }>;
+  integritySummary?: Array<{
+    nickname: string;
+    strikes: number;
+    signals: string[];
+    terminated: boolean;
+  }>;
 }
 
 export function escapeHtml(str: string): string {
@@ -160,6 +173,25 @@ export function generateStudentEmailHtml(params: StudentEmailParams): string {
         : ''
     }
 
+    <!-- Integrity Audit Verification -->
+    ${
+      params.integrityStatus
+        ? `<div style="background: ${params.integrityStatus.strikes === 0 ? '#ECFDF5' : '#FFFBEB'}; border: 2px solid ${params.integrityStatus.strikes === 0 ? '#10B981' : '#F59E0B'}; border-radius: 12px; padding: 12px; margin-bottom: 24px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong style="color: ${params.integrityStatus.strikes === 0 ? '#065F46' : '#92400E'}; font-size: 13px;">
+                🛡️ Arena Integrity Audit: ${params.integrityStatus.strikes === 0 ? 'Verified Clean (100%)' : `${params.integrityStatus.strikes} Strike(s) Logged`}
+              </strong>
+              <span style="font-size: 11px; font-weight: bold; color: #4B5563;">Score: ${params.integrityStatus.integrityScore}%</span>
+            </div>
+            ${
+              params.integrityStatus.signals && params.integrityStatus.signals.length > 0
+                ? `<div style="font-size: 11px; color: #6B7280; margin-top: 4px;">Telemetry signals: ${params.integrityStatus.signals.map(escapeHtml).join(', ')}</div>`
+                : ''
+            }
+          </div>`
+        : ''
+    }
+
     <!-- Call to action -->
     <div style="text-align: center; border-top: 2px solid #EEE; padding-top: 20px;">
       <p style="font-size: 13px; color: #555; margin: 0 0 10px 0;">Keep sharpening your skills for the next multiplayer arena tournament!</p>
@@ -270,6 +302,38 @@ export function generateTeacherReportHtml(params: TeacherReportParams): string {
         ? `<div style="margin-bottom: 20px;">
             <h3 style="font-size: 15px; font-weight: 900; color: #C2410C; margin-bottom: 8px;">Cohort Misconceptions (Needs Review)</h3>
             ${toughQuestionRows}
+          </div>`
+        : ''
+    }
+
+    <!-- Integrity Audit & Strikes Summary -->
+    ${
+      params.integritySummary && params.integritySummary.length > 0
+        ? `<div style="margin-bottom: 24px;">
+            <h3 style="font-size: 15px; font-weight: 900; color: #16120E; margin-bottom: 8px;">🛡️ Integrity Audit & Strikes (${params.integritySummary.length} Contenders with Flags)</h3>
+            <table style="width: 100%; border-collapse: collapse; border: 2px solid #16120E; border-radius: 8px; font-size: 12px;">
+              <thead style="background: #FFF6E5; border-bottom: 2px solid #16120E;">
+                <tr>
+                  <th style="padding: 6px 10px; text-align: left;">Student</th>
+                  <th style="padding: 6px 10px; text-align: center;">Strikes</th>
+                  <th style="padding: 6px 10px; text-align: left;">Signals</th>
+                  <th style="padding: 6px 10px; text-align: right;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${params.integritySummary
+                  .map(
+                    item => `
+                  <tr style="border-bottom: 1px solid #E5E7EB;">
+                    <td style="padding: 6px 10px; font-weight: bold;">${escapeHtml(item.nickname)}</td>
+                    <td style="padding: 6px 10px; text-align: center; font-weight: 900; color: ${item.strikes >= 3 ? '#DC2626' : '#D97706'};">${item.strikes}</td>
+                    <td style="padding: 6px 10px; font-family: monospace; font-size: 11px;">${escapeHtml(item.signals.join(', ') || 'focus_loss')}</td>
+                    <td style="padding: 6px 10px; text-align: right; font-weight: bold; color: ${item.terminated ? '#DC2626' : '#059669'};">${item.terminated ? 'Terminated' : 'Active'}</td>
+                  </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table>
           </div>`
         : ''
     }
