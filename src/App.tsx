@@ -440,12 +440,8 @@ export default function App() {
         {/* Tab 5: Analytics & CO Attainment */}
         {currentTab === 'analytics' && (
           <AnalyticsDashboard
-            quiz={quizzes[0] || SAMPLE_QUIZZES[0]}
-            players={players.length > 0 ? players : [
-              { id: 'p1', nickname: 'Alex', avatar: 'fox', score: 8500, streak: 4, maxStreak: 4, correctCount: 4, latencyMs: 30, clockOffsetMs: 0, integrityScore: 100, powerUps: { fiftyFiftyUsed: true, doublePointsUsed: true, timeFreezeUsed: false }, accommodations: { extraTimeMultiplier: 1, fewerOptions: false, muteSound: false, dyslexiaFont: false, largeText: false, readAloud: false }, joinedAt: '', lastSeen: '' },
-              { id: 'p2', nickname: 'Jordan', avatar: 'owl', score: 7200, streak: 3, maxStreak: 3, correctCount: 3, latencyMs: 45, clockOffsetMs: 0, integrityScore: 100, powerUps: { fiftyFiftyUsed: false, doublePointsUsed: false, timeFreezeUsed: false }, accommodations: { extraTimeMultiplier: 1, fewerOptions: false, muteSound: false, dyslexiaFont: false, largeText: false, readAloud: false }, joinedAt: '', lastSeen: '' },
-              { id: 'p3', nickname: 'Sam', avatar: 'tiger', score: 6400, streak: 2, maxStreak: 3, correctCount: 3, latencyMs: 25, clockOffsetMs: 0, integrityScore: 100, powerUps: { fiftyFiftyUsed: false, doublePointsUsed: false, timeFreezeUsed: false }, accommodations: { extraTimeMultiplier: 1, fewerOptions: false, muteSound: false, dyslexiaFont: false, largeText: false, readAloud: false }, joinedAt: '', lastSeen: '' },
-            ]}
+            quiz={activeGame ? (quizzes.find(q => q.id === activeGame.quizId) || quizzes[0]) : quizzes[0]}
+            players={players}
             onLaunchReteachPack={handleHostQuiz}
           />
         )}
