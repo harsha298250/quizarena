@@ -16,5 +16,32 @@ assert.strictEqual(isGeminiModelNotFoundError(new Error('Rate limit exceeded: 42
 assert.strictEqual(isGeminiModelNotFoundError(new Error('Network timeout')), false);
 assert.strictEqual(isGeminiModelNotFoundError(null), false);
 
-console.log('✅ AI Model Configuration & 404 Normalization tests passed successfully!');
+// 3. Fallback mechanism: When primary model fails with 404, automatically try available fallback
+import { generateContentWithFallback, FALLBACK_GEMINI_MODELS } from '../server/apiHandler.ts';
+
+async function testFallback() {
+  const attemptedModels: string[] = [];
+  const mockAi: any = {
+    models: {
+      generateContent: async ({ model }: { model: string }) => {
+        attemptedModels.push(model);
+        if (model === 'gemini-3.8-flash') {
+          const err: any = new Error('models/gemini-3.8-flash is not found for API version v1beta');
+          err.status = 404;
+          throw err;
+        }
+        return { text: JSON.stringify([{ question: 'Test question?' }]) };
+      },
+    },
+  };
+
+  const res = await generateContentWithFallback(mockAi, 'gemini-3.8-flash', { contents: 'test' });
+  assert.ok(res.text.includes('Test question?'), 'Must return valid response from fallback model');
+  assert.strictEqual(attemptedModels[0], 'gemini-3.8-flash', 'Must attempt primary model first');
+  assert.strictEqual(attemptedModels[1], FALLBACK_GEMINI_MODELS[0], 'Must fall back to gemini-2.5-flash on 404');
+}
+
+await testFallback();
+
+console.log('✅ AI Model Configuration, 404 Normalization & Automatic Fallback tests passed successfully!');
 

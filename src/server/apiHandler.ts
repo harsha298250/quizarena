@@ -62,6 +62,35 @@ export function isGeminiModelNotFoundError(err: any): boolean {
   );
 }
 
+export const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+export async function generateContentWithFallback(
+  ai: GoogleGenAI,
+  primaryModel: string,
+  options: { contents: string; config?: any }
+): Promise<any> {
+  const modelsToTry = [primaryModel, ...FALLBACK_GEMINI_MODELS.filter(m => m !== primaryModel)];
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const res = await ai.models.generateContent({
+        ...options,
+        model,
+      });
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      if (isGeminiModelNotFoundError(err)) {
+        console.warn(`[QuizArena Gemini APIHandler] Model "${model}" not found (404). Falling back to next available model...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -202,8 +231,7 @@ INSTRUCTIONS:
 4. Short explanation of why the answer is correct.
 `;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
+    const response = await generateContentWithFallback(ai, GEMINI_MODEL, {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
