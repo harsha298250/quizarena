@@ -29,7 +29,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   const [submissionResult, setSubmissionResult] = useState<{ isCorrect: boolean; pointsAwarded: number } | null>(null);
   const [activeDoublePoints, setActiveDoublePoints] = useState<boolean>(false);
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
-  const [accommodationsOpen, setAccommodationsOpen] = useState<boolean>(false);
 
   // Read-Aloud (TTS) state
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
@@ -218,9 +217,9 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       setHiddenOptions([]);
     }
 
-    // Read-aloud TTS if enabled
+    // Read-aloud TTS if enabled (auto-read once per question at configured speed)
     if (player.accommodations.readAloud && currentQuestion?.text) {
-      startReadAloud(speechRate);
+      startReadAloud(player.accommodations.speechRate || speechRate);
     } else {
       stopSpeech();
     }
@@ -385,16 +384,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
             </div>
           </div>
         </div>
-
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setAccommodationsOpen(true)}
-            className="paper-btn paper-btn-sm text-[11px] font-bold"
-            title="Accessibility Accommodations"
-          >
-            ♿ Options
-          </button>
-        </div>
       </div>
 
       {/* Confirmation of Active Accommodations */}
@@ -513,56 +502,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
             )}
             onSelectOption={handleSubmitOption}
           />
-
-          {/* Read-Aloud Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-bold w-full">
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => startReadAloud(speechRate)}
-                className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1"
-                title="Replay Audio"
-                aria-label="Replay Question and Options"
-              >
-                <span aria-hidden="true">🔄</span> <span>Replay</span>
-              </button>
-              <button
-                onClick={handleTogglePauseSpeech}
-                disabled={!isSpeaking && !isPaused}
-                className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
-                title={isPaused ? 'Resume Audio' : 'Pause Audio'}
-                aria-label={isPaused ? 'Resume Audio' : 'Pause Audio'}
-              >
-                <span>{isPaused ? '▶️ Resume' : '⏸️ Pause'}</span>
-              </button>
-              <button
-                onClick={stopSpeech}
-                disabled={!isSpeaking && !isPaused}
-                className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
-                title="Stop Audio"
-                aria-label="Stop Audio"
-              >
-                <span aria-hidden="true">⏹️</span> <span>Stop</span>
-              </button>
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px]">
-              <label htmlFor="ttsSpeedSelect" className="text-[var(--text-muted)]">Speed:</label>
-              <select
-                id="ttsSpeedSelect"
-                aria-label="Speech Speed"
-                value={speechRate}
-                onChange={e => {
-                  const rate = Number(e.target.value);
-                  setSpeechRate(rate);
-                  if (isSpeaking) startReadAloud(rate);
-                }}
-                className="rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-1.5 py-0.5 text-[11px] font-bold"
-              >
-                <option value={0.8}>0.8x</option>
-                <option value={1.0}>1.0x</option>
-                <option value={1.25}>1.25x</option>
-              </select>
-            </div>
-          </div>
         </div>
       ) : game.status !== 'question_active' ? (
         <div className="paper-card p-5 border-3 text-center space-y-2">
@@ -668,118 +607,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
           >
             Lock It In!
           </button>
-        </div>
-      )}
-
-      {/* Accommodations Modal */}
-      {accommodationsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="paper-modal p-6 max-w-sm w-full space-y-4">
-            <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--accent)]">
-              Personal Accommodations
-            </h3>
-
-            <div className="space-y-3 text-xs font-bold text-[var(--text)]">
-              <label className="flex items-center justify-between cursor-pointer">
-                <span>Dyslexia-friendly Font</span>
-                <input
-                  type="checkbox"
-                  checked={player.accommodations.dyslexiaFont}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdatePlayer({
-                      ...player,
-                      accommodations: { ...player.accommodations, dyslexiaFont: e.target.checked },
-                    });
-                  }}
-                  className="h-4 w-4 accent-[var(--accent)]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between cursor-pointer">
-                <span>Read Questions Aloud (Speech)</span>
-                <input
-                  type="checkbox"
-                  checked={player.accommodations.readAloud}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdatePlayer({
-                      ...player,
-                      accommodations: { ...player.accommodations, readAloud: e.target.checked },
-                    });
-                  }}
-                  className="h-4 w-4 accent-[var(--accent)]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between cursor-pointer">
-                <span>Fewer Answer Options (Hide 2 wrong)</span>
-                <input
-                  type="checkbox"
-                  checked={player.accommodations.fewerOptions}
-                  onChange={e => {
-                    sound.playClick();
-                    const newFewer = e.target.checked;
-                    onUpdatePlayer({
-                      ...player,
-                      accommodations: { ...player.accommodations, fewerOptions: newFewer },
-                    });
-                    if (newFewer && currentQuestion) {
-                      setHiddenOptions(getFewerOptionsToHide(currentQuestion));
-                    } else {
-                      setHiddenOptions([]);
-                    }
-                  }}
-                  className="h-4 w-4 accent-[var(--accent)]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between cursor-pointer">
-                <span>Larger Text Size</span>
-                <input
-                  type="checkbox"
-                  checked={player.accommodations.largeText}
-                  onChange={e => {
-                    sound.playClick();
-                    onUpdatePlayer({
-                      ...player,
-                      accommodations: { ...player.accommodations, largeText: e.target.checked },
-                    });
-                  }}
-                  className="h-4 w-4 accent-[var(--accent)]"
-                />
-              </label>
-
-              <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]/20">
-                <label htmlFor="arenaExtraTimeSelect">Extra Time Allowance:</label>
-                <select
-                  id="arenaExtraTimeSelect"
-                  aria-label="Extra Time Allowance"
-                  value={player.accommodations.extraTimeMultiplier || 1}
-                  onChange={e => {
-                    sound.playClick();
-                    const val = Number(e.target.value);
-                    onUpdatePlayer({
-                      ...player,
-                      accommodations: { ...player.accommodations, extraTimeMultiplier: val },
-                    });
-                  }}
-                  className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs font-bold"
-                >
-                  <option value={1}>Standard Time (1.0x)</option>
-                  <option value={1.5}>+50% Extra Time (1.5x)</option>
-                  <option value={2}>Double Time (2.0x)</option>
-                </select>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setAccommodationsOpen(false)}
-              className="paper-btn paper-btn-ok w-full py-2 text-xs font-bold"
-            >
-              Save &amp; Return
-            </button>
-          </div>
         </div>
       )}
 

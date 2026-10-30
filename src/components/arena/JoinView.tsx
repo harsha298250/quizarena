@@ -268,6 +268,21 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
                 className="h-4 w-4 accent-[var(--accent)]"
               />
             </label>
+            {accommodations.readAloud && (
+              <div className="flex items-center justify-between pl-4 text-[11px] text-[var(--text-muted)]">
+                <label htmlFor="ttsSpeechSpeed">Speech Speed:</label>
+                <select
+                  id="ttsSpeechSpeed"
+                  value={accommodations.speechRate || 1.0}
+                  onChange={e => setAccommodations({ ...accommodations, speechRate: Number(e.target.value) })}
+                  className="rounded border border-[var(--border)] bg-[var(--surface)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--text)]"
+                >
+                  <option value={0.8}>0.8x (Slower)</option>
+                  <option value={1.0}>1.0x (Normal)</option>
+                  <option value={1.25}>1.25x (Faster)</option>
+                </select>
+              </div>
+            )}
             <label className="flex items-center justify-between cursor-pointer">
               <span>Fewer Options (Hide 2 wrong answers)</span>
               <input

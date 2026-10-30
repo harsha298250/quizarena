@@ -99,6 +99,7 @@ export interface PlayerAccommodations {
   dyslexiaFont: boolean;
   largeText: boolean;
   readAloud: boolean;
+  speechRate?: number; // 0.8, 1.0, 1.25
 }
 
 export interface PlayerPowerUps {
