@@ -14,14 +14,37 @@ interface QuizBuilderProps {
   onSaveQuiz: (quiz: Quiz) => void;
   onSelectForHost: (quiz: Quiz) => void;
   onDeleteQuiz?: (quizId: string) => void;
+  initialSelectedQuizId?: string;
 }
 
-export const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizzes, onSaveQuiz, onSelectForHost, onDeleteQuiz }) => {
-  const [selectedQuiz, setSelectedQuiz] = useState<Quiz>(quizzes[0] || SAMPLE_QUIZZES[0]);
+export const QuizBuilder: React.FC<QuizBuilderProps> = ({
+  quizzes,
+  onSaveQuiz,
+  onSelectForHost,
+  onDeleteQuiz,
+  initialSelectedQuizId,
+}) => {
+  const [selectedQuiz, setSelectedQuiz] = useState<Quiz>(() => {
+    if (initialSelectedQuizId) {
+      const match = quizzes.find(q => q.id === initialSelectedQuizId);
+      if (match) return match;
+    }
+    return quizzes[0] || SAMPLE_QUIZZES[0];
+  });
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
   const [previewMode, setPreviewMode] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string>('Just now');
+
+  React.useEffect(() => {
+    if (initialSelectedQuizId) {
+      const match = quizzes.find(q => q.id === initialSelectedQuizId);
+      if (match) {
+        setSelectedQuiz(match);
+        setActiveQuestionIndex(0);
+      }
+    }
+  }, [initialSelectedQuizId, quizzes]);
 
   const activeQuestion: Question | undefined = selectedQuiz.questions[activeQuestionIndex];
 

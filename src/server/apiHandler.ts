@@ -154,6 +154,13 @@ export function handleTime(_req: IncomingMessage, res: ServerResponse) {
   res.end(JSON.stringify({ serverTime: Date.now() }));
 }
 
+export function handleWarmup(_req: IncomingMessage, res: ServerResponse) {
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(JSON.stringify({ status: 'ok', warmed: true, timestamp: Date.now() }));
+}
+
 export async function handleGenerateQuiz(req: IncomingMessage, res: ServerResponse) {
   try {
     const authHeader = req.headers.authorization;

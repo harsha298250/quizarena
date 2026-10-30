@@ -197,10 +197,10 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
 
             {/* Face Shape */}
             <div className="space-y-1">
-              <label className="text-[11px] font-black uppercase text-[var(--text-muted)]">
+              <label className="text-[11px] font-black uppercase text-[var(--text-muted)] break-words">
                 Face Shape / Species:
               </label>
-              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Face Shape">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5" role="radiogroup" aria-label="Face Shape">
                 {FACE_SHAPES.map(f => {
                   const isChecked = config.faceShape === f.id;
                   return (
@@ -211,13 +211,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={f.label}
                       onClick={() => updateTrait('faceShape', f.id as FaceShape)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-2 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{f.label}</span>
+                      <span className="truncate w-full text-center">{f.label}</span>
                     </button>
                   );
                 })}

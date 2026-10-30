@@ -3,19 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
-import { Question, Quiz } from '../../types/quiz';
+import React, { useState, useRef, useEffect } from 'react';
+import { Question, Quiz, BloomLevel } from '../../types/quiz';
 import { extractTextFromPdf, PdfExtractionResult } from '../../services/pdfExtractor';
 import { aiService, GenerateProgress, GEMINI_MODEL_NAME } from '../../services/aiService';
 import { SAMPLE_AI_SOURCE_TEXT } from '../../data/sampleQuizzes';
 import { sound } from '../../lib/sound';
 
 interface AIQuizGeneratorProps {
+  existingQuizzes?: Quiz[];
   onSaveToQuiz: (newQuiz: Quiz) => void;
   onHostNow: (quiz: Quiz) => void;
+  onOpenInStudio?: (quiz: Quiz) => void;
 }
 
-export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, onHostNow }) => {
+export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
+  existingQuizzes = [],
+  onSaveToQuiz,
+  onHostNow,
+  onOpenInStudio,
+}) => {
   const [sourceMode, setSourceMode] = useState<'pdf' | 'paste' | 'topic'>('paste');
   const [pastedText, setPastedText] = useState<string>(SAMPLE_AI_SOURCE_TEXT);
   const [topicInput, setTopicInput] = useState<string>('Operating Systems Concurrency and Semaphores');
@@ -40,6 +47,25 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
   const [quizTitle, setQuizTitle] = useState<string>('AI Generated Mastery Arena');
   const [activeTabFilter, setActiveTabFilter] = useState<'all' | 'easy' | 'medium' | 'hard'>('all');
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Studio append & edit states
+  const [selectedTargetQuizId, setSelectedTargetQuizId] = useState<string>('');
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState<Question | null>(null);
+  const [regeneratingQuestionId, setRegeneratingQuestionId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; quiz?: Quiz } | null>(null);
+
+  // Silent warm-up on mount to wake up the backend / Gemini endpoints
+  useEffect(() => {
+    aiService.warmUpServer();
+  }, []);
+
+  // Sync selected target quiz when existingQuizzes change
+  useEffect(() => {
+    if (existingQuizzes.length > 0 && !selectedTargetQuizId) {
+      setSelectedTargetQuizId(existingQuizzes[0].id);
+    }
+  }, [existingQuizzes, selectedTargetQuizId]);
 
   // Handle PDF file drop or select
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,7 +104,12 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     sound.playClick();
     setIsGenerating(true);
     setGenerationError(null);
-    setGenerationProgress({ percent: 5, phase: 'Preparing source material...', receivedCount: 0, totalCount: numQuestions });
+    setGenerationProgress({
+      percent: 5,
+      phase: 'Waking server & preparing source material...',
+      receivedCount: 0,
+      totalCount: numQuestions,
+    });
 
     let sourceContent = '';
     let sourceType: 'pdf_text' | 'pasted_text' | 'topic' = 'pasted_text';
@@ -91,7 +122,6 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
         return;
       }
       sourceType = 'pdf_text';
-      // Filter by selected page range
       const selectedPages = pdfData.pages.filter(
         p => p.pageNumber >= pageRangeStart && p.pageNumber <= pageRangeEnd
       );
@@ -114,10 +144,10 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // 60s safety timeout per guidelines
+    // 120s timeout per guidelines
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 60000);
+    }, 120000);
 
     try {
       const questions = await aiService.generateQuestions(
@@ -180,25 +210,69 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     setAcceptedQuestionIds(new Set());
   };
 
-  // Question adaptations (make easier, harder, scenario)
+  // Inline question edit handlers
+  const handleStartEdit = (question: Question) => {
+    sound.playClick();
+    setEditingQuestionId(question.id);
+    setEditingDraft(JSON.parse(JSON.stringify(question)));
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingDraft) return;
+    sound.playClick();
+    setGeneratedQuestions(prev =>
+      prev.map(q => (q.id === editingDraft.id ? (editingDraft as Question) : q))
+    );
+    setEditingQuestionId(null);
+    setEditingDraft(null);
+  };
+
+  const handleCancelEdit = () => {
+    sound.playClick();
+    setEditingQuestionId(null);
+    setEditingDraft(null);
+  };
+
+  // Single question regeneration
+  const handleRegenerateQuestion = async (question: Question) => {
+    sound.playClick();
+    setRegeneratingQuestionId(question.id);
+    try {
+      const adapted = await aiService.adaptQuestion(question, 'convert_to_scenario');
+      setGeneratedQuestions(prev => prev.map(q => (q.id === question.id ? adapted : q)));
+      sound.playCorrect();
+    } catch (err) {
+      console.warn('Single question regenerate failed, trying easier adaptation:', err);
+      try {
+        const fallback = await aiService.adaptQuestion(question, 'make_harder');
+        setGeneratedQuestions(prev => prev.map(q => (q.id === question.id ? fallback : q)));
+      } catch (err2) {
+        console.error('Adaptation failed:', err2);
+      }
+    } finally {
+      setRegeneratingQuestionId(null);
+    }
+  };
+
+  // Adapt question helper
   const handleAdapt = async (question: Question, action: 'convert_to_scenario' | 'make_easier' | 'make_harder') => {
     sound.playClick();
     const adapted = await aiService.adaptQuestion(question, action);
     setGeneratedQuestions(prev => prev.map(q => (q.id === question.id ? adapted : q)));
   };
 
-  // Save reviewed quiz
-  const handleSaveQuiz = (launchNow: boolean = false) => {
+  // Add to Studio as New Quiz
+  const handleAddToStudioNew = () => {
     const questionsToSave = generatedQuestions.filter(q => acceptedQuestionIds.has(q.id));
     if (questionsToSave.length === 0) {
-      alert('Please accept at least one question before saving.');
+      alert('Please select at least one question to add to Studio.');
       return;
     }
     sound.playClick();
 
     const newQuiz: Quiz = {
       id: `ai_quiz_${Date.now()}`,
-      title: quizTitle || 'AI Assessment Quiz',
+      title: quizTitle.trim() || 'AI Generated Mastery Arena',
       description: `Generated from ${sourceMode} targeting ${targetCO}.`,
       authorId: 'host_active',
       authorName: 'Instructor AI',
@@ -212,9 +286,82 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     };
 
     onSaveToQuiz(newQuiz);
-    if (launchNow) {
-      onHostNow(newQuiz);
+    setToastMessage({
+      text: `✓ Created new quiz "${newQuiz.title}" with ${questionsToSave.length} questions. Opening in Studio...`,
+      quiz: newQuiz,
+    });
+
+    if (onOpenInStudio) {
+      setTimeout(() => {
+        onOpenInStudio(newQuiz);
+      }, 500);
     }
+  };
+
+  // Add to an Existing Quiz
+  const handleAddToExistingQuiz = () => {
+    const questionsToSave = generatedQuestions.filter(q => acceptedQuestionIds.has(q.id));
+    if (questionsToSave.length === 0) {
+      alert('Please select at least one question to add.');
+      return;
+    }
+    const targetQuiz = existingQuizzes.find(q => q.id === selectedTargetQuizId);
+    if (!targetQuiz) {
+      alert('Please select a target quiz from the dropdown.');
+      return;
+    }
+    sound.playClick();
+
+    const stampedQuestions: Question[] = questionsToSave.map((q, idx) => ({
+      ...q,
+      id: `${targetQuiz.id}_q_ai_${Date.now()}_${idx}`,
+    }));
+
+    const updatedQuiz: Quiz = {
+      ...targetQuiz,
+      questions: [...targetQuiz.questions, ...stampedQuestions],
+      updatedAt: new Date().toISOString(),
+    };
+
+    onSaveToQuiz(updatedQuiz);
+    setToastMessage({
+      text: `✓ Added ${questionsToSave.length} questions to "${targetQuiz.title}". Opening in Studio...`,
+      quiz: updatedQuiz,
+    });
+
+    if (onOpenInStudio) {
+      setTimeout(() => {
+        onOpenInStudio(updatedQuiz);
+      }, 500);
+    }
+  };
+
+  // Host live now
+  const handleHostLiveNow = () => {
+    const questionsToSave = generatedQuestions.filter(q => acceptedQuestionIds.has(q.id));
+    if (questionsToSave.length === 0) {
+      alert('Please accept at least one question before launching.');
+      return;
+    }
+    sound.playClick();
+
+    const liveQuiz: Quiz = {
+      id: `ai_quiz_${Date.now()}`,
+      title: quizTitle.trim() || 'AI Generated Assessment Arena',
+      description: `Generated from ${sourceMode} targeting ${targetCO}.`,
+      authorId: 'host_active',
+      authorName: 'Instructor AI',
+      isPublic: true,
+      gameMode: 'classic',
+      tags: ['AI Generated', targetCO],
+      coverColor: '#FF5A36',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      questions: questionsToSave,
+    };
+
+    onSaveToQuiz(liveQuiz);
+    onHostNow(liveQuiz);
   };
 
   const filteredQuestions = generatedQuestions.filter(q => {
@@ -225,18 +372,35 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     return true;
   });
 
+  const allAccepted = generatedQuestions.length > 0 && acceptedQuestionIds.size === generatedQuestions.length;
+
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-20 right-4 z-50 bg-[var(--surface)] text-[var(--text)] border-3 border-[var(--border)] p-4 rounded-xl shadow-[4px_4px_0px_var(--shadow)] flex items-center justify-between gap-4 animate-fadeIn max-w-md">
+          <div className="text-xs font-bold">{toastMessage.text}</div>
+          {toastMessage.quiz && onOpenInStudio && (
+            <button
+              onClick={() => onOpenInStudio(toastMessage.quiz!)}
+              className="paper-btn paper-btn-sm paper-btn-primary text-xs shrink-0"
+            >
+              Open Studio →
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="paper-card p-6 bg-[var(--bg-page)] border-3">
-        <div className="flex flex-col md:flex-row items-start md:md-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text)] sticker-rot-1">AI Flagship</span>
               <span className="text-xs font-bold text-[var(--ok)]">{GEMINI_MODEL_NAME} Engine</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)]">
-              AI Quiz Generator & Syllabus Alignment
+              AI Quiz Generator &amp; Syllabus Alignment
             </h1>
             <p className="text-sm font-medium text-[var(--text-muted)] mt-1">
               Upload textbook PDFs, lecture notes, or research papers. Extract verifiable questions grounded in source citations.
@@ -290,7 +454,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
 
                 {isExtractingPdf && (
                   <div className="flex items-center justify-center gap-2 text-sm font-bold text-[var(--accent)] animate-pulse">
-                    <span>Extracting text from PDF pages...</span>
+                    <span>Reading PDF document pages &amp; extracting text...</span>
                   </div>
                 )}
 
@@ -381,7 +545,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
               Pedagogical Parameters
             </h2>
 
-            {/* Number of Questions (1-50) & Quick Presets */}
+            {/* Number of Questions (1-50) & Presets */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs font-bold">
                 <label htmlFor="numQuestionsInput">Questions (1–50)</label>
@@ -430,8 +594,8 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                 className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
               >
                 <option value="mixed">Mixed (Balanced Bloom Hierarchy)</option>
-                <option value="easy">Easy (Recall & Definition Focus)</option>
-                <option value="medium">Medium (Comprehension & Application)</option>
+                <option value="easy">Easy (Recall &amp; Definition Focus)</option>
+                <option value="medium">Medium (Comprehension &amp; Application)</option>
                 <option value="hard">Hard (Analysis, Edge Cases, Misconceptions)</option>
               </select>
             </div>
@@ -521,45 +685,224 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
         </div>
       </div>
 
-      {/* Teacher Review & Verification Section */}
+      {/* Teacher Review & Alignment Section */}
       {generatedQuestions.length > 0 && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b-2 border-[var(--border)] pb-3">
-            <div className="flex items-center gap-3">
-              <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
-                Teacher Review & Alignment
-              </h2>
-              <span className="sticker-badge bg-[var(--ok)] text-white">
-                {acceptedQuestionIds.size} / {generatedQuestions.length} Accepted
-              </span>
+          <div className="paper-card p-4 bg-[var(--surface)] border-2 space-y-4">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b-2 border-[var(--border)] pb-3">
+              <div className="flex items-center gap-3">
+                <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+                  Teacher Review &amp; Alignment
+                </h2>
+                <span className="sticker-badge bg-[var(--ok)] text-white">
+                  {acceptedQuestionIds.size} / {generatedQuestions.length} Selected
+                </span>
+              </div>
+
+              {/* Bulk actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={allAccepted ? handleRejectAll : handleAcceptAll}
+                  className="paper-btn paper-btn-sm bg-[var(--surface-2)] text-xs font-bold"
+                >
+                  {allAccepted ? 'Deselect All' : 'Select All'}
+                </button>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-bold text-[var(--text-muted)]">Filter:</span>
+                  {(['all', 'easy', 'medium', 'hard'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTabFilter(tab)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors ${
+                        activeTabFilter === tab
+                          ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)]'
+                          : 'bg-[var(--surface)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface-2)]'
+                      }`}
+                    >
+                      {tab.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={handleAcceptAll} className="paper-btn paper-btn-sm bg-[var(--surface)] text-xs">
-                Accept All
-              </button>
-              <button onClick={handleRejectAll} className="paper-btn paper-btn-sm bg-[var(--surface)] text-xs">
-                Reject All
-              </button>
-              <button
-                onClick={() => handleSaveQuiz(false)}
-                className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-bold"
-              >
-                💾 Save to Quizzes
-              </button>
-              <button
-                onClick={() => handleSaveQuiz(true)}
-                className="paper-btn paper-btn-sm bg-[var(--accent)] text-white text-xs font-bold"
-              >
-                🚀 Host Live Now
-              </button>
+            {/* Quiz Title & Studio Integration Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end pt-1">
+              <div className="md:col-span-4 space-y-1">
+                <label className="text-xs font-bold uppercase text-[var(--text-muted)]">
+                  Target Quiz Title (for new quiz)
+                </label>
+                <input
+                  type="text"
+                  value={quizTitle}
+                  onChange={e => setQuizTitle(e.target.value)}
+                  className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--bg-page)] text-[var(--text)]"
+                  placeholder="Quiz title..."
+                />
+              </div>
+
+              <div className="md:col-span-8 flex flex-wrap items-center gap-2">
+                {/* 1. Add to Studio as New Quiz */}
+                <button
+                  onClick={handleAddToStudioNew}
+                  className="paper-btn paper-btn-sm paper-btn-primary text-xs font-black flex items-center gap-1 shadow-[2px_2px_0px_var(--shadow)]"
+                >
+                  🎨 Add to Studio (New Quiz)
+                </button>
+
+                {/* 2. Add to an Existing Quiz */}
+                {existingQuizzes.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      value={selectedTargetQuizId}
+                      onChange={e => setSelectedTargetQuizId(e.target.value)}
+                      className="rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold bg-[var(--bg-page)] text-[var(--text)] max-w-[180px] truncate"
+                      aria-label="Select existing quiz to append questions"
+                    >
+                      {existingQuizzes.map(q => (
+                        <option key={q.id} value={q.id}>
+                          {q.title} ({q.questions.length}Q)
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAddToExistingQuiz}
+                      className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-black shadow-[2px_2px_0px_var(--shadow)]"
+                    >
+                      ➕ Append to Quiz
+                    </button>
+                  </div>
+                )}
+
+                {/* 3. Host Now */}
+                <button
+                  onClick={handleHostLiveNow}
+                  className="paper-btn paper-btn-sm bg-[var(--ok)] text-white text-xs font-black shadow-[2px_2px_0px_var(--shadow)]"
+                >
+                  🚀 Host Now
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Generated Question Cards */}
+          {/* Generated Question Cards List */}
           <div className="space-y-4">
             {filteredQuestions.map((q, idx) => {
               const isAccepted = acceptedQuestionIds.has(q.id);
+              const isEditing = editingQuestionId === q.id;
+              const isRegenerating = regeneratingQuestionId === q.id;
+
+              if (isEditing && editingDraft) {
+                return (
+                  <div key={q.id} className="paper-card p-5 bg-[var(--surface)] border-3 border-[var(--accent)] space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-['Bricolage_Grotesque'] font-black text-sm text-[var(--accent)]">
+                        Editing Question Q{idx + 1}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={handleSaveEdit} className="paper-btn paper-btn-sm paper-btn-ok text-xs">
+                          ✓ Save Changes
+                        </button>
+                        <button onClick={handleCancelEdit} className="paper-btn paper-btn-sm paper-btn-secondary text-xs">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-[var(--text-muted)]">Question Text</label>
+                      <textarea
+                        rows={2}
+                        value={editingDraft.text}
+                        onChange={e => setEditingDraft({ ...editingDraft, text: e.target.value })}
+                        className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--bg-page)] text-[var(--text)]"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase text-[var(--text-muted)]">Options &amp; Correct Answer</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {editingDraft.options.map((opt, optIdx) => {
+                          const isCorrect = editingDraft.correctAnswers.includes(optIdx);
+                          return (
+                            <div key={optIdx} className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={isCorrect}
+                                onChange={e => {
+                                  const next = e.target.checked
+                                    ? [...editingDraft.correctAnswers, optIdx]
+                                    : editingDraft.correctAnswers.filter(i => i !== optIdx);
+                                  setEditingDraft({ ...editingDraft, correctAnswers: next });
+                                }}
+                                title="Mark option as correct"
+                                className="h-4 w-4 rounded accent-[var(--ok)]"
+                              />
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={e => {
+                                  const newOpts = [...editingDraft.options];
+                                  newOpts[optIdx] = e.target.value;
+                                  setEditingDraft({ ...editingDraft, options: newOpts });
+                                }}
+                                className="flex-1 rounded-lg border border-[var(--border)] p-1.5 text-xs bg-[var(--bg-page)] text-[var(--text)]"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs font-bold uppercase text-[var(--text-muted)]">Bloom Level</label>
+                        <select
+                          value={editingDraft.bloomLevel}
+                          onChange={e => setEditingDraft({ ...editingDraft, bloomLevel: e.target.value as BloomLevel })}
+                          className="w-full rounded-lg border border-[var(--border)] p-1.5 text-xs bg-[var(--bg-page)] text-[var(--text)] font-bold"
+                        >
+                          <option value="remember">Remember</option>
+                          <option value="understand">Understand</option>
+                          <option value="apply">Apply</option>
+                          <option value="analyze">Analyze</option>
+                          <option value="evaluate">Evaluate</option>
+                          <option value="create">Create</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase text-[var(--text-muted)]">Course Outcome</label>
+                        <input
+                          type="text"
+                          value={editingDraft.courseOutcomeTag}
+                          onChange={e => setEditingDraft({ ...editingDraft, courseOutcomeTag: e.target.value })}
+                          className="w-full rounded-lg border border-[var(--border)] p-1.5 text-xs bg-[var(--bg-page)] text-[var(--text)] font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold uppercase text-[var(--text-muted)]">Source Page</label>
+                        <input
+                          type="number"
+                          value={editingDraft.sourcePage || 1}
+                          onChange={e => setEditingDraft({ ...editingDraft, sourcePage: Number(e.target.value) })}
+                          className="w-full rounded-lg border border-[var(--border)] p-1.5 text-xs bg-[var(--bg-page)] text-[var(--text)] font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold uppercase text-[var(--text-muted)]">Pedagogical Explanation</label>
+                      <input
+                        type="text"
+                        value={editingDraft.explanation}
+                        onChange={e => setEditingDraft({ ...editingDraft, explanation: e.target.value })}
+                        className="w-full rounded-lg border border-[var(--border)] p-1.5 text-xs bg-[var(--bg-page)] text-[var(--text)]"
+                      />
+                    </div>
+                  </div>
+                );
+              }
 
               return (
                 <div
@@ -570,6 +913,13 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={isAccepted}
+                        onChange={() => toggleAccept(q.id)}
+                        className="h-4 w-4 rounded accent-[var(--accent)]"
+                        title="Include question in quiz"
+                      />
                       <span className="font-['Bricolage_Grotesque'] font-black text-base text-[var(--accent)]">
                         Q{idx + 1}
                       </span>
@@ -589,23 +939,26 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                     {/* Teacher Action Buttons */}
                     <div className="flex items-center gap-2">
                       <button
+                        onClick={() => handleStartEdit(q)}
+                        className="text-xs font-bold text-[var(--accent)] hover:underline"
+                        title="Edit question text and options"
+                      >
+                        ✏️ Edit
+                      </button>
+                      <button
+                        onClick={() => handleRegenerateQuestion(q)}
+                        disabled={isRegenerating}
+                        className="text-xs font-bold text-[var(--info)] hover:underline disabled:opacity-50"
+                        title="Regenerate this question"
+                      >
+                        {isRegenerating ? '⏳ Regenerating...' : '🔄 Regenerate'}
+                      </button>
+                      <button
                         onClick={() => handleAdapt(q, 'convert_to_scenario')}
-                        className="text-xs font-bold text-[var(--info)] hover:underline"
+                        className="text-xs font-bold text-[var(--text-muted)] hover:underline"
                         title="Elevate to realistic scenario"
                       >
-                        Convert to Scenario
-                      </button>
-                      <button
-                        onClick={() => handleAdapt(q, 'make_easier')}
-                        className="text-xs font-bold text-[var(--text-muted)] hover:underline"
-                      >
-                        Make Easier
-                      </button>
-                      <button
-                        onClick={() => handleAdapt(q, 'make_harder')}
-                        className="text-xs font-bold text-[var(--text-muted)] hover:underline"
-                      >
-                        Make Harder
+                        Scenario
                       </button>
                       <button
                         onClick={() => toggleAccept(q.id)}

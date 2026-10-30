@@ -303,6 +303,12 @@ app.get('/api/time', async (req: Request, res: Response): Promise<void> => {
   res.json({ serverTime: now });
 });
 
+// Endpoint 0b: Silent warm-up ping for AI generator server container
+app.get('/api/ai-warmup', (_req: Request, res: Response): void => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'ok', warmed: true, timestamp: Date.now() });
+});
+
 // Endpoint 1: Generate Quiz Questions from Source Material (PDF / text / topic)
 app.post('/api/generate-quiz', async (req: Request, res: Response): Promise<void> => {
   try {

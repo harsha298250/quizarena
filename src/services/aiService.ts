@@ -46,8 +46,19 @@ class AIService {
   }
 
   /**
-   * Primary adapter: Calls server-side endpoint in parallel batches of about 10.
-   * Validates all questions in ONE batched call.
+   * Silent warm-up ping for server container on opening the AI tab
+   */
+  public async warmUpServer(): Promise<void> {
+    try {
+      await fetch('/api/ai-warmup', { method: 'GET', cache: 'no-store' });
+    } catch {
+      // Non-blocking best-effort silent ping
+    }
+  }
+
+  /**
+   * Primary adapter: Calls server-side endpoint in parallel batches of 5 questions.
+   * Features automatic 2x retry with exponential backoff and progressive batch delivery.
    */
   public async generateQuestions(params: GenerateQuizParams, options?: GenerateOptions): Promise<Question[]> {
     const user = auth.currentUser || (await ensureAnonymousAuth());
@@ -55,24 +66,76 @@ class AIService {
 
     const totalQuestions = Math.max(1, Math.min(50, params.numQuestions));
 
-    // Divide into parallel batches of at most 10 questions
+    // Divide into batches of at most 5 questions per requirements
     const batchSizes: number[] = [];
     let remaining = totalQuestions;
     while (remaining > 0) {
-      const batch = Math.min(10, remaining);
+      const batch = Math.min(5, remaining);
       batchSizes.push(batch);
       remaining -= batch;
     }
 
     options?.onProgress?.({
-      percent: 10,
-      phase: `Starting parallel generation across ${batchSizes.length} batch${batchSizes.length > 1 ? 'es' : ''}...`,
+      percent: 5,
+      phase: `Waking server & starting generation in batches of 5...`,
       receivedCount: 0,
       totalCount: totalQuestions,
     });
 
     let completedBatches = 0;
     const allQuestions: Question[] = [];
+
+    // Helper with 2x retry and exponential backoff
+    const fetchBatchWithRetry = async (batchParams: GenerateQuizParams, batchIdx: number): Promise<Question[]> => {
+      let attempts = 0;
+      const maxAttempts = 3; // 1 initial + up to 2 retries
+      let lastErr: any = null;
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        try {
+          const res = await fetch(this.endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+            },
+            body: JSON.stringify(batchParams),
+            signal: options?.signal,
+          });
+
+          if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            const rawErr = errJson.error || `Server responded with ${res.status}`;
+            if (res.status === 404 || res.status === 503 || /not[_\s-]?found|404|model unavailable/i.test(rawErr)) {
+              throw new Error('AI model unavailable, contact admin');
+            }
+            throw new Error(rawErr);
+          }
+
+          const data = await res.json();
+          if (!Array.isArray(data.questions)) {
+            throw new Error('Invalid question response format from server.');
+          }
+
+          return data.questions;
+        } catch (err: any) {
+          lastErr = err;
+          if (options?.signal?.aborted) throw err;
+          if (attempts < maxAttempts) {
+            const backoffMs = attempts * 1500;
+            options?.onProgress?.({
+              percent: Math.min(80, 10 + Math.round((completedBatches / batchSizes.length) * 60)),
+              phase: `Retrying batch ${batchIdx + 1} (attempt ${attempts + 1}/${maxAttempts})...`,
+              receivedCount: allQuestions.length,
+              totalCount: totalQuestions,
+            });
+            await new Promise(r => setTimeout(r, backoffMs));
+          }
+        }
+      }
+      throw lastErr;
+    };
 
     // Parallel execution across batches
     const batchPromises = batchSizes.map(async (batchSize, batchIdx) => {
@@ -81,32 +144,9 @@ class AIService {
         numQuestions: batchSize,
       };
 
-      const res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-        },
-        body: JSON.stringify(batchParams),
-        signal: options?.signal,
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        const rawErr = errJson.error || `Server responded with ${res.status}`;
-        if (res.status === 404 || res.status === 503 || /not[_\s-]?found|404|model unavailable/i.test(rawErr)) {
-          throw new Error('AI model unavailable, contact admin');
-        }
-        throw new Error(rawErr);
-      }
-
-      const data = await res.json();
-      if (!Array.isArray(data.questions)) {
-        throw new Error('Invalid question response format from server.');
-      }
-
+      const questions = await fetchBatchWithRetry(batchParams, batchIdx);
       completedBatches++;
-      allQuestions.push(...data.questions);
+      allQuestions.push(...questions);
 
       const pct = Math.min(85, Math.round(10 + (completedBatches / batchSizes.length) * 70));
       options?.onProgress?.({
@@ -116,7 +156,7 @@ class AIService {
         totalCount: totalQuestions,
       });
 
-      return data.questions;
+      return questions;
     });
 
     await Promise.all(batchPromises);

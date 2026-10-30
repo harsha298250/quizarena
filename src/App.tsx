@@ -48,6 +48,13 @@ export default function App() {
 
   // Active game session state
   const [activeGame, setActiveGame] = useState<GameSession | null>(null);
+  const [builderSelectedQuizId, setBuilderSelectedQuizId] = useState<string | undefined>(undefined);
+
+  const handleOpenInStudio = (quiz: Quiz) => {
+    handleSaveQuiz(quiz);
+    setBuilderSelectedQuizId(quiz.id);
+    setCurrentTab('builder');
+  };
   const [activePlayer, setActivePlayer] = useState<Player | null>(null);
   const [gameRole, setGameRole] = useState<'host' | 'player' | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -415,14 +422,17 @@ export default function App() {
             onSaveQuiz={handleSaveQuiz}
             onSelectForHost={handleHostQuiz}
             onDeleteQuiz={handleDeleteQuiz}
+            initialSelectedQuizId={builderSelectedQuizId}
           />
         )}
 
         {/* Tab 3: AI Quiz Generator */}
         {currentTab === 'ai' && (
           <AIQuizGenerator
+            existingQuizzes={quizzes}
             onSaveToQuiz={handleSaveQuiz}
             onHostNow={handleHostQuiz}
+            onOpenInStudio={handleOpenInStudio}
           />
         )}
 
