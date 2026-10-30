@@ -123,6 +123,10 @@ export interface Player {
   clockOffsetMs: number;
   integrityScore: number; // 0-100 (100 = spotless)
   strikes?: number;
+  isTerminated?: boolean;
+  status?: string; // 'active' | 'terminated_integrity'
+  lastEvent?: string;
+  lastEventTime?: string;
   powerUps: PlayerPowerUps;
   accommodations: PlayerAccommodations;
   isKicked?: boolean;

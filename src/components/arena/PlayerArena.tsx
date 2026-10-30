@@ -13,6 +13,7 @@ import { Avatar } from '../common/Avatar';
 import { useIntegrityGuard } from '../../hooks/useIntegrityGuard';
 import { IntegrityModal } from '../common/IntegrityModal';
 import { extractQuestionStartTimeMs } from '../../server/scoringHardening';
+import { WatermarkedQuestionCanvas } from './WatermarkedQuestionCanvas';
 
 interface PlayerArenaProps {
   game: GameSession;
@@ -44,17 +45,19 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     return extractQuestionStartTimeMs(game.questionStartTime) || Date.now();
   });
 
-  // Advanced Integrity Guard (Secure Mode)
+  // Advanced Integrity Guard (Always-On Strict Integrity)
   const {
     strikes,
+    isTerminated,
     warningModal,
     dismissWarningModal,
     isQuestionLocked,
     blockedByExtension,
     extensionReason,
-    isFullscreen,
-    requestFullscreen,
     requireFullscreen,
+    isFullscreen,
+    fullscreenPaused,
+    requestFullscreen,
     handlePasteAttempt,
   } = useIntegrityGuard({
     game,
@@ -225,6 +228,28 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       stopSpeech();
     };
   }, [game.currentQuestionIndex, player.accommodations.readAloud, player.accommodations.fewerOptions]);
+
+  if (isTerminated) {
+    return (
+      <div className="mx-auto max-w-xl p-4 sm:p-6 space-y-6 animate-fadeIn">
+        <div className="paper-card p-8 border-3 border-red-500 bg-red-50 dark:bg-red-950/40 text-center space-y-4">
+          <div className="text-5xl">🚨</div>
+          <h1 className="font-['Bricolage_Grotesque'] text-2xl font-black text-red-600 dark:text-red-400">
+            Quiz Terminated - Integrity Shield
+          </h1>
+          <p className="text-sm font-semibold text-[var(--text)] leading-relaxed">
+            Six focus or window loss violations were recorded on your session. Your quiz has been ended automatically in accordance with exam integrity guidelines.
+          </p>
+          <div className="p-3 bg-[var(--surface)] rounded-xl border border-[var(--border)] text-xs font-mono font-bold text-[var(--text)]">
+            Score Preserved: {player.score.toLocaleString()} pts • Strikes: 6/6
+          </div>
+          <p className="text-xs text-[var(--text-muted)]">
+            Your score earned so far has been preserved on the server. All integrity logs are reviewed by the host. Your instructor can reinstate your session if this was triggered in error.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentQuestion) {
     return (
@@ -432,87 +457,119 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         </div>
       </div>
 
-      {/* Question Prompt and Timer Ring */}
-      <div
-        className={`paper-card p-4 sm:p-5 border-3 flex flex-col items-center text-center space-y-3 ${
-          game.settings.preventCopyPaste !== false ? 'select-none' : ''
-        }`}
-        onContextMenu={e => {
-          if (game.settings.preventCopyPaste !== false) {
-            e.preventDefault();
-          }
-        }}
-        onCopy={e => {
-          if (game.settings.preventCopyPaste !== false) {
-            handlePasteAttempt(e);
-          }
-        }}
-      >
-        <div className="flex items-center justify-between w-full">
-          <span className="sticker-badge sticker-badge-sunshine text-[11px] font-bold">
-            Q{game.currentQuestionIndex + 1} / {game.questions.length}
-          </span>
-          <TimerRing
-            timeLeft={playerTimeLeft}
-            totalTime={totalTimeLimit}
-            size={56}
-            strokeWidth={5}
-          />
+      {/* Fullscreen Paused Overlay */}
+      {fullscreenPaused && game.status === 'question_active' && !hasSubmitted && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 animate-fadeIn">
+          <div className="paper-card p-8 max-w-md w-full text-center space-y-4 border-3 border-[var(--accent)]">
+            <div className="text-4xl animate-pulse">📺</div>
+            <h2 className="text-2xl font-black font-['Bricolage_Grotesque'] text-[var(--accent)]">
+              Fullscreen Mode Required
+            </h2>
+            <p className="text-xs font-bold text-[var(--text-muted)]">
+              Assessment countdown is visibly paused on your screen. (Server time continues running). Please return to fullscreen mode immediately to continue answering.
+            </p>
+            <button
+              onClick={requestFullscreen}
+              className="paper-btn paper-btn-primary w-full py-3 text-sm font-black shadow-[4px_4px_0px_var(--shadow)]"
+            >
+              🖥️ Return to Fullscreen
+            </button>
+          </div>
         </div>
-        <h1 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)] leading-snug">
-          {currentQuestion.text}
-        </h1>
+      )}
 
-        {/* Read-Aloud Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-bold w-full">
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => startReadAloud(speechRate)}
-              className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1"
-              title="Replay Audio"
-              aria-label="Replay Question and Options"
-            >
-              <span aria-hidden="true">🔄</span> <span>Replay</span>
-            </button>
-            <button
-              onClick={handleTogglePauseSpeech}
-              disabled={!isSpeaking && !isPaused}
-              className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
-              title={isPaused ? 'Resume Audio' : 'Pause Audio'}
-              aria-label={isPaused ? 'Resume Audio' : 'Pause Audio'}
-            >
-              <span>{isPaused ? '▶️ Resume' : '⏸️ Pause'}</span>
-            </button>
-            <button
-              onClick={stopSpeech}
-              disabled={!isSpeaking && !isPaused}
-              className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
-              title="Stop Audio"
-              aria-label="Stop Audio"
-            >
-              <span aria-hidden="true">⏹️</span> <span>Stop</span>
-            </button>
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px]">
-            <label htmlFor="ttsSpeedSelect" className="text-[var(--text-muted)]">Speed:</label>
-            <select
-              id="ttsSpeedSelect"
-              aria-label="Speech Speed"
-              value={speechRate}
-              onChange={e => {
-                const rate = Number(e.target.value);
-                setSpeechRate(rate);
-                if (isSpeaking) startReadAloud(rate);
-              }}
-              className="rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-1.5 py-0.5 text-[11px] font-bold"
-            >
-              <option value={0.8}>0.8x</option>
-              <option value={1.0}>1.0x</option>
-              <option value={1.25}>1.25x</option>
-            </select>
+      {/* Question Prompt and Timer Ring Header */}
+      <div className="flex items-center justify-between w-full px-1">
+        <span className="sticker-badge sticker-badge-sunshine text-[11px] font-bold">
+          Q{game.currentQuestionIndex + 1} / {game.questions.length}
+        </span>
+        <TimerRing
+          timeLeft={playerTimeLeft}
+          totalTime={totalTimeLimit}
+          size={56}
+          strokeWidth={5}
+        />
+      </div>
+
+      {/* Anti-Scraping Canvas (or Accessible Mode Fallback) */}
+      {game.status === 'question_active' && currentQuestion.type !== 'type_answer' ? (
+        <div className="space-y-3">
+          <WatermarkedQuestionCanvas
+            questionText={currentQuestion.text}
+            options={currentQuestion.options}
+            playerNickname={player.nickname}
+            playerId={player.id}
+            questionIndex={game.currentQuestionIndex}
+            totalQuestions={game.questions.length}
+            selectedIndices={selectedIndices}
+            hasSubmitted={hasSubmitted}
+            isLocked={isQuestionLocked}
+            hiddenOptions={hiddenOptions}
+            isAccessibleMode={Boolean(
+              player.accommodations?.readAloud ||
+              player.accommodations?.dyslexiaFont ||
+              player.accommodations?.largeText
+            )}
+            onSelectOption={handleSubmitOption}
+          />
+
+          {/* Read-Aloud Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-bold w-full">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => startReadAloud(speechRate)}
+                className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1"
+                title="Replay Audio"
+                aria-label="Replay Question and Options"
+              >
+                <span aria-hidden="true">🔄</span> <span>Replay</span>
+              </button>
+              <button
+                onClick={handleTogglePauseSpeech}
+                disabled={!isSpeaking && !isPaused}
+                className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
+                title={isPaused ? 'Resume Audio' : 'Pause Audio'}
+                aria-label={isPaused ? 'Resume Audio' : 'Pause Audio'}
+              >
+                <span>{isPaused ? '▶️ Resume' : '⏸️ Pause'}</span>
+              </button>
+              <button
+                onClick={stopSpeech}
+                disabled={!isSpeaking && !isPaused}
+                className="paper-btn paper-btn-sm text-[11px] px-2 py-1 flex items-center gap-1 disabled:opacity-40"
+                title="Stop Audio"
+                aria-label="Stop Audio"
+              >
+                <span aria-hidden="true">⏹️</span> <span>Stop</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <label htmlFor="ttsSpeedSelect" className="text-[var(--text-muted)]">Speed:</label>
+              <select
+                id="ttsSpeedSelect"
+                aria-label="Speech Speed"
+                value={speechRate}
+                onChange={e => {
+                  const rate = Number(e.target.value);
+                  setSpeechRate(rate);
+                  if (isSpeaking) startReadAloud(rate);
+                }}
+                className="rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-1.5 py-0.5 text-[11px] font-bold"
+              >
+                <option value={0.8}>0.8x</option>
+                <option value={1.0}>1.0x</option>
+                <option value={1.25}>1.25x</option>
+              </select>
+            </div>
           </div>
         </div>
-      </div>
+      ) : game.status !== 'question_active' ? (
+        <div className="paper-card p-5 border-3 text-center space-y-2">
+          <h1 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)]">
+            {currentQuestion.text}
+          </h1>
+        </div>
+      ) : null}
 
       {/* Question Locked Banner if Strike 3 locked the round */}
       {isQuestionLocked && !hasSubmitted && game.status === 'question_active' && (
@@ -577,42 +634,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
         </div>
       )}
 
-      {/* Shape-coded Answer Buttons with Tactile Press Feedback */}
-      {game.status === 'question_active' && currentQuestion.type !== 'type_answer' && (
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          {currentQuestion.options.map((opt, idx) => {
-            if (hiddenOptions.includes(idx)) {
-              return <div key={idx} className="h-32 sm:h-36 rounded-2xl bg-[var(--surface-2)] opacity-20 border-2 border-[var(--border)]" />;
-            }
-
-            const btn = optionButtons[idx % 4];
-            const isSelected = selectedIndices.includes(idx);
-
-            return (
-              <button
-                key={idx}
-                onClick={() => handleSubmitOption(idx)}
-                disabled={hasSubmitted || isQuestionLocked}
-                className={`paper-btn h-32 sm:h-36 flex flex-col items-center justify-center p-3 rounded-2xl shadow-[4px_4px_0px_var(--shadow)] transition-all select-none ${
-                  btn.bg
-                } ${
-                  isSelected ? 'ring-4 ring-[var(--border)] scale-95 opacity-100' : hasSubmitted ? 'opacity-40 cursor-not-allowed' : 'hover:-translate-y-0.5 active:translate-y-1 active:shadow-none'
-                }`}
-              >
-                <div className="mb-1.5 sm:mb-2 shrink-0">{btn.icon}</div>
-                <span className="font-['Bricolage_Grotesque'] font-extrabold text-xs sm:text-base leading-tight text-center line-clamp-3 break-words px-1">
-                  {opt}
-                </span>
-                {isSelected && hasSubmitted && (
-                  <span className="mt-1 text-[10px] font-black uppercase tracking-wider bg-[var(--surface)] text-[var(--text)] px-1.5 py-0.5 rounded border border-[var(--border)]">
-                    ✓ Locked In
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       {/* Multi-select confirm button */}
       {!hasSubmitted && !isQuestionLocked && currentQuestion.type === 'multi_select' && selectedIndices.length > 0 && (

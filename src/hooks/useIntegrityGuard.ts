@@ -15,6 +15,7 @@ export interface IntegrityWarningModalState {
   message: string;
   penaltyPoints?: number;
   isLocked?: boolean;
+  isTerminated?: boolean;
 }
 
 export interface UseIntegrityGuardProps {
@@ -26,6 +27,20 @@ export interface UseIntegrityGuardProps {
   onQuestionLock?: () => void;
 }
 
+const MAX_STRIKES_BEFORE_TERMINATION = 6;
+const KNOWN_AI_EXTENSIONS = [
+  'ai-blaze',
+  'sider',
+  'monica',
+  'merlin',
+  'harpa',
+  'maxai',
+  'grammarly',
+  'quiz-solver',
+  'chatgpt',
+  'copilot',
+];
+
 export function useIntegrityGuard({
   game,
   player,
@@ -36,11 +51,12 @@ export function useIntegrityGuard({
 }: UseIntegrityGuardProps) {
   // Strict Secure Mode is permanent and always on (no host or player opt-out)
   const isSecure = true;
-  const requireFullscreen = true;
-  const lockOnStrike3 = true;
   const strike2Penalty = game.settings?.strike2PointPenalty ?? 50;
 
   const [strikes, setStrikes] = useState<number>(player.strikes || 0);
+  const [isTerminated, setIsTerminated] = useState<boolean>(
+    Boolean(player.isTerminated || player.status === 'terminated_integrity')
+  );
   const [warningModal, setWarningModal] = useState<IntegrityWarningModalState | null>(null);
   const [isQuestionLocked, setIsQuestionLocked] = useState<boolean>(false);
   const [blockedByExtension, setBlockedByExtension] = useState<boolean>(false);
@@ -48,15 +64,30 @@ export function useIntegrityGuard({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(
     typeof document !== 'undefined' ? Boolean(document.fullscreenElement) : false
   );
+  const [fullscreenPaused, setFullscreenPaused] = useState<boolean>(false);
 
   const lastEventTimeRef = useRef<Record<string, number>>({});
   const strikesRef = useRef<number>(strikes);
   strikesRef.current = strikes;
 
-  // Reset question lock state on each new question
+  // Sync state if player was reinstated or updated by host
   useEffect(() => {
-    setIsQuestionLocked(false);
-  }, [currentQuestionIndex]);
+    if (player.strikes !== undefined && player.strikes !== strikesRef.current) {
+      setStrikes(player.strikes);
+    }
+    const term = Boolean(player.isTerminated || player.status === 'terminated_integrity');
+    setIsTerminated(term);
+    if (!term && warningModal?.isTerminated) {
+      setWarningModal(null);
+    }
+  }, [player.strikes, player.isTerminated, player.status]);
+
+  // Reset per-question temporary locks when question advances
+  useEffect(() => {
+    if (!isTerminated) {
+      setIsQuestionLocked(false);
+    }
+  }, [currentQuestionIndex, isTerminated]);
 
   const sendIntegrityFlag = useCallback(
     (
@@ -66,8 +97,8 @@ export function useIntegrityGuard({
     ) => {
       const now = Date.now();
       const last = lastEventTimeRef.current[type] || 0;
-      // Instantaneous dispatch: deduplicate only exact duplicate events within 150ms
-      if (now - last < 150) return;
+      // Deduplicate rapid duplicate events of same type within 500ms
+      if (now - last < 500) return;
       lastEventTimeRef.current[type] = now;
 
       const flag: IntegrityFlag = {
@@ -88,75 +119,108 @@ export function useIntegrityGuard({
     [game.id, player.id, player.nickname, currentQuestionIndex]
   );
 
-  // Helper to handle 3-strike escalation synchronously (< 300ms)
+  // Core Strike System with 500ms debounce and automatic termination at Strike 6
   const registerStrike = useCallback(
     (reason: string, eventType: 'tab_switch' | 'window_blur' | 'fullscreen_exit') => {
-      if (hasSubmitted || game.status !== 'question_active') return;
+      if (hasSubmitted || game.status !== 'question_active' || isTerminated) return;
 
       const now = Date.now();
       const last = lastEventTimeRef.current['any_strike'] || 0;
-      // Fast deduplication window (250ms) to ensure instantaneous < 300ms reaction
-      if (now - last < 250) return;
+      // 500ms debounce window so a single window-loss / blur counts as exactly ONE strike
+      if (now - last < 500) return;
       lastEventTimeRef.current['any_strike'] = now;
 
       const nextStrike = strikesRef.current + 1;
       setStrikes(nextStrike);
 
-      // (c) 3-Strike Escalation:
-      // Strike 1: friendly warning modal
-      // Strike 2: stronger warning with -50 point penalty
-      // Strike 3: locks answering for that question and flags to host audit panel
+      // Persist to server / Firestore immediately so refresh cannot wipe strikes
+      const willTerminate = nextStrike >= MAX_STRIKES_BEFORE_TERMINATION;
+      GameEngine.updatePlayerStrikes(game.id, player.id, nextStrike, reason, willTerminate);
+
+      if (willTerminate) {
+        // Strike 6: END quiz automatically, preserve score, mark Terminated - integrity
+        setIsTerminated(true);
+        setIsQuestionLocked(true);
+        sound.playWrong();
+        sendIntegrityFlag(eventType, 'high', `Strike 6: Quiz terminated automatically - ${reason}`);
+
+        setWarningModal({
+          open: true,
+          strike: 6,
+          title: 'Quiz Terminated - Integrity Shield',
+          message:
+            'Six focus/window loss violations were recorded on your session. Your quiz has been ended automatically. Your score earned so far has been preserved and logged on the server. Your host reviews all flags and can reinstate your session if this was an error.',
+          isLocked: true,
+          isTerminated: true,
+        });
+        return;
+      }
+
+      // Strikes 1 to 5: Escalating advisory warnings
       if (nextStrike === 1) {
         sound.playWrong();
-        sendIntegrityFlag(eventType, 'low', `Strike 1: ${reason}`);
+        sendIntegrityFlag(eventType, 'low', `Strike 1 of 5: ${reason}`);
         setWarningModal({
           open: true,
           strike: 1,
-          title: 'Advisory Notice: Window Focus Shifted',
+          title: 'Strike 1 of 5: Window Focus Shifted',
           message:
-            'A tab switch or window focus loss was noticed. Please keep this assessment window focused while answering. Note: All assistive tools and accommodations are fully allowed, and flags are reviewed by your host.',
+            'A tab switch or window focus shift was detected. Please keep the quiz window focused during questions. Note: Assistive accommodations (screen readers, dyslexia tools) are strictly allowed and flags are reviewed by your host.',
         });
       } else if (nextStrike === 2) {
         sound.playWrong();
-        sendIntegrityFlag(eventType, 'medium', `Strike 2: ${reason}`);
-
+        sendIntegrityFlag(eventType, 'medium', `Strike 2 of 5: ${reason}`);
         if (strike2Penalty > 0 && onApplyPenalty) {
           onApplyPenalty(strike2Penalty);
         }
-
         setWarningModal({
           open: true,
           strike: 2,
-          title: 'Second Advisory Warning: Focus Loss Detected',
-          message: `You have switched away from the arena a second time. An advisory penalty of -${strike2Penalty} points has been applied. Please stay focused on the question. Screen readers and approved accommodations remain fully permitted.`,
+          title: 'Strike 2 of 5: Focus Violation',
+          message: `Second window switch detected. An advisory penalty of -${strike2Penalty} points has been logged. Please stay on this screen. Assistive tools remain fully permitted.`,
           penaltyPoints: strike2Penalty,
         });
-      } else {
-        // Strike 3+
+      } else if (nextStrike === 3) {
         sound.playWrong();
-        sendIntegrityFlag(eventType, 'high', `Strike 3 (Final): ${reason}`);
-
-        if (lockOnStrike3) {
-          setIsQuestionLocked(true);
-          onQuestionLock?.();
-        }
-
+        sendIntegrityFlag(eventType, 'high', `Strike 3 of 5: ${reason}`);
+        setIsQuestionLocked(true);
+        onQuestionLock?.();
         setWarningModal({
           open: true,
-          strike: nextStrike,
-          title: 'Strike 3: Locked & Flagged to Host',
+          strike: 3,
+          title: 'Strike 3 of 5: Locked for this Question',
           message:
-            'Repeated window switches have been recorded and flagged live in the host audit panel. Answering for this question has been locked. Remember: all records are advisory and your host reviews all flags.',
-          isLocked: lockOnStrike3,
+            'Third window switch recorded. Answering has been locked for this question and flagged live to your host. Play will resume on the next question.',
+          isLocked: true,
+        });
+      } else if (nextStrike === 4) {
+        sound.playWrong();
+        sendIntegrityFlag(eventType, 'high', `Strike 4 of 5: ${reason}`);
+        setWarningModal({
+          open: true,
+          strike: 4,
+          title: 'Strike 4 of 5: Critical Warning',
+          message:
+            'Fourth violation recorded. You are two strikes away from automatic assessment termination. Please remain focused on the exam.',
+        });
+      } else if (nextStrike === 5) {
+        sound.playWrong();
+        sendIntegrityFlag(eventType, 'high', `Strike 5 of 5: Final Warning Before Termination`);
+        setWarningModal({
+          open: true,
+          strike: 5,
+          title: 'Strike 5 of 5: Final Warning',
+          message:
+            'One more window switch will permanently end your assessment. Keep this window focused and full screen.',
         });
       }
     },
-    [hasSubmitted, game.status, sendIntegrityFlag, strike2Penalty, onApplyPenalty, lockOnStrike3, onQuestionLock]
+    [hasSubmitted, game.status, isTerminated, game.id, player.id, sendIntegrityFlag, strike2Penalty, onApplyPenalty, onQuestionLock]
   );
 
-  // (a) Instantaneous event listeners: visibilitychange, blur, fullscreenchange
+  // (1) Event Listeners: visibilitychange, blur, fullscreenchange
   useEffect(() => {
-    if (game.status !== 'question_active') return;
+    if (game.status !== 'question_active' || isTerminated) return;
 
     const handleVisibilityChange = () => {
       if (document.hidden && !hasSubmitted) {
@@ -165,8 +229,9 @@ export function useIntegrityGuard({
     };
 
     const handleBlur = () => {
+      // Avoid false-positive if focus shifted into an allowed safe element
       if (!hasSubmitted && document.activeElement?.tagName !== 'IFRAME') {
-        registerStrike('Window lost focus to another application', 'window_blur');
+        registerStrike('Window lost focus (Alt+Tab, window or desktop switch)', 'window_blur');
       }
     };
 
@@ -174,8 +239,11 @@ export function useIntegrityGuard({
       const isNowFullscreen = Boolean(document.fullscreenElement);
       setIsFullscreen(isNowFullscreen);
 
-      if (requireFullscreen && !isNowFullscreen && !hasSubmitted) {
-        registerStrike('Exited full-screen arena mode', 'fullscreen_exit');
+      if (!isNowFullscreen && !hasSubmitted) {
+        setFullscreenPaused(true);
+        registerStrike('Exited mandatory fullscreen arena mode', 'fullscreen_exit');
+      } else {
+        setFullscreenPaused(false);
       }
     };
 
@@ -188,39 +256,28 @@ export function useIntegrityGuard({
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [game.status, hasSubmitted, requireFullscreen, registerStrike]);
+  }, [game.status, hasSubmitted, isTerminated, registerStrike]);
 
-  // (e) Multi-monitor check
+  // (1b) 500 ms document.hasFocus() Polling
   useEffect(() => {
-    if (game.status !== 'question_active' || hasSubmitted) return;
+    if (game.status !== 'question_active' || hasSubmitted || isTerminated) return;
 
-    const checkMultiMonitor = () => {
-      try {
-        const isExtended = Boolean((window.screen as any)?.isExtended);
-        const hasSpanning =
-          window.screenLeft < -20 ||
-          window.screenLeft > window.screen.width + 20 ||
-          window.screen.availWidth > window.screen.width * 1.5;
-
-        if (isExtended || hasSpanning) {
-          sendIntegrityFlag(
-            'multi_monitor' as any,
-            'medium',
-            'Multiple active displays or window spanning across monitors detected'
-          );
+    const focusPollInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && typeof document.hasFocus === 'function') {
+        if (!document.hasFocus() && !hasSubmitted) {
+          registerStrike('Loss of document focus (500ms heartbeat poll)', 'window_blur');
         }
-      } catch {}
-    };
+      }
+    }, 500);
 
-    checkMultiMonitor();
-    const multiMonitorTimer = setInterval(checkMultiMonitor, 10000);
+    return () => clearInterval(focusPollInterval);
+  }, [game.status, hasSubmitted, isTerminated, registerStrike]);
 
-    return () => clearInterval(multiMonitorTimer);
-  }, [game.status, hasSubmitted, sendIntegrityFlag]);
-
-  // (f) Suspicious-environment checks: navigator.webdriver, MutationObserver, devtools heuristic
+  // (2) Extension & Suspicious Tool Detection (MutationObserver + known patterns)
   useEffect(() => {
-    // 1. navigator.webdriver check
+    if (game.status !== 'question_active' || hasSubmitted || isTerminated) return;
+
+    // Check navigator.webdriver
     if (typeof navigator !== 'undefined' && (navigator as any).webdriver) {
       sendIntegrityFlag(
         'webdriver_detected',
@@ -229,54 +286,96 @@ export function useIntegrityGuard({
       );
     }
 
-    // 2. Devtools open heuristic
+    // Check Picture-in-Picture
+    if (typeof document !== 'undefined' && (document as any).pictureInPictureElement) {
+      sendIntegrityFlag(
+        'devtools_open',
+        'medium',
+        'Picture-in-Picture active window detected during question'
+      );
+    }
+
+    // Check multi-monitor
+    try {
+      const isExtended = Boolean((window.screen as any)?.isExtended);
+      if (isExtended) {
+        sendIntegrityFlag(
+          'multi_monitor' as any,
+          'medium',
+          'Multi-monitor configuration detected (screen.isExtended = true)'
+        );
+      }
+    } catch {}
+
+    // Check getDisplayMedia screen capture
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && (navigator.mediaDevices as any).getDisplayMedia) {
+      const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getDisplayMedia = async function (...args: any[]) {
+        sendIntegrityFlag('devtools_open', 'high', 'Screen capture attempted via getDisplayMedia');
+        return originalGetDisplayMedia(...args);
+      };
+    }
+
+    // Devtools open heuristic
     const checkDevtools = () => {
       const threshold = 160;
       const widthDiff = window.outerWidth - window.innerWidth > threshold;
       const heightDiff = window.outerHeight - window.innerHeight > threshold;
-      if ((widthDiff || heightDiff) && game.status === 'question_active' && !hasSubmitted) {
-        sendIntegrityFlag(
-          'devtools_open',
-          'medium',
-          'Heuristic developer tools inspection window detected'
-        );
+      if (widthDiff || heightDiff) {
+        sendIntegrityFlag('devtools_open', 'medium', 'Devtools console inspection window opened');
       }
     };
+    const devtoolsTimer = setInterval(checkDevtools, 8000);
 
-    const devtoolsTimer = setInterval(checkDevtools, 6000);
-
-    // 3. MutationObserver for injected extensions
+    // MutationObserver to scan for injected extension nodes and overlays
     let observer: MutationObserver | null = null;
     try {
       observer = new MutationObserver(mutations => {
         for (const mutation of mutations) {
           for (const node of Array.from(mutation.addedNodes)) {
             if (node instanceof HTMLElement) {
-              const html = node.outerHTML || '';
-              const isExtensionRef =
-                html.includes('chrome-extension://') ||
-                html.includes('moz-extension://') ||
-                node.getAttribute('data-extension-id') ||
-                (node.className && typeof node.className === 'string' && node.className.includes('quiz-solver'));
+              // False-positive guard 1: Ignore password managers (1Password, Bitwarden, LastPass, Dashlane)
+              if (
+                node.hasAttribute('data-lastpass-icon-root') ||
+                node.hasAttribute('data-dashlane-frame') ||
+                node.hasAttribute('data-bitwarden') ||
+                node.closest('input, textarea, form')
+              ) {
+                continue;
+              }
 
-              const rect = node.getBoundingClientRect?.() || { width: 0, height: 0 };
-              const isSuspiciousOverlay =
-                node.style.position === 'fixed' &&
-                (parseInt(node.style.zIndex || '0', 10) >= 9999 || rect.width > 250);
+              // False-positive guard 2: Ignore Google Translate & language translation wrappers
+              if (node.classList.contains('translated-ltr') || node.id.includes('goog-gt-')) {
+                continue;
+              }
 
-              if (isExtensionRef || isSuspiciousOverlay) {
+              const html = (node.outerHTML || '').toLowerCase();
+              const isExtensionUri =
+                html.includes('chrome-extension://') || html.includes('moz-extension://');
+
+              const isKnownAIExtension = KNOWN_AI_EXTENSIONS.some(
+                ext => html.includes(ext) || node.id.toLowerCase().includes(ext) || node.className.toLowerCase().includes(ext)
+              );
+
+              // Check for fixed overlays placed outside #root or covering the question
+              const style = window.getComputedStyle(node);
+              const isFixedOverlay =
+                style.position === 'fixed' &&
+                (parseInt(style.zIndex || '0', 10) >= 999 || node.getBoundingClientRect().width > 300);
+
+              if (isExtensionUri || isKnownAIExtension || isFixedOverlay) {
                 sendIntegrityFlag(
                   'extension_injection',
                   'high',
-                  `Injected browser extension node detected: <${node.tagName.toLowerCase()}>`
+                  `Browser overlay or assistant detected: <${node.tagName.toLowerCase()}>`
                 );
 
-                // Strong signal: block interaction and prompt reload
-                if (isExtensionRef) {
+                if (isExtensionUri || isKnownAIExtension) {
                   setBlockedByExtension(true);
                   setExtensionReason(
-                    'An active browser extension is modifying this assessment page. Please disable extensions for this site and reload.'
+                    'An AI assistant or browser extension was detected modifying this test. Please disable third-party extensions for this page and reload.'
                   );
+                  registerStrike('Third-party AI extension injected into DOM', 'tab_switch');
                 }
               }
             }
@@ -284,25 +383,20 @@ export function useIntegrityGuard({
         }
       });
 
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-    } catch (e) {
-      console.warn('[IntegrityGuard] MutationObserver unavailable:', e);
-    }
+      observer.observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
 
     return () => {
       clearInterval(devtoolsTimer);
       observer?.disconnect();
     };
-  }, [game.status, hasSubmitted, sendIntegrityFlag]);
+  }, [game.status, hasSubmitted, isTerminated, sendIntegrityFlag, registerStrike]);
 
-  // (d) Prevent copy, paste, cut, context menu, text selection, and print
+  // (4) Disable copy, cut, paste, selection, printing, right-click, and hotkeys
   useEffect(() => {
     const handleCopy = (e: ClipboardEvent) => {
       e.preventDefault();
-      sendIntegrityFlag('copy_paste_attempt', 'low', 'Copy attempt intercepted on assessment text');
+      sendIntegrityFlag('copy_paste_attempt', 'low', 'Copy attempt intercepted');
     };
 
     const handleCut = (e: ClipboardEvent) => {
@@ -317,33 +411,46 @@ export function useIntegrityGuard({
 
     const handleSelectStart = (e: Event) => {
       const target = e.target as HTMLElement | null;
-      // Allow selection inside inputs / textareas for type_answer
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       e.preventDefault();
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
-      // Block Ctrl+P / Cmd+P (Print)
-      if ((e.ctrlKey || e.metaKey) && key === 'p') {
-        e.preventDefault();
-        sendIntegrityFlag('print_attempt' as any, 'medium', 'Print shortcut (Ctrl+P) intercepted');
-      }
-      // Block Ctrl+U (View Source)
-      if ((e.ctrlKey || e.metaKey) && key === 'u') {
-        e.preventDefault();
-        sendIntegrityFlag('devtools_open', 'low', 'View source shortcut (Ctrl+U) intercepted');
-      }
+
       // Block F12
       if (e.key === 'F12') {
         e.preventDefault();
-        sendIntegrityFlag('devtools_open', 'low', 'F12 developer tools shortcut intercepted');
+        sendIntegrityFlag('devtools_open', 'low', 'F12 hotkey blocked');
       }
-    };
 
-    const handleBeforePrint = (e: Event) => {
-      e.preventDefault();
-      sendIntegrityFlag('print_attempt' as any, 'medium', 'Browser print dialogue intercepted');
+      // Block Ctrl+Shift+I / J / C (Devtools)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (key === 'i' || key === 'j' || key === 'c')) {
+        e.preventDefault();
+        sendIntegrityFlag('devtools_open', 'medium', 'Devtools shortcut blocked');
+      }
+
+      // Block Ctrl+U (View Source)
+      if ((e.ctrlKey || e.metaKey) && key === 'u') {
+        e.preventDefault();
+        sendIntegrityFlag('devtools_open', 'low', 'View-source shortcut (Ctrl+U) blocked');
+      }
+
+      // Block Ctrl+S (Save Page)
+      if ((e.ctrlKey || e.metaKey) && key === 's') {
+        e.preventDefault();
+      }
+
+      // Block Ctrl+P (Print)
+      if ((e.ctrlKey || e.metaKey) && key === 'p') {
+        e.preventDefault();
+        sendIntegrityFlag('print_attempt' as any, 'medium', 'Print shortcut (Ctrl+P) blocked');
+      }
+
+      // Block PrintScreen
+      if (e.key === 'PrintScreen') {
+        sendIntegrityFlag('print_attempt' as any, 'medium', 'PrintScreen key intercepted');
+      }
     };
 
     document.addEventListener('copy', handleCopy);
@@ -351,7 +458,6 @@ export function useIntegrityGuard({
     document.addEventListener('contextmenu', handleContextMenu);
     document.addEventListener('selectstart', handleSelectStart);
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('beforeprint', handleBeforePrint);
 
     return () => {
       document.removeEventListener('copy', handleCopy);
@@ -359,15 +465,12 @@ export function useIntegrityGuard({
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('selectstart', handleSelectStart);
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('beforeprint', handleBeforePrint);
     };
   }, [sendIntegrityFlag]);
 
   const handlePasteAttempt = useCallback(
     (e?: React.ClipboardEvent | ClipboardEvent | React.SyntheticEvent) => {
-      if (e) {
-        e.preventDefault();
-      }
+      if (e) e.preventDefault();
       sendIntegrityFlag('copy_paste_attempt', 'low', 'Paste attempt intercepted');
     },
     [sendIntegrityFlag]
@@ -378,6 +481,7 @@ export function useIntegrityGuard({
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
         setIsFullscreen(true);
+        setFullscreenPaused(false);
       }
     } catch (err) {
       console.warn('Fullscreen request rejected by user/browser:', err);
@@ -385,20 +489,24 @@ export function useIntegrityGuard({
   };
 
   const dismissWarningModal = () => {
-    setWarningModal(null);
+    if (!isTerminated) {
+      setWarningModal(null);
+    }
   };
 
   return {
+    isSecure,
     strikes,
-    isQuestionLocked,
+    isTerminated,
     warningModal,
     dismissWarningModal,
+    isQuestionLocked,
     blockedByExtension,
     extensionReason,
+    requireFullscreen: true,
     isFullscreen,
+    fullscreenPaused,
     requestFullscreen,
-    requireFullscreen,
-    isSecure,
     handlePasteAttempt,
   };
 }

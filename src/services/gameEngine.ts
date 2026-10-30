@@ -678,5 +678,52 @@ export class GameEngine {
       broadcastChannel?.removeEventListener('message', handleBroadcast);
     };
   }
+
+  // Update player strike count and termination status on server so refresh cannot wipe it
+  public static async updatePlayerStrikes(
+    gameId: string,
+    playerId: string,
+    strikes: number,
+    lastEvent?: string,
+    isTerminated: boolean = false
+  ): Promise<void> {
+    const integrityScore = Math.max(0, 100 - strikes * 16 - (isTerminated ? 100 : 0));
+    const updateData: Record<string, any> = {
+      strikes,
+      lastEvent: lastEvent || '',
+      lastEventTime: new Date().toISOString(),
+      isTerminated,
+      status: isTerminated ? 'terminated_integrity' : 'active',
+      integrityScore,
+    };
+
+    if (isFirebaseConfigured && db) {
+      try {
+        await updateDoc(doc(db, 'games', gameId, 'players', playerId), updateData);
+      } catch (e) {
+        console.warn('Failed to update player strikes in Firestore:', e);
+      }
+    }
+
+    // Local storage & BroadcastChannel fallback
+    const localKey = `quizarena_players_${gameId}`;
+    try {
+      const players: Player[] = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const updated = players.map(p =>
+        p.id === playerId ? { ...p, ...updateData } : p
+      );
+      localStorage.setItem(localKey, JSON.stringify(updated));
+      broadcastChannel?.postMessage({
+        type: 'PLAYERS_UPDATED',
+        gameId,
+        players: updated,
+      });
+    } catch (e) {}
+  }
+
+  // Host reinstates a terminated player
+  public static async reinstatePlayer(gameId: string, playerId: string): Promise<void> {
+    await this.updatePlayerStrikes(gameId, playerId, 0, 'Reinstated by Host', false);
+  }
 }
 

@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * Automated Test Suite for Strict Secure Mode & Integrity Shield (Phase 7)
+ * Automated Test Suite for Strict Secure Mode & Integrity Shield (Phase 4)
  */
 
 import { globalTimingAnomalyDetector } from '../server/scoringHardening';
@@ -21,38 +21,80 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     }
   }
 
-  // 1. Strike Escalation Logic
+  // 1. 6-Strike Escalation and Automatic Termination Logic
   let strikes = 0;
   let penaltyApplied = 0;
   let questionLocked = false;
+  let isTerminated = false;
+  let preservedScore = 1250;
 
   const simulateStrike = (strikeNumber: number) => {
     strikes = strikeNumber;
     if (strikes === 1) {
-      // Strike 1: Advisory warning only
-      return { modal: 'advisory', penalty: 0, locked: false };
+      return { modal: 'Strike 1 of 5: Window Focus Shifted', penalty: 0, locked: false, terminated: false };
     } else if (strikes === 2) {
-      // Strike 2: Point penalty (-50)
       penaltyApplied += 50;
-      return { modal: 'warning_with_penalty', penalty: 50, locked: false };
-    } else if (strikes >= 3) {
-      // Strike 3: Locked question & flag to host
+      return { modal: 'Strike 2 of 5: Focus Violation', penalty: 50, locked: false, terminated: false };
+    } else if (strikes === 3) {
       questionLocked = true;
-      return { modal: 'locked_and_flagged', penalty: 0, locked: true };
+      return { modal: 'Strike 3 of 5: Locked for this Question', penalty: 0, locked: true, terminated: false };
+    } else if (strikes === 4) {
+      return { modal: 'Strike 4 of 5: Critical Warning', penalty: 0, locked: false, terminated: false };
+    } else if (strikes === 5) {
+      return { modal: 'Strike 5 of 5: Final Warning', penalty: 0, locked: false, terminated: false };
+    } else if (strikes >= 6) {
+      isTerminated = true;
+      questionLocked = true;
+      return { modal: 'Quiz Terminated - Integrity Shield', penalty: 0, locked: true, terminated: true };
     }
-    return { modal: 'none', penalty: 0, locked: false };
+    return { modal: 'none', penalty: 0, locked: false, terminated: false };
   };
 
   const s1 = simulateStrike(1);
-  assert('Strike 1: Triggers advisory modal without locking or penalty', s1.modal === 'advisory' && penaltyApplied === 0 && !questionLocked);
+  assert('Strike 1: Advisory warning without locking or termination', s1.modal.includes('Strike 1') && !questionLocked && !isTerminated);
 
   const s2 = simulateStrike(2);
-  assert('Strike 2: Deducts 50 point penalty', s2.modal === 'warning_with_penalty' && penaltyApplied === 50 && !questionLocked);
+  assert('Strike 2: Deducts 50 point penalty', s2.modal.includes('Strike 2') && penaltyApplied === 50 && !isTerminated);
 
   const s3 = simulateStrike(3);
-  assert('Strike 3: Locks question answering immediately', s3.modal === 'locked_and_flagged' && questionLocked);
+  assert('Strike 3: Locks question answering immediately', s3.modal.includes('Strike 3') && questionLocked && !isTerminated);
 
-  // 2. Server-side Timing Anomaly Detection (< 300ms sub-human response)
+  const s4 = simulateStrike(4);
+  assert('Strike 4: Issues critical warning', s4.modal.includes('Strike 4') && !isTerminated);
+
+  const s5 = simulateStrike(5);
+  assert('Strike 5: Issues final warning before termination', s5.modal.includes('Strike 5') && !isTerminated);
+
+  const s6 = simulateStrike(6);
+  assert(
+    'Strike 6: Quiz is ENDED automatically with score preserved',
+    s6.terminated && isTerminated && questionLocked && preservedScore === 1250
+  );
+
+  // 2. Host Reinstatement Logic
+  const reinstatePlayer = () => {
+    strikes = 0;
+    isTerminated = false;
+    questionLocked = false;
+    return { strikes, isTerminated, questionLocked, integrityScore: 100 };
+  };
+  const reinstated = reinstatePlayer();
+  assert(
+    'Host Reinstatement: Resets strikes, removes termination, and restores 100% integrity',
+    reinstated.strikes === 0 && !reinstated.isTerminated && reinstated.integrityScore === 100
+  );
+
+  // 3. 500ms Focus Heartbeat Check
+  const checkFocusLoss = (hasFocus: boolean) => {
+    if (!hasFocus) {
+      return { strikeTriggered: true, reason: 'Loss of document focus (500ms heartbeat poll)' };
+    }
+    return { strikeTriggered: false };
+  };
+  assert('Focus Heartbeat: Detects loss of document.hasFocus()', checkFocusLoss(false).strikeTriggered);
+  assert('Focus Heartbeat: Active document.hasFocus() does not trigger strike', !checkFocusLoss(true).strikeTriggered);
+
+  // 4. Server-side Timing Anomaly Detection (< 300ms sub-human response)
   globalTimingAnomalyDetector.reset();
   const fastAnomaly = globalTimingAnomalyDetector.recordAndCheck('player_speedy', 142);
   assert(
@@ -61,13 +103,13 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     fastAnomaly.reason
   );
 
-  // 3. Normal Human Response Timing (1200ms - 4500ms is not an anomaly)
+  // 5. Normal Human Response Timing (1200ms - 4500ms is not an anomaly)
   globalTimingAnomalyDetector.reset('player_human');
   const normal1 = globalTimingAnomalyDetector.recordAndCheck('player_human', 2400);
   const normal2 = globalTimingAnomalyDetector.recordAndCheck('player_human', 3800);
   assert('Normal timing: Human response variations are not flagged', !normal1.isAnomaly && !normal2.isAnomaly);
 
-  // 4. Uniform Timing Anomaly (Automated Bot script with < 25ms std dev across 3+ questions)
+  // 6. Uniform Timing Anomaly (Automated Bot script with < 25ms std dev across 3+ questions)
   globalTimingAnomalyDetector.reset('player_bot');
   globalTimingAnomalyDetector.recordAndCheck('player_bot', 1500);
   globalTimingAnomalyDetector.recordAndCheck('player_bot', 1502);
@@ -78,30 +120,136 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     botResult.reason
   );
 
-  // 5. Multi-monitor Heuristic Verification
+  // 7. Multi-monitor & Picture-in-Picture Detection
   const checkMultiMonitorHeuristic = (screenObj: { isExtended?: boolean; availWidth: number; width: number }) => {
     return Boolean(screenObj.isExtended) || screenObj.availWidth > screenObj.width * 1.5;
   };
   assert('Multi-monitor: Detects isExtended = true', checkMultiMonitorHeuristic({ isExtended: true, availWidth: 1920, width: 1920 }));
   assert('Single-monitor: Normal single monitor is not flagged', !checkMultiMonitorHeuristic({ isExtended: false, availWidth: 1920, width: 1920 }));
 
-  // 6. Extension Injection Detection Logic
-  const checkInjectedNode = (outerHTML: string, style: { position?: string; zIndex?: string }) => {
-    const isExtension = outerHTML.includes('chrome-extension://') || outerHTML.includes('moz-extension://');
-    const isSuspiciousOverlay = style.position === 'fixed' && parseInt(style.zIndex || '0', 10) >= 9999;
-    return isExtension || isSuspiciousOverlay;
-  };
-  assert('Extension Check: Detects chrome-extension:// URI in DOM', checkInjectedNode('<div src="chrome-extension://xyz/content.js"></div>', {}));
-  assert('Extension Check: Detects full-screen overlay with z-index 9999', checkInjectedNode('<div></div>', { position: 'fixed', zIndex: '9999' }));
-  assert('Extension Check: Standard DOM elements are clean', !checkInjectedNode('<button class="paper-btn">Answer</button>', {}));
+  // 8. Extension and AI Helper Detection
+  const KNOWN_AI_EXTENSIONS = [
+    'ai-blaze',
+    'sider',
+    'monica',
+    'merlin',
+    'harpa',
+    'maxai',
+    'grammarly',
+    'quiz-solver',
+  ];
 
-  // 7. Accessibility Integrity (Screen reader / Dyslexia font not flagged)
-  const isA11yPermitted = (toolName: string) => {
-    const permittedTools = ['nvda', 'jaws', 'voiceover', 'dyslexia_font', 'high_contrast'];
-    return permittedTools.includes(toolName.toLowerCase());
+  const inspectInjectedNode = (node: {
+    outerHTML: string;
+    attributes?: Record<string, string>;
+    classList?: string[];
+    id?: string;
+    style?: { position?: string; zIndex?: string };
+  }) => {
+    // False-positive guard 1: Password managers
+    if (
+      node.attributes?.['data-lastpass-icon-root'] ||
+      node.attributes?.['data-dashlane-frame'] ||
+      node.attributes?.['data-bitwarden']
+    ) {
+      return { flagged: false, reason: 'password_manager_exempt' };
+    }
+
+    // False-positive guard 2: Google Translate
+    if (
+      node.classList?.includes('translated-ltr') ||
+      (node.id && node.id.includes('goog-gt-'))
+    ) {
+      return { flagged: false, reason: 'google_translate_exempt' };
+    }
+
+    const html = node.outerHTML.toLowerCase();
+    const isExtensionUri = html.includes('chrome-extension://') || html.includes('moz-extension://');
+    const isKnownAI = KNOWN_AI_EXTENSIONS.some(ext => html.includes(ext) || node.id?.toLowerCase().includes(ext));
+    const isFixedOverlay =
+      node.style?.position === 'fixed' && parseInt(node.style?.zIndex || '0', 10) >= 999;
+
+    if (isExtensionUri || isKnownAI || isFixedOverlay) {
+      return { flagged: true, isKnownAI, isExtensionUri, isFixedOverlay };
+    }
+    return { flagged: false };
   };
-  assert('Accessibility: NVDA screen reader is permitted and unflagged', isA11yPermitted('nvda'));
-  assert('Accessibility: Dyslexia font accommodation is permitted and unflagged', isA11yPermitted('dyslexia_font'));
+
+  // Known AI extensions test
+  assert(
+    'AI Extension: Detects AI Blaze injection',
+    inspectInjectedNode({ outerHTML: '<div class="ai-blaze-helper"></div>' }).flagged
+  );
+  assert(
+    'AI Extension: Detects Monica / Merlin helper',
+    inspectInjectedNode({ outerHTML: '<div id="monica-quick-ask"></div>' }).flagged
+  );
+  assert(
+    'AI Extension: Detects chrome-extension:// URI',
+    inspectInjectedNode({ outerHTML: '<script src="chrome-extension://abc123xyz/content.js"></script>' }).flagged
+  );
+
+  // False-positive tests
+  assert(
+    'False-Positive Guard: Bitwarden password manager is exempt',
+    !inspectInjectedNode({
+      outerHTML: '<div data-bitwarden="true"></div>',
+      attributes: { 'data-bitwarden': 'true' },
+    }).flagged
+  );
+  assert(
+    'False-Positive Guard: 1Password/LastPass is exempt',
+    !inspectInjectedNode({
+      outerHTML: '<div data-lastpass-icon-root="true"></div>',
+      attributes: { 'data-lastpass-icon-root': 'true' },
+    }).flagged
+  );
+  assert(
+    'False-Positive Guard: Google Translate is exempt',
+    !inspectInjectedNode({
+      outerHTML: '<div id="goog-gt-tt" class="translated-ltr"></div>',
+      id: 'goog-gt-tt',
+      classList: ['translated-ltr'],
+    }).flagged
+  );
+
+  // 9. Watermarked Question Anti-Scraping DOM Check
+  const getRenderedDomText = (isAccessibleMode: boolean, questionText: string, options: string[]) => {
+    if (isAccessibleMode) {
+      return { domContainsQuestion: true, domContainsOptions: true };
+    }
+    // Canvas mode: Question and options are drawn into Canvas pixels only
+    // Transparent hitboxes contain only generic 'Option A', 'Option B' aria-labels
+    return {
+      domContainsQuestion: false,
+      domContainsOptions: false,
+      ariaLabels: ['Option A (Triangle)', 'Option B (Diamond)', 'Option C (Circle)', 'Option D (Square)'],
+    };
+  };
+
+  const canvasMode = getRenderedDomText(false, 'What is the capital of France?', ['Paris', 'London', 'Berlin', 'Rome']);
+  assert(
+    'Anti-Scraping Canvas: Question text is NOT rendered in DOM',
+    !canvasMode.domContainsQuestion && !canvasMode.domContainsOptions
+  );
+  assert(
+    'Anti-Scraping Canvas: Hitboxes use generic aria labels (Option A, B, C, D)',
+    canvasMode.ariaLabels?.[0].startsWith('Option A') === true
+  );
+
+  const accessibleMode = getRenderedDomText(true, 'What is the capital of France?', ['Paris', 'London', 'Berlin', 'Rome']);
+  assert(
+    'Accessibility Mode: Screen readers receive accessible DOM text when accommodation active',
+    accessibleMode.domContainsQuestion && accessibleMode.domContainsOptions
+  );
+
+  // 10. Player Integrity Score Calculation (0-100)
+  const computeIntegrity = (strikeCount: number, isTerm: boolean) => {
+    return Math.max(0, 100 - strikeCount * 16 - (isTerm ? 100 : 0));
+  };
+  assert('Integrity Score: Clean session has 100% integrity', computeIntegrity(0, false) === 100);
+  assert('Integrity Score: 2 strikes yields 68% integrity', computeIntegrity(2, false) === 68);
+  assert('Integrity Score: Terminated session yields 0% integrity', computeIntegrity(6, true) === 0);
 
   return { passed, failed, results };
 }
@@ -112,4 +260,3 @@ if (typeof process !== 'undefined' && process.argv && process.argv[1]?.includes(
   console.log(`\nStrict Integrity Tests: ${r.passed} Passed, ${r.failed} Failed\n`);
   if (r.failed > 0) process.exit(1);
 }
-

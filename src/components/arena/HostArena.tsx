@@ -372,7 +372,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                     Contender Strike Status ({players.length})
                   </span>
                   <span className="text-[11px] font-bold text-[var(--text-muted)]">
-                    Strike 1: Warning • Strike 2: Penalty • Strike 3: Locked
+                    Strikes 1-5: Warnings/Locks • Strike 6: Automatic Termination
                   </span>
                 </div>
 
@@ -383,19 +383,38 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                       f => f.type === 'tab_switch' || f.type === 'window_blur' || f.type === 'fullscreen_exit'
                     ).length;
                     const strikeCount = p.strikes !== undefined ? Math.max(p.strikes, focusStrikes) : focusStrikes;
+                    const isTerminated = Boolean(p.isTerminated || p.status === 'terminated_integrity' || strikeCount >= 6);
 
                     let badgeColor = 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700';
                     let strikeLabel = '0 Strikes (Clean)';
-                    if (strikeCount === 1) {
+                    if (isTerminated) {
+                      badgeColor = 'bg-red-200 dark:bg-red-900/60 text-red-900 dark:text-red-100 border-red-500';
+                      strikeLabel = '💥 Terminated - Integrity';
+                    } else if (strikeCount === 1) {
                       badgeColor = 'bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700';
                       strikeLabel = '⚠️ 1 Strike (Warned)';
                     } else if (strikeCount === 2) {
                       badgeColor = 'bg-orange-100 dark:bg-orange-950/40 text-orange-800 dark:text-orange-300 border-orange-300 dark:border-orange-700';
                       strikeLabel = '⚡ 2 Strikes (Penalty)';
-                    } else if (strikeCount >= 3) {
+                    } else if (strikeCount === 3) {
                       badgeColor = 'bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-300 dark:border-red-700';
-                      strikeLabel = `🚨 ${strikeCount} Strikes (Flagged / Locked)`;
+                      strikeLabel = '🔒 3 Strikes (Locked)';
+                    } else if (strikeCount === 4) {
+                      badgeColor = 'bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-400 dark:border-red-600';
+                      strikeLabel = '🚨 4 Strikes (Warning)';
+                    } else if (strikeCount === 5) {
+                      badgeColor = 'bg-red-200 dark:bg-red-950/50 text-red-900 dark:text-red-200 border-red-500 dark:border-red-600';
+                      strikeLabel = '🛑 5 Strikes (Final Warning)';
                     }
+
+                    const hasAccommodations = Boolean(
+                      p.accommodations?.readAloud ||
+                      p.accommodations?.dyslexiaFont ||
+                      p.accommodations?.largeText
+                    );
+                    const integrityScore = p.integrityScore !== undefined
+                      ? p.integrityScore
+                      : Math.max(0, 100 - strikeCount * 16 - (isTerminated ? 100 : 0));
 
                     return (
                       <div
@@ -405,18 +424,39 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                         <div className="flex items-center gap-2 min-w-0">
                           <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={30} />
                           <div className="min-w-0">
-                            <span className="font-bold text-xs text-[var(--text)] truncate block">
-                              {p.nickname}
-                            </span>
-                            <span className="font-mono-code text-[10px] text-[var(--text-muted)]">
-                              {p.score.toLocaleString()} pts • {playerFlags.length} flags
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-xs text-[var(--text)] truncate">
+                                {p.nickname}
+                              </span>
+                              {hasAccommodations && (
+                                <span className="text-[9px] font-black uppercase px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-300">
+                                  ♿ Accessible Mode
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-mono-code text-[10px] text-[var(--text-muted)] block">
+                              {p.score.toLocaleString()} pts • {playerFlags.length} flags • Integrity {integrityScore}%
                             </span>
                           </div>
                         </div>
 
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border shrink-0 ${badgeColor}`}>
-                          {strikeLabel}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${badgeColor}`}>
+                            {strikeLabel}
+                          </span>
+                          {(isTerminated || strikeCount > 0) && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await GameEngine.reinstatePlayer(game.id, p.id);
+                              }}
+                              className="paper-btn paper-btn-sm text-[10px] px-2 py-0.5 bg-emerald-600 text-white font-bold rounded hover:bg-emerald-700 shadow-none border"
+                              title="Reinstate player's session and reset strikes"
+                            >
+                              Reinstate
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
