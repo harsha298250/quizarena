@@ -47,7 +47,20 @@ function getAdminAuth() {
   return getAuth();
 }
 
-const GEMINI_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+
+export function isGeminiModelNotFoundError(err: any): boolean {
+  if (!err) return false;
+  const msg = typeof err === 'string' ? err : (err.message || String(err));
+  const status = err.status || err.code || err.statusCode;
+  return (
+    status === 404 ||
+    /not[_\s-]?found/i.test(msg) ||
+    /404/i.test(msg) ||
+    /model.*not found/i.test(msg)
+  );
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -245,10 +258,13 @@ INSTRUCTIONS:
     res.statusCode = 200;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ questions: formattedQuestions }));
-  } catch (error) {
-    res.statusCode = 500;
+  } catch (error: any) {
+    const is404 = isGeminiModelNotFoundError(error);
+    res.statusCode = is404 ? 503 : 500;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Generation failed' }));
+    res.end(JSON.stringify({
+      error: is404 ? 'AI model unavailable, contact admin' : (error instanceof Error ? error.message : 'Generation failed'),
+    }));
   }
 }
 

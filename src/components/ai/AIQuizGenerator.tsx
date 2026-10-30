@@ -6,7 +6,7 @@
 import React, { useState, useRef } from 'react';
 import { Question, Quiz } from '../../types/quiz';
 import { extractTextFromPdf, PdfExtractionResult } from '../../services/pdfExtractor';
-import { aiService, GenerateProgress } from '../../services/aiService';
+import { aiService, GenerateProgress, GEMINI_MODEL_NAME } from '../../services/aiService';
 import { SAMPLE_AI_SOURCE_TEXT } from '../../data/sampleQuizzes';
 import { sound } from '../../lib/sound';
 
@@ -114,10 +114,10 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // 45s safety timeout
+    // 60s safety timeout per guidelines
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 45000);
+    }, 60000);
 
     try {
       const questions = await aiService.generateQuestions(
@@ -146,7 +146,12 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
       if (err.name === 'AbortError' || controller.signal.aborted) {
         setGenerationError('Request timed out or was cancelled. Server may be warming up—click Retry below.');
       } else {
-        setGenerationError(err instanceof Error ? err.message : 'Question generation failed. Check server connection and retry.');
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/404|not[_\s-]?found|unavailable/i.test(msg)) {
+          setGenerationError('AI model unavailable, contact admin');
+        } else {
+          setGenerationError(msg || 'Question generation failed. Check server connection and retry.');
+        }
       }
     } finally {
       setIsGenerating(false);
@@ -228,7 +233,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text)] sticker-rot-1">AI Flagship</span>
-              <span className="text-xs font-bold text-[var(--ok)]">Gemini 3.8 Flash Engine</span>
+              <span className="text-xs font-bold text-[var(--ok)]">{GEMINI_MODEL_NAME} Engine</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)]">
               AI Quiz Generator & Syllabus Alignment
@@ -507,20 +512,6 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onSaveToQuiz, 
                   onClick={handleGenerate}
                   disabled={isGenerating}
                   className="paper-btn paper-btn-sm bg-white dark:bg-[var(--surface)] text-[var(--text)] text-xs font-bold shrink-0 shadow-[1px_1px_0px_var(--shadow)]"
-                >
-                  🔄 Retry
-                </button>
-              </div>
-            )}
-
-            {generationError && (
-              <div className="p-3 bg-red-100 border-2 border-red-500 rounded-xl text-xs font-bold text-red-800 flex items-center justify-between gap-2">
-                <span className="flex-1">{generationError}</span>
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={isGenerating}
-                  className="paper-btn paper-btn-sm bg-white text-[var(--text)] text-xs font-bold shrink-0"
                 >
                   🔄 Retry
                 </button>

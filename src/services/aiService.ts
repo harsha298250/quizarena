@@ -6,7 +6,8 @@
 import { Question } from '../types/quiz';
 import { auth, ensureAnonymousAuth } from '../lib/firebase';
 
-export const GEMINI_MODEL_NAME = 'gemini-3.8-flash';
+export const GEMINI_MODEL_NAME =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_MODEL) || 'gemini-3.8-flash';
 
 export interface GenerateQuizParams {
   sourceContent: string;
@@ -92,7 +93,11 @@ class AIService {
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || `Server responded with ${res.status}`);
+        const rawErr = errJson.error || `Server responded with ${res.status}`;
+        if (res.status === 404 || res.status === 503 || /not[_\s-]?found|404|model unavailable/i.test(rawErr)) {
+          throw new Error('AI model unavailable, contact admin');
+        }
+        throw new Error(rawErr);
       }
 
       const data = await res.json();

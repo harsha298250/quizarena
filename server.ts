@@ -136,7 +136,20 @@ app.use((_req: Request, res: Response, next) => {
 app.use(express.json({ limit: '10mb' }));
 
 // Server-side Gemini initialization per guidelines (fastest suitable Gemini model)
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+
+export function isGeminiModelNotFoundError(err: any): boolean {
+  if (!err) return false;
+  const msg = typeof err === 'string' ? err : (err.message || String(err));
+  const status = err.status || err.code || err.statusCode;
+  return (
+    status === 404 ||
+    /not[_\s-]?found/i.test(msg) ||
+    /404/i.test(msg) ||
+    /model.*not found/i.test(msg)
+  );
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -381,8 +394,14 @@ INSTRUCTIONS:
     }));
 
     res.json({ questions: formattedQuestions });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error generating quiz:', error);
+    if (isGeminiModelNotFoundError(error)) {
+      res.status(503).json({
+        error: 'AI model unavailable, contact admin',
+      });
+      return;
+    }
     res.status(500).json({
       error: error instanceof Error ? error.message : 'Failed to generate quiz',
     });
@@ -473,8 +492,12 @@ Return quality assessment.`;
 
     const parsed = JSON.parse(response.text?.trim() || '{}');
     res.json(parsed);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Validation error:', error);
+    if (isGeminiModelNotFoundError(error)) {
+      res.status(503).json({ error: 'AI model unavailable, contact admin' });
+      return;
+    }
     res.status(500).json({ error: error instanceof Error ? error.message : 'Validation failed' });
   }
 });
@@ -539,8 +562,12 @@ Return JSON array assessing each question by id.`;
 
     const parsed = JSON.parse(response.text?.trim() || '[]');
     res.json({ results: parsed });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Batch validation error:', error);
+    if (isGeminiModelNotFoundError(error)) {
+      res.status(503).json({ error: 'AI model unavailable, contact admin' });
+      return;
+    }
     res.status(500).json({ error: error instanceof Error ? error.message : 'Batch validation failed' });
   }
 });
@@ -977,6 +1004,7 @@ app.get('*', (_req, res) => {
 app.listen(PORT, () => {
   assertAdminCredentialsPresent();
   console.log(`QuizArena Server running on port ${PORT}`);
+  console.log(`[QuizArena] Gemini Model in use: ${GEMINI_MODEL}`);
 });
 
 export default app;
