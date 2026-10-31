@@ -116,6 +116,18 @@ export function validatePlayerEligibility(
     };
   }
 
+  if (
+    playerData.isTerminated === true ||
+    playerData.status === 'terminated_integrity' ||
+    (typeof playerData.strikes === 'number' && playerData.strikes >= 6)
+  ) {
+    return {
+      eligible: false,
+      error: 'Player session terminated due to integrity strikes. Answering is locked.',
+      statusCode: 403,
+    };
+  }
+
   return { eligible: true, statusCode: 200 };
 }
 

@@ -122,9 +122,17 @@ export function useIntegrityGuard({
       const nextStrike = strikesRef.current + 1;
       setStrikes(nextStrike);
 
-      // Persist to server / Firestore immediately so refresh cannot wipe strikes
+      // Persist to server / Firestore via authoritative endpoint POST /api/integrity-event
       const willTerminate = nextStrike >= MAX_STRIKES_BEFORE_TERMINATION;
-      GameEngine.updatePlayerStrikes(game.id, player.id, nextStrike, reason, willTerminate);
+      GameEngine.sendIntegrityEvent(game.id, eventType, reason, currentQuestionIndex).then(res => {
+        if (res) {
+          setStrikes(res.strikes);
+          if (res.isTerminated) {
+            setIsTerminated(true);
+            setIsQuestionLocked(true);
+          }
+        }
+      });
 
       if (willTerminate) {
         // Strike 6: END quiz automatically, preserve score, mark Terminated - integrity

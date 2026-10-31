@@ -10,6 +10,7 @@ import {
   updateDoc,
   onSnapshot,
   getDocs,
+  getDoc,
   deleteDoc,
   serverTimestamp,
   query,
@@ -679,7 +680,73 @@ export class GameEngine {
     };
   }
 
-  // Update player strike count and termination status on server so refresh cannot wipe it
+  /**
+   * Authoritative server-side strike recording.
+   * Calls POST /api/integrity-event which updates Firestore in an atomic transaction.
+   * Prevents client-side tampering and adheres strictly to Firestore security rules.
+   */
+  public static async sendIntegrityEvent(
+    gameId: string,
+    eventType: string,
+    reason: string,
+    questionIndex?: number
+  ): Promise<{ strikes: number; status: string; isTerminated: boolean; integrityScore: number } | null> {
+    const user = auth.currentUser || (await ensureAnonymousAuth());
+    const idToken = (await user?.getIdToken()) || '';
+
+    try {
+      const res = await fetch('/api/integrity-event', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({
+          gameId,
+          eventType,
+          reason,
+          questionIndex,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Update local cache & broadcast channel
+        const localKey = `quizarena_players_${gameId}`;
+        try {
+          const players: Player[] = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const updated = players.map(p =>
+            p.id === user?.uid
+              ? {
+                  ...p,
+                  strikes: data.strikes,
+                  status: data.status,
+                  isTerminated: data.isTerminated,
+                  integrityScore: data.integrityScore,
+                  lastEvent: eventType,
+                }
+              : p
+          );
+          localStorage.setItem(localKey, JSON.stringify(updated));
+          broadcastChannel?.postMessage({
+            type: 'PLAYERS_UPDATED',
+            gameId,
+            players: updated,
+          });
+        } catch (e) {}
+
+        return data;
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        console.warn('[GameEngine] /api/integrity-event returned error:', errJson);
+      }
+    } catch (err) {
+      console.warn('[GameEngine] Failed to send integrity event to server:', err);
+    }
+    return null;
+  }
+
+  // Update player strike count via authoritative server endpoint
   public static async updatePlayerStrikes(
     gameId: string,
     playerId: string,
@@ -687,43 +754,89 @@ export class GameEngine {
     lastEvent?: string,
     isTerminated: boolean = false
   ): Promise<void> {
-    const integrityScore = Math.max(0, 100 - strikes * 16 - (isTerminated ? 100 : 0));
-    const updateData: Record<string, any> = {
-      strikes,
-      lastEvent: lastEvent || '',
-      lastEventTime: new Date().toISOString(),
-      isTerminated,
-      status: isTerminated ? 'terminated_integrity' : 'active',
-      integrityScore,
-    };
+    // Forward to authoritative endpoint
+    await this.sendIntegrityEvent(gameId, lastEvent || 'tab_switch', `Strike ${strikes}`);
+  }
 
-    if (isFirebaseConfigured && db) {
-      try {
-        await updateDoc(doc(db, 'games', gameId, 'players', playerId), updateData);
-      } catch (e) {
-        console.warn('Failed to update player strikes in Firestore:', e);
+  // Host reinstates a terminated player via POST /api/reinstate-player
+  public static async reinstatePlayer(gameId: string, playerId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    try {
+      const res = await fetch('/api/reinstate-player', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({ gameId, playerId }),
+      });
+
+      if (res.ok) {
+        const localKey = `quizarena_players_${gameId}`;
+        try {
+          const players: Player[] = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const updated = players.map(p =>
+            p.id === playerId
+              ? {
+                  ...p,
+                  strikes: 0,
+                  status: 'active',
+                  isTerminated: false,
+                  integrityScore: 100,
+                }
+              : p
+          );
+          localStorage.setItem(localKey, JSON.stringify(updated));
+          broadcastChannel?.postMessage({
+            type: 'PLAYERS_UPDATED',
+            gameId,
+            players: updated,
+          });
+        } catch (e) {}
+        return true;
       }
+    } catch (err) {
+      console.warn('[GameEngine] Failed to reinstate player on server:', err);
     }
+    return false;
+  }
 
-    // Local storage & BroadcastChannel fallback
+  // Get single player from Firestore with local fallback
+  public static async getPlayer(gameId: string, playerId: string): Promise<Player | null> {
+    try {
+      const snap = await getDoc(doc(db, 'games', gameId, 'players', playerId));
+      if (snap.exists()) {
+        return snap.data() as Player;
+      }
+    } catch (e) {
+      console.warn('Could not get player from Firestore:', e);
+    }
     const localKey = `quizarena_players_${gameId}`;
     try {
       const players: Player[] = JSON.parse(localStorage.getItem(localKey) || '[]');
-      const updated = players.map(p =>
-        p.id === playerId ? { ...p, ...updateData } : p
-      );
-      localStorage.setItem(localKey, JSON.stringify(updated));
-      broadcastChannel?.postMessage({
-        type: 'PLAYERS_UPDATED',
-        gameId,
-        players: updated,
-      });
-    } catch (e) {}
+      return players.find(p => p.id === playerId) || null;
+    } catch {
+      return null;
+    }
   }
 
-  // Host reinstates a terminated player
-  public static async reinstatePlayer(gameId: string, playerId: string): Promise<void> {
-    await this.updatePlayerStrikes(gameId, playerId, 0, 'Reinstated by Host', false);
+  // Get single game from Firestore with local fallback
+  public static async getGame(gameId: string): Promise<GameSession | null> {
+    try {
+      const snap = await getDoc(doc(db, 'games', gameId));
+      if (snap.exists()) {
+        return snap.data() as GameSession;
+      }
+    } catch (e) {
+      console.warn('Could not get game from Firestore:', e);
+    }
+    try {
+      const saved = localStorage.getItem(`quizarena_game_${gameId}`);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
   }
 }
 

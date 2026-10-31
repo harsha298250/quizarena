@@ -107,6 +107,29 @@ export default function App() {
     };
     window.addEventListener('quizarena_firestore_error', handleFsError);
 
+    // Restore active session on page reload/refresh so refresh cannot reset strikes or session
+    try {
+      const savedSession = sessionStorage.getItem('quizarena_active_session');
+      if (savedSession) {
+        const { gameId, playerId, role } = JSON.parse(savedSession);
+        if (gameId && playerId) {
+          Promise.all([
+            GameEngine.getGame(gameId),
+            GameEngine.getPlayer(gameId, playerId),
+          ]).then(([game, player]) => {
+            if (game && player) {
+              setActiveGame(game);
+              setActivePlayer(player);
+              setGameRole(role || 'player');
+              setCurrentTab('arena');
+            }
+          }).catch(err => {
+            console.warn('Could not restore session on refresh:', err);
+          });
+        }
+      }
+    } catch (e) {}
+
     // Load teacher's quizzes from Firestore after login
     const unsubAuth = auth.onAuthStateChanged(async user => {
       if (user) {
@@ -210,6 +233,12 @@ export default function App() {
     setActiveGame(game);
     setGameRole('host');
     setCurrentTab('arena');
+    try {
+      sessionStorage.setItem(
+        'quizarena_active_session',
+        JSON.stringify({ gameId: game.id, playerId: hostId, role: 'host' })
+      );
+    } catch (e) {}
   };
 
   // Player joins with PIN
@@ -267,10 +296,28 @@ export default function App() {
       localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(gameSession));
     }
 
+    // Check if player document already exists on server (e.g. rejoining/refreshing) to preserve strikes & status
+    const existingPlayer = await GameEngine.getPlayer(gameSession.id, newPlayer.id);
+    const resolvedPlayer: Player = existingPlayer
+      ? {
+          ...newPlayer,
+          strikes: existingPlayer.strikes || 0,
+          status: existingPlayer.status || 'active',
+          isTerminated: Boolean(existingPlayer.isTerminated || existingPlayer.status === 'terminated_integrity'),
+          integrityScore: existingPlayer.integrityScore ?? 100,
+        }
+      : newPlayer;
+
     setActiveGame(gameSession);
-    setActivePlayer(newPlayer);
+    setActivePlayer(resolvedPlayer);
     setGameRole('player');
-    await GameEngine.joinGame(gameSession.id, newPlayer);
+    try {
+      sessionStorage.setItem(
+        'quizarena_active_session',
+        JSON.stringify({ gameId: gameSession.id, playerId: resolvedPlayer.id, role: 'player', pin })
+      );
+    } catch (e) {}
+    await GameEngine.joinGame(gameSession.id, resolvedPlayer);
   };
 
   // Subscribe to live game changes when activeGame is set
@@ -285,13 +332,19 @@ export default function App() {
 
     const unsubPlayers = GameEngine.subscribeToPlayers(activeGame.id, updatedPlayers => {
       setPlayers(updatedPlayers);
+      if (activePlayer) {
+        const live = updatedPlayers.find(p => p.id === activePlayer.id);
+        if (live) {
+          setActivePlayer(live);
+        }
+      }
     });
 
     return () => {
       unsubGame();
       unsubPlayers();
     };
-  }, [activeGame?.id]);
+  }, [activeGame?.id, activePlayer?.id]);
 
   // Track games for which result emails have already been dispatched
   const sentEmailsGameIds = useRef<Set<string>>(new Set());
@@ -323,6 +376,9 @@ export default function App() {
 
   const handleLeaveGame = () => {
     sound.playClick();
+    try {
+      sessionStorage.removeItem('quizarena_active_session');
+    } catch (e) {}
     setActiveGame(null);
     setActivePlayer(null);
     setGameRole(null);

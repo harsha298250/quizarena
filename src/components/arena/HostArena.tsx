@@ -379,10 +379,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {players.map(p => {
                     const playerFlags = flags.filter(f => f.playerId === p.id);
-                    const focusStrikes = playerFlags.filter(
-                      f => f.type === 'tab_switch' || f.type === 'window_blur' || f.type === 'fullscreen_exit'
-                    ).length;
-                    const strikeCount = p.strikes !== undefined ? Math.max(p.strikes, focusStrikes) : focusStrikes;
+                    const strikeCount = typeof p.strikes === 'number' ? p.strikes : 0;
                     const isTerminated = Boolean(p.isTerminated || p.status === 'terminated_integrity' || strikeCount >= 6);
 
                     let badgeColor = 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700';

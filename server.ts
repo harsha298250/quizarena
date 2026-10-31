@@ -25,6 +25,7 @@ import {
   MAX_ALLOWED_LATENCY_MS,
 } from './src/server/scoringHardening.ts';
 import { handleSendResults, handleSendTestEmail, handleSmtpHealth, getSmtpTransporter } from './src/server/resultEmailsHandler.ts';
+import { handleIntegrityEvent, handleReinstatePlayer } from './src/server/integrityHandler.ts';
 
 dotenv.config();
 
@@ -972,6 +973,16 @@ app.post('/api/answer', async (req: Request, res: Response): Promise<void> => {
       error: error instanceof Error ? error.message : 'Internal server error processing answer',
     });
   }
+});
+
+// POST /api/integrity-event - Authenticated transactional strike recording & auto-termination at Strike 6
+app.post('/api/integrity-event', async (req: Request, res: Response): Promise<void> => {
+  await handleIntegrityEvent(req, res, adminAuth, adminDb);
+});
+
+// POST /api/reinstate-player - Host-only reinstatement resetting player strikes
+app.post('/api/reinstate-player', async (req: Request, res: Response): Promise<void> => {
+  await handleReinstatePlayer(req, res, adminAuth, adminDb);
 });
 
 // POST /api/send-results - Dispatch result emails via SMTP (Nodemailer) with host auth & rate limiting
