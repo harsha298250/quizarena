@@ -57,6 +57,8 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     if (!next) sound.playClick();
   };
 
+  const enableDevTools = import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true';
+
   const handleSimulate = async (count: number) => {
     if (!onSimulatePlayers) return;
     sound.playClick();
@@ -255,27 +257,33 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       {/* Host Controls & Simulator Toolbar */}
       {isHost && (
         <div className="paper-card p-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-black uppercase text-[var(--text)]">
-              Host Dev Tool:
-            </span>
-            <button
-              onClick={() => handleSimulate(25)}
-              disabled={isSimulating}
-              className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold"
-              title="Add 25 simulated test players"
-            >
-              + Simulate 25 Players
-            </button>
-            <button
-              onClick={() => handleSimulate(100)}
-              disabled={isSimulating}
-              className="paper-btn paper-btn-sm text-xs font-bold"
-              title="Add 100 simulated test players"
-            >
-              + Simulate 100
-            </button>
-          </div>
+          {enableDevTools ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase text-[var(--text)]">
+                Host Dev Tool:
+              </span>
+              <button
+                onClick={() => handleSimulate(25)}
+                disabled={isSimulating}
+                className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold"
+                title="Add 25 simulated test players"
+              >
+                + Simulate 25 Players
+              </button>
+              <button
+                onClick={() => handleSimulate(100)}
+                disabled={isSimulating}
+                className="paper-btn paper-btn-sm text-xs font-bold"
+                title="Add 100 simulated test players"
+              >
+                + Simulate 100
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-black uppercase text-[var(--text)]">
+              <span>Host Console</span>
+            </div>
+          )}
 
           <div className="flex items-center gap-3 text-xs font-bold text-[var(--text-muted)]">
             <span>Mode: <strong className="text-[var(--ok)] dark:text-[var(--accent-2)]">{game.gameMode}</strong></span>
@@ -303,7 +311,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <div className="text-5xl animate-bounce">📱</div>
             <h3 className="font-bold text-lg text-[var(--text)]">The arena is quiet...</h3>
             <p className="text-xs text-[var(--text-muted)] max-w-md mx-auto">
-              Scan the QR code or visit this URL on your phone and enter PIN <strong>{game.pin}</strong>. Or click &quot;Simulate 25 Players&quot; above to test immediately!
+              Scan the QR code or visit this URL on your phone and enter PIN <strong>{game.pin}</strong>.{enableDevTools ? ' Or click "Simulate 25 Players" above to test immediately!' : ''}
             </p>
           </div>
         ) : (

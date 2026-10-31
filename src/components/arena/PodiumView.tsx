@@ -365,7 +365,7 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
                           ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-400'
                           : rankChange < 0
                           ? 'text-rose-700 bg-rose-100 dark:bg-rose-950/60 dark:text-rose-400'
-                          : 'text-gray-500 bg-gray-100 dark:bg-gray-800'
+                          : 'text-[var(--text-muted)] bg-[var(--surface-2)]'
                       }`}
                       title={rankChange > 0 ? `Gained ${rankChange} ranks` : rankChange < 0 ? `Dropped ${Math.abs(rankChange)} rank` : 'Maintained position'}
                     >

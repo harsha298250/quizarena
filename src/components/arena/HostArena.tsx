@@ -265,7 +265,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
               {/* Distribution Bar (revealed or live) */}
               {isRevealed && (
                 <div
-                  className="absolute bottom-0 left-0 top-0 bg-[var(--surface-2)] dark:bg-[var(--surface-2)] -z-10 transition-all duration-700"
+                  className="absolute bottom-0 left-0 top-0 bg-[var(--surface-2)] -z-10 transition-all duration-700"
                   style={{ width: `${pct}%` }}
                 />
               )}
@@ -480,6 +480,11 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
 
               {/* Live Flags Audit Feed */}
               <div className="space-y-2">
+                <div className="p-2.5 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-[10.5px] font-medium text-[var(--text-muted)] space-y-1">
+                  <span className="font-bold text-[var(--text)] block">ℹ️ Browser Security Transparency:</span>
+                  <span>While QuizArena detects active DOM modifications, extension overlays, DevTools, and window blur, web browsers technically cannot detect every external extension or OS-level screen-sharing app.</span>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <span className="font-['Bricolage_Grotesque'] font-black text-sm text-[var(--text)]">
                     Live Telemetry Feed ({flags.length})

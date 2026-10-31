@@ -206,7 +206,7 @@ export const EmailOutbox: React.FC = () => {
             </span>
             {/* SMTP Health Pill */}
             {smtpStatus.checking ? (
-              <span className="sticker-badge bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-[10px] animate-pulse">
+              <span className="sticker-badge bg-[var(--surface-2)] text-[var(--text-muted)] text-[10px] animate-pulse">
                 Checking SMTP...
               </span>
             ) : smtpStatus.connected ? (

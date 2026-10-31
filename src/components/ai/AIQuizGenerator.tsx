@@ -675,7 +675,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                   type="button"
                   onClick={handleGenerate}
                   disabled={isGenerating}
-                  className="paper-btn paper-btn-sm bg-white dark:bg-[var(--surface)] text-[var(--text)] text-xs font-bold shrink-0 shadow-[1px_1px_0px_var(--shadow)]"
+                  className="paper-btn paper-btn-sm bg-[var(--surface)] text-[var(--text)] text-xs font-bold shrink-0 shadow-[1px_1px_0px_var(--shadow)]"
                 >
                   🔄 Retry
                 </button>

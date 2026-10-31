@@ -601,7 +601,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                   }}
                   className={`p-3 rounded-xl border-2 border-[var(--border)] cursor-pointer transition-all ${
                     isActive
-                      ? 'bg-[var(--accent-2-bg)] text-[#16120E] shadow-[3px_3px_0px_var(--shadow)] -translate-y-0.5'
+                      ? 'bg-[var(--accent-2-bg)] text-[var(--text)] shadow-[3px_3px_0px_var(--shadow)] -translate-y-0.5'
                       : 'bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]'
                   }`}
                 >
@@ -820,7 +820,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                               }
                             }}
                             className={`h-7 w-7 rounded-lg border-2 border-[var(--border)] flex items-center justify-center font-bold text-xs ${
-                              isCorrect ? 'paper-btn-ok' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200'
+                              isCorrect ? 'paper-btn-ok' : 'bg-[var(--surface-2)] text-[var(--text)]'
                             }`}
                             title="Toggle Correct Answer"
                           >

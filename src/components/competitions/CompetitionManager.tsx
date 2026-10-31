@@ -188,7 +188,7 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
                   key={rnd.id}
                   className={`paper-card p-5 sm:p-6 border-3 space-y-4 relative ${
                     rnd.status === 'active'
-                      ? 'bg-[var(--surface-2)] dark:bg-[var(--surface)] ring-4 ring-[var(--accent)]'
+                      ? 'bg-[var(--surface-2)] ring-4 ring-[var(--accent)]'
                       : 'bg-[var(--surface)]'
                   }`}
                 >

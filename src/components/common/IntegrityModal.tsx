@@ -45,6 +45,10 @@ export const IntegrityModal: React.FC<IntegrityModalProps> = ({
           <div className="p-3 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-xs font-bold text-[var(--text-muted)]">
             ♿ Note: Built-in operating system screen readers, dyslexia fonts, and approved accessibility tools are always permitted.
           </div>
+          <div className="p-2.5 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] text-[10.5px] font-medium text-[var(--text-muted)] text-left space-y-1">
+            <span className="font-bold text-[var(--text)] block">ℹ️ Browser Security Notice:</span>
+            <span>While QuizArena detects active DOM injections, overlays, DevTools, and common assistant signatures, web browsers technically cannot detect every external extension, OS-level screen sharing app, or hardware capture device. Academic integrity ultimately relies on trust and human proctoring.</span>
+          </div>
           <div className="flex gap-2">
             {onReScanClean && (
               <button
@@ -153,7 +157,7 @@ export const IntegrityModal: React.FC<IntegrityModalProps> = ({
             <span>Accessibility &amp; Human Review</span>
           </div>
           <p>
-            Screen readers, dyslexia fonts, and approved accommodations are always permitted. All recorded flags are strictly advisory and reviewed human-to-human by your host/teacher.
+            Screen readers, dyslexia fonts, and approved accommodations are always permitted. All recorded flags are strictly advisory and reviewed human-to-human by your host/teacher. Please note that web browsers cannot detect all external extensions or OS-level screen-sharing applications.
           </p>
         </div>
 

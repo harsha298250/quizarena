@@ -13,33 +13,38 @@ const fs = require('fs');
 const PORT = 3456;
 const BASE_URL = `http://localhost:${PORT}`;
 
-async function waitForServer(url, timeoutMs = 20000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      await new Promise((resolve, reject) => {
-        const req = http.get(url, res => {
-          if (res.statusCode >= 200 && res.statusCode < 400) resolve(true);
-          else reject(new Error(`Status ${res.statusCode}`));
-        });
-        req.on('error', reject);
-        req.setTimeout(1000, () => req.abort());
-      });
-      return true;
-    } catch {
-      await new Promise(r => setTimeout(r, 400));
-    }
-  }
-  throw new Error(`Server at ${url} did not start within ${timeoutMs}ms`);
-}
+const mimeTypes = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
 
 async function runStudioE2ETest() {
-  console.log(`Starting Vite preview server on port ${PORT}...`);
-  const previewProcess = spawn('node', ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT)], {
-    cwd: path.join(__dirname, '..'),
-    stdio: 'ignore',
-    shell: true,
+  console.log(`Starting built-in static server for dist on port ${PORT}...`);
+  const server = http.createServer((req, res) => {
+    let reqPath = req.url.split('?')[0];
+    if (reqPath === '/' || !path.extname(reqPath)) reqPath = '/index.html';
+    const filePath = path.join(__dirname, '..', 'dist', reqPath);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath).toLowerCase();
+      res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+      fs.createReadStream(filePath).pipe(res);
+    } else {
+      const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+      res.setHeader('Content-Type', 'text/html');
+      fs.createReadStream(indexPath).pipe(res);
+    }
   });
+
+  await new Promise(resolve => server.listen(PORT, resolve));
+  console.log(`Server listening on ${BASE_URL}`);
 
   const testResults = [];
   function record(controlName, passed, details = '') {
@@ -49,7 +54,6 @@ async function runStudioE2ETest() {
 
   let browser;
   try {
-    await waitForServer(BASE_URL);
     console.log('Preview server ready. Launching Playwright Chromium...');
 
     const chromePath = fs.existsSync('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe')
@@ -249,12 +253,27 @@ multiple_choice,"What is TypeScript?","Typed JavaScript|Python Library|CSS Frame
     const hasLobbyOrHost = await page.isVisible('#lobbyPinContainer, [data-testid="host-lobby-view"], h1');
     record('20. Host Live Now', hasLobbyOrHost, 'Triggered Host Live Now transition');
 
+    // 19. AI to Studio Transition Flow
+    const aiTabBtn = await page.$('button[data-tab="ai"]');
+    if (aiTabBtn) {
+      await aiTabBtn.click();
+      await page.waitForTimeout(300);
+      const isAiVisible = await page.isVisible('h1');
+      const builderTabBtn = await page.$('button[data-tab="builder"]');
+      if (builderTabBtn) {
+        await builderTabBtn.click();
+        await page.waitForTimeout(300);
+        const isBuilderRestored = await page.isVisible('#activeQuizSelect');
+        record('21. AI to Studio Navigation', isAiVisible && isBuilderRestored, 'Seamless routing between AI Generator and Quiz Studio');
+      }
+    }
+
   } catch (err) {
     console.error('Playwright Test Error:', err);
     record('Execution Error', false, err.message);
   } finally {
     if (browser) await browser.close();
-    previewProcess.kill();
+    server.close();
   }
 
   // Print Pass / Fail Summary Table

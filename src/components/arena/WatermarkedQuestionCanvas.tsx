@@ -283,7 +283,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
   const gridLayoutClass = numOptions <= 2 ? 'grid-cols-1' : 'grid-cols-2';
 
   return (
-    <div className="relative w-full rounded-2xl overflow-hidden border-3 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)] bg-[#FFFDF8]">
+    <div className="relative w-full rounded-2xl overflow-hidden border-3 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)] bg-[var(--bg-page)]">
       {/* 1. HTML5 Canvas rendering question & options with security watermark (Zero DOM Text) */}
       <canvas ref={canvasRef} className="block w-full pointer-events-none select-none" />
 

@@ -76,7 +76,7 @@ export const SoloPractice: React.FC<SoloPracticeProps> = ({ quizzes }) => {
 
   const optionButtons = [
     { bg: 'bg-[var(--accent)] text-[var(--text-on-accent)]', icon: <ShapeTriangle className="w-6 h-6 text-[var(--text-on-accent)]" fill="currentColor" /> },
-    { bg: 'bg-[var(--accent-2-bg)] text-[#16120E]', icon: <ShapeDiamond className="w-6 h-6 text-[var(--text-on-accent-2)]" fill="currentColor" /> },
+    { bg: 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)]', icon: <ShapeDiamond className="w-6 h-6 text-[var(--text-on-accent-2)]" fill="currentColor" /> },
     { bg: 'bg-[var(--ok)] text-[var(--text-on-accent)]', icon: <ShapeCircle className="w-6 h-6 text-[var(--text-on-accent)]" fill="currentColor" /> },
     { bg: 'bg-[var(--info)] text-[var(--text-on-accent)]', icon: <ShapeSquare className="w-6 h-6 text-[var(--text-on-accent)]" fill="currentColor" /> },
   ];

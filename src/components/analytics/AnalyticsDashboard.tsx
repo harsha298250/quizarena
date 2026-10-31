@@ -430,7 +430,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         {q.questionText}
                       </td>
                       <td className="py-2.5 px-3">
-                        <span className="sticker-badge text-[10px] bg-slate-100 dark:bg-slate-800 text-[var(--text)]">
+                        <span className="sticker-badge text-[10px] bg-[var(--surface-2)] text-[var(--text)]">
                           {q.bloomLevel}
                         </span>
                       </td>
@@ -516,7 +516,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           </div>
 
           {/* AI Pedagogical Insights & Recommendations */}
-          <div className="paper-card p-5 sm:p-6 bg-[var(--surface-2)] dark:bg-[var(--surface)] border-3 space-y-4">
+          <div className="paper-card p-5 sm:p-6 bg-[var(--surface-2)] border-3 space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">

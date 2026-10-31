@@ -437,9 +437,10 @@ export async function handleSendResults(
   const transporter = options.transporter !== undefined ? options.transporter : getSmtpTransporter();
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || '"QuizArena" <noreply@quizarena.app>';
 
-  const results: Array<{ id: string; to: string; status: 'sent' | 'failed'; error?: string; simulated?: boolean }> = [];
+  const results: Array<{ id: string; to: string; status: 'sent' | 'failed' | 'skipped'; error?: string; simulated?: boolean }> = [];
   let sentCount = 0;
   let failedCount = 0;
+  let skippedCount = 0;
 
   for (const item of recipients) {
     if (!item.to || !item.htmlContent) {
@@ -459,9 +460,9 @@ export async function handleSendResults(
         results.push({ id: item.id, to: item.to, status: 'sent' });
         sentCount++;
       } else {
-        // Simulated sending (local demo & testing without live SMTP env)
-        results.push({ id: item.id, to: item.to, status: 'sent', simulated: true });
-        sentCount++;
+        // Simulated sending (local demo & testing without live SMTP env) - Marked as 'skipped', not 'sent'
+        results.push({ id: item.id, to: item.to, status: 'skipped', simulated: true });
+        skippedCount++;
       }
     } catch (sendErr: any) {
       results.push({
@@ -478,6 +479,7 @@ export async function handleSendResults(
     success: true,
     sentCount,
     failedCount,
+    skippedCount,
     totalProcessed: recipients.length,
     capped,
     results,

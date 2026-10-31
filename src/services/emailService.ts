@@ -127,7 +127,7 @@ export async function sendTestEmailViaApi(payload: {
   htmlContent: string;
 }): Promise<{
   success: boolean;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'failed' | 'skipped';
   error?: string;
   simulated?: boolean;
 }> {
