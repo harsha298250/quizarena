@@ -262,6 +262,17 @@ export const EmailOutbox: React.FC = () => {
         </div>
       )}
 
+      {!smtpStatus.connected && !smtpStatus.checking && (
+        <div className="p-3 bg-[var(--surface-2)] border-2 border-[var(--border)] rounded-xl text-xs space-y-1">
+          <div className="font-bold text-[var(--text)] flex items-center gap-1.5">
+            <span>ℹ️ Cloud Host SMTP Setup (Render / Free Tier):</span>
+          </div>
+          <p className="text-[var(--text-muted)]">
+            Cloud platforms like Render block outbound port 587. For Gmail, set <code className="px-1 py-0.5 rounded bg-[var(--surface)] text-[var(--accent)] font-bold">SMTP_PORT=465</code>, <code className="px-1 py-0.5 rounded bg-[var(--surface)] text-[var(--accent)] font-bold">SMTP_SECURE=true</code>, and use a 16-character Google App Password in your Render Environment Variables.
+          </p>
+        </div>
+      )}
+
       {/* Main Grid: Outbox list + Live HTML preview + Template editor */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Email queue records */}

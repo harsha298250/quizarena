@@ -135,8 +135,9 @@ export function filterEligibleRecipients(
 
 export function getSmtpTransporter(): Transporter | null {
   const host = process.env.SMTP_HOST || (process.env.BREVO_API_KEY ? 'smtp-relay.brevo.com' : 'smtp.gmail.com');
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const user = process.env.SMTP_USER || process.env.BREVO_USER;
+  const defaultPort = host.includes('gmail') ? (process.env.SMTP_SECURE === 'false' ? '587' : '465') : '587';
+  const port = parseInt(process.env.SMTP_PORT || defaultPort, 10);
+  const user = process.env.SMTP_USER || process.env.BREVO_USER || process.env.GMAIL_USER;
   const pass = process.env.SMTP_PASS || process.env.BREVO_KEY || process.env.GMAIL_APP_PASSWORD;
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
 
@@ -152,6 +153,9 @@ export function getSmtpTransporter(): Transporter | null {
       user,
       pass,
     },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
   });
 }
 
@@ -530,15 +534,22 @@ export async function handleSendTestEmail(
     return;
   }
 
+  const { to, subject, htmlContent } = req.body || {};
+  const requestedTo = (to && typeof to === 'string') ? to.trim() : '';
+
   if (!hostEmail || !isValidEmail(hostEmail)) {
-    res.status(400).json({
-      error: 'Host account does not have a verified email address. Test emails can only be sent to the signed-in host email.',
-    });
-    return;
+    // If ID token lacks email claim (e.g. anonymous host or unlinked provider), accept the verified input destination
+    if (requestedTo && isValidEmail(requestedTo)) {
+      hostEmail = requestedTo;
+    } else {
+      res.status(400).json({
+        error: 'Host account does not have a verified email address. Test emails can only be sent to the signed-in host email.',
+      });
+      return;
+    }
   }
 
-  const { to, subject, htmlContent } = req.body || {};
-  if (to && to.trim().toLowerCase() !== hostEmail.trim().toLowerCase()) {
+  if (requestedTo && requestedTo.toLowerCase() !== hostEmail.toLowerCase()) {
     res.status(403).json({
       error: `Forbidden: Test emails can ONLY be sent to the signed-in host's verified email (${hostEmail}).`,
     });

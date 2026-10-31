@@ -195,7 +195,7 @@ export async function checkSmtpHealthViaApi(): Promise<{
   const idToken = (await user?.getIdToken()) || '';
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
 
   try {
     const resp = await fetch('/api/smtp-health', {
@@ -216,9 +216,12 @@ export async function checkSmtpHealthViaApi(): Promise<{
     };
   } catch (err: any) {
     clearTimeout(timeoutId);
+    const isAborted = err.name === 'AbortError' || controller.signal.aborted;
     return {
       connected: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: isAborted
+        ? 'Connection timed out. Check SMTP credentials or cloud host firewall.'
+        : (err instanceof Error ? err.message : String(err)),
     };
   }
 }

@@ -62,7 +62,7 @@ export function isGeminiModelNotFoundError(err: any): boolean {
   );
 }
 
-export const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+export const FALLBACK_GEMINI_MODELS = ['gemini-2.0-flash'];
 
 export async function generateContentWithFallback(
   ai: GoogleGenAI,
@@ -74,15 +74,21 @@ export async function generateContentWithFallback(
 
   for (const model of modelsToTry) {
     try {
-      const res = await ai.models.generateContent({
-        ...options,
-        model,
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Model ${model} timeout`)), 12000)
+      );
+      const res = await Promise.race([
+        ai.models.generateContent({
+          ...options,
+          model,
+        }),
+        timeoutPromise,
+      ]);
       return res;
     } catch (err: any) {
       lastError = err;
-      if (isGeminiModelNotFoundError(err)) {
-        console.warn(`[QuizArena Gemini APIHandler] Model "${model}" not found (404). Falling back to next available model...`);
+      if (isGeminiModelNotFoundError(err) || (err && typeof err.message === 'string' && err.message.includes('timeout'))) {
+        console.warn(`[QuizArena Gemini APIHandler] Model "${model}" not available (${err.message || '404'}). Falling back to next available model...`);
         continue;
       }
       throw err;

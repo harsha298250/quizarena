@@ -38,7 +38,7 @@ async function testFallback() {
   const res = await generateContentWithFallback(mockAi, 'gemini-3.8-flash', { contents: 'test' });
   assert.ok(res.text.includes('Test question?'), 'Must return valid response from fallback model');
   assert.strictEqual(attemptedModels[0], 'gemini-3.8-flash', 'Must attempt primary model first');
-  assert.strictEqual(attemptedModels[1], FALLBACK_GEMINI_MODELS[0], 'Must fall back to gemini-2.5-flash on 404');
+  assert.strictEqual(attemptedModels[1], FALLBACK_GEMINI_MODELS[0], 'Must fall back to active Gemini model on 404');
 }
 
 await testFallback();
