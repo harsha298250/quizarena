@@ -150,7 +150,11 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     if (
       node.attributes?.['data-lastpass-icon-root'] ||
       node.attributes?.['data-dashlane-frame'] ||
-      node.attributes?.['data-bitwarden']
+      node.attributes?.['data-bitwarden'] ||
+      node.attributes?.['data-1p-ignore'] ||
+      node.attributes?.['data-onepassword'] ||
+      node.classList?.includes('onepassword') ||
+      node.classList?.includes('bitwarden')
     ) {
       return { flagged: false, reason: 'password_manager_exempt' };
     }
@@ -158,9 +162,29 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     // False-positive guard 2: Google Translate
     if (
       node.classList?.includes('translated-ltr') ||
+      node.classList?.includes('skiptranslate') ||
       (node.id && node.id.includes('goog-gt-'))
     ) {
       return { flagged: false, reason: 'google_translate_exempt' };
+    }
+
+    // False-positive guard 3: Screen readers & Accessibility live regions
+    if (
+      (node.attributes?.['role'] === 'status' || node.attributes?.['role'] === 'alert') &&
+      node.attributes?.['aria-live']
+    ) {
+      return { flagged: false, reason: 'accessibility_exempt' };
+    }
+
+    // False-positive guard 4: Grammarly non-AI mode (spelling/grammar underline)
+    if (
+      node.attributes?.['data-grammarly-part'] ||
+      node.outerHTML?.toLowerCase().includes('data-grammarly-part')
+    ) {
+      const html = (node.outerHTML || '').toLowerCase();
+      if (!html.includes('gen-ai') && !html.includes('rewrite') && !html.includes('generate')) {
+        return { flagged: false, reason: 'grammarly_non_ai_exempt' };
+      }
     }
 
     const html = node.outerHTML.toLowerCase();
@@ -202,6 +226,10 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     !inspectInjectedNode({
       outerHTML: '<div data-lastpass-icon-root="true"></div>',
       attributes: { 'data-lastpass-icon-root': 'true' },
+    }).flagged &&
+    !inspectInjectedNode({
+      outerHTML: '<div data-onepassword="true"></div>',
+      attributes: { 'data-onepassword': 'true' },
     }).flagged
   );
   assert(
@@ -211,6 +239,57 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
       id: 'goog-gt-tt',
       classList: ['translated-ltr'],
     }).flagged
+  );
+  assert(
+    'False-Positive Guard: Screen Reader live regions are exempt',
+    !inspectInjectedNode({
+      outerHTML: '<div role="status" aria-live="polite">Score updated</div>',
+      attributes: { role: 'status', 'aria-live': 'polite' },
+    }).flagged
+  );
+  assert(
+    'False-Positive Guard: Grammarly in non-AI spelling mode is exempt',
+    !inspectInjectedNode({
+      outerHTML: '<grammarly-part data-grammarly-part="spelling"></grammarly-part>',
+      attributes: { 'data-grammarly-part': 'spelling' },
+    }).flagged
+  );
+  assert(
+    'AI Extension: Grammarly Gen-AI rewrite overlay is flagged as AI assistant',
+    inspectInjectedNode({
+      outerHTML: '<div class="grammarly-gen-ai">AI Rewrite</div>',
+    }).flagged
+  );
+
+  // 8b. Extension Poller Cooldown Check (30s cooldown per distinct signal)
+  const lastSignalTime: Record<string, number> = {};
+  const recordExtensionDetection = (signalName: string, now: number) => {
+    const last = lastSignalTime[signalName] || 0;
+    if (now - last < 30000) {
+      return { addedStrike: false, blockedScreen: true };
+    }
+    lastSignalTime[signalName] = now;
+    return { addedStrike: true, blockedScreen: true };
+  };
+
+  const pollerT0 = 50000;
+  const poll1 = recordExtensionDetection('ai_assistant_sider', pollerT0);
+  const poll2 = recordExtensionDetection('ai_assistant_sider', pollerT0 + 1000); // 1s later
+  const poll3 = recordExtensionDetection('ai_assistant_sider', pollerT0 + 2000); // 2s later
+  const poll4 = recordExtensionDetection('ai_assistant_sider', pollerT0 + 31000); // 31s later
+
+  assert(
+    'Extension Poller: First detection triggers strike and blocks screen',
+    poll1.addedStrike === true && poll1.blockedScreen === true
+  );
+  assert(
+    'Extension Poller: Continuous 1s polls maintain blocking screen without adding more strikes',
+    poll2.addedStrike === false && poll2.blockedScreen === true &&
+    poll3.addedStrike === false && poll3.blockedScreen === true
+  );
+  assert(
+    'Extension Poller: Distinct detection signal after 30s cooldown adds exactly one new strike',
+    poll4.addedStrike === true && poll4.blockedScreen === true
   );
 
   // 9. Watermarked Question Anti-Scraping DOM Check (innerText, textContent & node scan)

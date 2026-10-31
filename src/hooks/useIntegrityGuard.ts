@@ -56,6 +56,7 @@ export function useIntegrityGuard({
   const [fullscreenPaused, setFullscreenPaused] = useState<boolean>(false);
 
   const lastEventTimeRef = useRef<Record<string, number>>({});
+  const lastSignalStrikeTimeRef = useRef<Record<string, number>>({});
   const strikesRef = useRef<number>(strikes);
   strikesRef.current = strikes;
 
@@ -215,12 +216,27 @@ export function useIntegrityGuard({
     [hasSubmitted, game.status, isTerminated, game.id, player.id, sendIntegrityFlag, strike2Penalty, onApplyPenalty, onQuestionLock]
   );
 
-  // Trigger blocking screen for detected extensions
+  // Trigger blocking screen for detected extensions:
+  // Count ONE strike per distinct detection signal with a 30s cooldown,
+  // keep the blocking screen up without adding more strikes, and dedupe flag writes.
   const triggerExtensionBlock = useCallback((reason: string, signalName?: string) => {
+    const signalKey = signalName || 'extension_injection';
     setBlockedByExtension(true);
     setExtensionReason(reason);
-    sendIntegrityFlag('extension_injection', 'high', `${signalName || 'extension_detected'}: ${reason}`);
-    registerStrike(`Extension violation: ${signalName || 'injected_tool'}`, 'tab_switch');
+
+    const now = Date.now();
+    const lastStrikeTime = lastSignalStrikeTimeRef.current[signalKey] || 0;
+
+    // 30-second cooldown per distinct detection signal:
+    // Screen remains blocked, but strikes and flags are not spammed every second
+    if (now - lastStrikeTime < 30000) {
+      return;
+    }
+    lastSignalStrikeTimeRef.current[signalKey] = now;
+
+    console.info(`[IntegrityGuard Signal] Logged distinct violation: ${signalKey} - ${reason}`);
+    sendIntegrityFlag('extension_injection', 'high', `${signalKey}: ${reason}`);
+    registerStrike(`Extension violation (${signalKey})`, 'extension_injection' as any);
   }, [sendIntegrityFlag, registerStrike]);
 
   // (1) Event Listeners: visibilitychange, blur, fullscreenchange

@@ -29,17 +29,23 @@ export const KNOWN_AI_EXTENSIONS = [
 ];
 
 /**
- * Checks if a DOM node belongs to an approved/essential category (password managers, Google Translate, or standard app elements).
+ * Checks if a DOM node belongs to an approved/essential category (password managers, Google Translate, screen readers, or Grammarly non-AI).
  */
-export function isExemptNode(node: HTMLElement): boolean {
-  // 1. Password managers exemption
+export function isExemptNode(node: HTMLElement, allowGrammarlyNonAi: boolean = true): boolean {
+  // 1. Password managers exemption (Bitwarden, 1Password, LastPass, Dashlane, KeePass, etc.)
   if (
     node.hasAttribute('data-lastpass-icon-root') ||
+    node.hasAttribute('data-lastpass-root') ||
     node.hasAttribute('data-dashlane-frame') ||
     node.hasAttribute('data-bitwarden') ||
+    node.hasAttribute('data-bitwarden-watching') ||
     node.hasAttribute('data-1p-ignore') ||
+    node.hasAttribute('data-onepassword') ||
     node.getAttribute('id')?.includes('bitwarden') ||
     node.getAttribute('id')?.includes('lastpass') ||
+    node.getAttribute('id')?.includes('onepassword') ||
+    node.classList.contains('onepassword') ||
+    node.classList.contains('bitwarden') ||
     node.closest('input, textarea, form')
   ) {
     return true;
@@ -50,17 +56,44 @@ export function isExemptNode(node: HTMLElement): boolean {
     node.classList.contains('translated-ltr') ||
     node.classList.contains('translated-rtl') ||
     node.id.includes('goog-gt-') ||
-    node.classList.contains('skiptranslate')
+    node.classList.contains('skiptranslate') ||
+    node.classList.contains('goog-te-banner-frame') ||
+    (node.tagName === 'IFRAME' && (node.getAttribute('src') || '').includes('translate.google.com'))
   ) {
     return true;
   }
 
-  // 3. Accessibility tools exemption
+  // 3. Screen readers & Accessibility accommodations exemption (NVDA, JAWS, VoiceOver live regions)
   if (
-    node.getAttribute('role') === 'status' &&
-    node.getAttribute('aria-live')
+    ((node.getAttribute('role') === 'status' || node.getAttribute('role') === 'alert') &&
+      (node.getAttribute('aria-live') || node.hasAttribute('aria-atomic'))) ||
+    node.hasAttribute('data-a11y') ||
+    node.getAttribute('id')?.toLowerCase().includes('nvda') ||
+    node.getAttribute('id')?.toLowerCase().includes('jaws') ||
+    node.classList.contains('sr-only')
   ) {
     return true;
+  }
+
+  // 4. Grammarly in non-AI mode (spelling/grammar underline without AI generative features)
+  if (allowGrammarlyNonAi) {
+    const isGrammarlyNode =
+      node.tagName.toLowerCase().includes('grammarly') ||
+      node.hasAttribute('data-grammarly-shadow-root') ||
+      node.hasAttribute('data-grammarly-part');
+
+    if (isGrammarlyNode) {
+      const html = (node.outerHTML || '').toLowerCase();
+      // If it contains generative AI indicators, do NOT exempt
+      const isGrammarlyAi =
+        html.includes('gen-ai') ||
+        html.includes('grammarly-ai') ||
+        html.includes('generate') ||
+        html.includes('rewrite');
+      if (!isGrammarlyAi) {
+        return true;
+      }
+    }
   }
 
   return false;
@@ -69,7 +102,7 @@ export function isExemptNode(node: HTMLElement): boolean {
 /**
  * Comprehensive DOM and environment scan
  */
-export function scanEnvironmentForExtensions(): ScanResult {
+export function scanEnvironmentForExtensions(allowGrammarlyNonAi: boolean = true): ScanResult {
   if (typeof document === 'undefined') {
     return { detected: false, severity: 'low' };
   }
