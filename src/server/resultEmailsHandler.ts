@@ -165,6 +165,82 @@ export interface SendResultsOptions {
   transporter?: Transporter | null;
 }
 
+export async function dispatchSingleEmail({
+  to,
+  recipientName,
+  subject,
+  html,
+  transporter,
+  fromAddress,
+}: {
+  to: string;
+  recipientName: string;
+  subject: string;
+  html: string;
+  transporter: Transporter | null;
+  fromAddress: string;
+}): Promise<{ status: 'sent' | 'skipped'; messageId?: string }> {
+  // 1. If Resend API key is configured, send over HTTPS (Port 443 - bypasses any cloud SMTP port blocking)
+  if (process.env.RESEND_API_KEY) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM || (fromAddress.includes('<') ? fromAddress : `QuizArena <${fromAddress}>`),
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Resend API HTTP ${res.status}: ${errText}`);
+    }
+    const data: any = await res.json();
+    return { status: 'sent', messageId: data.id };
+  }
+
+  // 2. If Brevo API key is configured, send over HTTPS (Port 443)
+  if (process.env.BREVO_API_KEY) {
+    const senderEmail = process.env.BREVO_SENDER || fromAddress.replace(/^.*<([^>]+)>.*$/, '$1');
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { name: 'QuizArena', email: senderEmail },
+        to: [{ email: to, name: recipientName }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Brevo API HTTP ${res.status}: ${errText}`);
+    }
+    const data: any = await res.json();
+    return { status: 'sent', messageId: data.messageId };
+  }
+
+  // 3. Standard authenticated SMTP (Nodemailer)
+  if (transporter) {
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to,
+      subject,
+      html,
+    });
+    return { status: 'sent', messageId: info?.messageId };
+  }
+
+  return { status: 'skipped' };
+}
+
 export interface PreparedEmail {
   id: string;
   to: string;
@@ -454,13 +530,16 @@ export async function handleSendResults(
     }
 
     try {
-      if (transporter) {
-        await transporter.sendMail({
-          from: fromAddress,
-          to: item.to,
-          subject: item.subject,
-          html: item.htmlContent,
-        });
+      const dispatchRes = await dispatchSingleEmail({
+        to: item.to,
+        recipientName: item.recipientName,
+        subject: item.subject,
+        html: item.htmlContent,
+        transporter,
+        fromAddress,
+      });
+
+      if (dispatchRes.status === 'sent') {
         results.push({ id: item.id, to: item.to, status: 'sent' });
         sentCount++;
       } else {
@@ -567,29 +646,32 @@ export async function handleSendTestEmail(
   }
 
   const transporter = options.transporter !== undefined ? options.transporter : getSmtpTransporter();
-  if (!transporter) {
+  const hasHttpProvider = Boolean(process.env.RESEND_API_KEY || process.env.BREVO_API_KEY);
+  if (!transporter && !hasHttpProvider) {
     res.status(503).json({
       success: false,
       status: 'failed',
-      error: 'SMTP transporter is not configured on the server. Please configure SMTP_USER and SMTP_PASS.',
+      error: 'Email service is not configured on the server. Please configure SMTP_USER/SMTP_PASS or RESEND_API_KEY.',
     });
     return;
   }
 
   const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || '"QuizArena" <noreply@quizarena.app>';
   try {
-    const info = await transporter.sendMail({
-      from: fromAddress,
+    const dispatchRes = await dispatchSingleEmail({
       to: hostEmail,
+      recipientName: 'Host',
       subject: subject || 'QuizArena Test Result Email',
       html: htmlContent || '<p>QuizArena Test Email</p>',
+      transporter,
+      fromAddress,
     });
     res.json({
       success: true,
       status: 'sent',
       to: hostEmail,
-      messageId: info?.messageId,
-      message: `Test email successfully dispatched to host (${hostEmail}) via SMTP.`,
+      messageId: dispatchRes.messageId,
+      message: `Test email successfully dispatched to host (${hostEmail}).`,
     });
   } catch (smtpErr: any) {
     const errMsg = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
@@ -631,6 +713,16 @@ export async function handleSmtpHealth(
     }
   }
 
+  // If using HTTPS API provider (bypasses Render port blocks)
+  if (process.env.RESEND_API_KEY) {
+    res.json({ connected: true, host: 'Resend API (HTTPS Port 443)' });
+    return;
+  }
+  if (process.env.BREVO_API_KEY) {
+    res.json({ connected: true, host: 'Brevo API (HTTPS Port 443)' });
+    return;
+  }
+
   const transporter = options.transporter !== undefined ? options.transporter : getSmtpTransporter();
   if (!transporter) {
     res.json({
@@ -644,9 +736,13 @@ export async function handleSmtpHealth(
     await transporter.verify();
     res.json({ connected: true, host: process.env.SMTP_HOST || 'Connected' });
   } catch (verifyErr: any) {
+    const msg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+    const renderHint = msg.toLowerCase().includes('timeout')
+      ? ' (Render Free tier blocks outbound SMTP ports 25, 465 & 587. Upgrade to Render Starter or set RESEND_API_KEY to send via HTTPS).'
+      : '';
     res.json({
       connected: false,
-      error: verifyErr instanceof Error ? verifyErr.message : String(verifyErr),
+      error: `${msg}${renderHint}`,
     });
   }
 }
