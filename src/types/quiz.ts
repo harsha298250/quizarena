@@ -128,6 +128,7 @@ export interface Player {
   status?: string; // 'active' | 'terminated_integrity'
   lastEvent?: string;
   lastEventTime?: string;
+  accessibleApproved?: boolean; // Host-approved accessible DOM fallback for screen readers
   powerUps: PlayerPowerUps;
   accommodations: PlayerAccommodations;
   isKicked?: boolean;

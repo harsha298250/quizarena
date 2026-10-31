@@ -803,6 +803,37 @@ export class GameEngine {
     return false;
   }
 
+  // Host approves or revokes accessible DOM text mode for screen readers
+  public static async updatePlayerAccessibleApproval(
+    gameId: string,
+    playerId: string,
+    accessibleApproved: boolean
+  ): Promise<void> {
+    if (isFirebaseConfigured && db) {
+      try {
+        await updateDoc(doc(db, 'games', gameId, 'players', playerId), {
+          accessibleApproved,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('Failed to update accessible approval in Firestore:', e);
+      }
+    }
+    const localKey = `quizarena_players_${gameId}`;
+    try {
+      const players: Player[] = JSON.parse(localStorage.getItem(localKey) || '[]');
+      const updated = players.map(p =>
+        p.id === playerId ? { ...p, accessibleApproved } : p
+      );
+      localStorage.setItem(localKey, JSON.stringify(updated));
+      broadcastChannel?.postMessage({
+        type: 'PLAYERS_UPDATED',
+        gameId,
+        players: updated,
+      });
+    } catch (e) {}
+  }
+
   // Get single player from Firestore with local fallback
   public static async getPlayer(gameId: string, playerId: string): Promise<Player | null> {
     try {

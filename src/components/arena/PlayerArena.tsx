@@ -495,11 +495,9 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
             hasSubmitted={hasSubmitted}
             isLocked={isQuestionLocked}
             hiddenOptions={hiddenOptions}
-            isAccessibleMode={Boolean(
-              player.accommodations?.readAloud ||
-              player.accommodations?.dyslexiaFont ||
-              player.accommodations?.largeText
-            )}
+            isAccessibleMode={Boolean(player.accessibleApproved)}
+            dyslexiaFont={Boolean(player.accommodations?.dyslexiaFont)}
+            largeText={Boolean(player.accommodations?.largeText)}
             onSelectOption={handleSubmitOption}
           />
         </div>

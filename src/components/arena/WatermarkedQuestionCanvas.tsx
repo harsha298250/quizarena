@@ -17,6 +17,8 @@ interface WatermarkedQuestionCanvasProps {
   isLocked: boolean;
   hiddenOptions?: number[];
   isAccessibleMode?: boolean;
+  dyslexiaFont?: boolean;
+  largeText?: boolean;
   onSelectOption: (idx: number) => void;
 }
 
@@ -39,6 +41,8 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
   isLocked,
   hiddenOptions = [],
   isAccessibleMode = false,
+  dyslexiaFont = false,
+  largeText = false,
   onSelectOption,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -73,6 +77,18 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       return;
     }
 
+    // Dynamic typography inside canvas based on accommodations
+    const headingFont = dyslexiaFont
+      ? '"OpenDyslexic", "Comic Sans MS", sans-serif'
+      : '"Bricolage Grotesque", sans-serif';
+    const bodyFont = dyslexiaFont
+      ? '"OpenDyslexic", "Comic Sans MS", sans-serif'
+      : '"DM Sans", sans-serif';
+    const promptSize = largeText ? 23 : 20;
+    const optionSize = largeText ? 16 : 14;
+    const promptLineHeight = largeText ? 32 : 28;
+    const optionLineHeight = largeText ? 22 : 20;
+
     // 2. Draw Diagonal Security Watermark across the entire canvas
     ctx.save();
     ctx.rotate((-25 * Math.PI) / 180);
@@ -92,15 +108,14 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     ctx.font = '900 12px "Space Mono", monospace';
     ctx.fillText(`QUESTION ${questionIndex + 1} OF ${totalQuestions}`, 28, 40);
 
-    // 4. Render Question Prompt (Word Wrapped)
+    // 4. Render Question Prompt (Word Wrapped) with dyslexia/large text accommodation
     ctx.fillStyle = '#16120E';
-    ctx.font = '800 20px "Bricolage Grotesque", sans-serif';
+    ctx.font = `800 ${promptSize}px ${headingFont}`;
 
     const words = questionText.split(' ');
     let line = '';
     let y = 72;
     const maxWidth = width - 56;
-    const lineHeight = 28;
 
     for (let n = 0; n < words.length; n++) {
       const testLine = line + words[n] + ' ';
@@ -108,7 +123,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       if (metrics.width > maxWidth && n > 0) {
         ctx.fillText(line, 28, y);
         line = words[n] + ' ';
-        y += lineHeight;
+        y += promptLineHeight;
       } else {
         line = testLine;
       }
@@ -173,14 +188,13 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
         ctx.restore();
       }
 
-      // Option text wrapped inside card
+      // Option text wrapped inside card with dyslexia/largeText inside canvas
       ctx.fillStyle = '#16120E';
-      ctx.font = '700 14px "DM Sans", sans-serif';
+      ctx.font = `700 ${optionSize}px ${bodyFont}`;
       const optWords = optText.split(' ');
       let oLine = '';
       let oy = by + 52;
       const oMaxWidth = boxW - 28;
-      const oLineHeight = 20;
 
       for (let m = 0; m < optWords.length; m++) {
         const testOLine = oLine + optWords[m] + ' ';
@@ -188,7 +202,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
         if (metrics.width > oMaxWidth && m > 0) {
           ctx.fillText(oLine, bx + 14, oy);
           oLine = optWords[m] + ' ';
-          oy += oLineHeight;
+          oy += optionLineHeight;
           if (oy > by + boxH - 12) break; // prevent overflowing box
         } else {
           oLine = testOLine;
@@ -213,6 +227,8 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     selectedIndices,
     hiddenOptions,
     isAccessibleMode,
+    dyslexiaFont,
+    largeText,
   ]);
 
   // Fallback Accessible DOM Mode for screen readers & dyslexia accommodations

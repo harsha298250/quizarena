@@ -254,6 +254,42 @@ export function runStrictIntegrityTests(): { passed: number; failed: number; res
     accessibleDom.bodyInnerText.includes(questionPrompt) && accessibleDom.bodyTextContent.includes(questionOptions[0])
   );
 
+  // 9b. Canvas Bypass Guard: Dyslexia font, read-aloud and large text do NOT open DOM text mode
+  const isAccessibleApprovedOnly = (player: { accommodations?: any; accessibleApproved?: boolean }) => {
+    return Boolean(player.accessibleApproved);
+  };
+
+  const selfDeclaredPlayer = {
+    accommodations: { dyslexiaFont: true, readAloud: true, largeText: true },
+    accessibleApproved: false,
+  };
+  const hostApprovedPlayer = {
+    accommodations: { dyslexiaFont: false, readAloud: false, largeText: false },
+    accessibleApproved: true,
+  };
+
+  assert(
+    'Canvas Bypass Guard: Self-declared dyslexia, read-aloud & large text do NOT enable DOM text mode',
+    isAccessibleApprovedOnly(selfDeclaredPlayer) === false
+  );
+  assert(
+    'Canvas Bypass Guard: Only host-approved player (accessibleApproved = true) enables DOM text mode',
+    isAccessibleApprovedOnly(hostApprovedPlayer) === true
+  );
+
+  // Simulated live text-node scan on active question DOM for self-declared player
+  const normalPlayerDom = simulateActiveQuestionDom(
+    isAccessibleApprovedOnly(selfDeclaredPlayer),
+    questionPrompt,
+    questionOptions
+  );
+  assert(
+    'Canvas Bypass Guard: Text-node scan for self-declared player contains 0 question or option strings',
+    !normalPlayerDom.bodyInnerText.includes(questionPrompt) &&
+    questionOptions.every(opt => !normalPlayerDom.bodyTextContent.includes(opt)) &&
+    normalPlayerDom.textNodes.every(n => !n.includes('Semaphore') && !n.includes(questionPrompt))
+  );
+
   // 10. Player Integrity Score Calculation (0-100)
   const computeIntegrity = (strikeCount: number, isTerm: boolean) => {
     return Math.max(0, 100 - strikeCount * 16 - (isTerm ? 100 : 0));

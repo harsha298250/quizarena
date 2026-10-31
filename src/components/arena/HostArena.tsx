@@ -425,11 +425,15 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                               <span className="font-bold text-xs text-[var(--text)] truncate">
                                 {p.nickname}
                               </span>
-                              {hasAccommodations && (
-                                <span className="text-[9px] font-black uppercase px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-300">
-                                  ♿ Accessible Mode
+                              {p.accessibleApproved ? (
+                                <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-400">
+                                  ♿ Screen Reader Approved
                                 </span>
-                              )}
+                              ) : hasAccommodations ? (
+                                <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-300">
+                                  ♿ Canvas Accommodations
+                                </span>
+                              ) : null}
                             </div>
                             <span className="font-mono-code text-[10px] text-[var(--text-muted)] block">
                               {p.score.toLocaleString()} pts • {playerFlags.length} flags • Integrity {integrityScore}%
@@ -438,6 +442,20 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await GameEngine.updatePlayerAccessibleApproval(game.id, p.id, !p.accessibleApproved);
+                            }}
+                            className={`paper-btn paper-btn-sm text-[10px] px-1.5 py-0.5 font-bold rounded shadow-none border ${
+                              p.accessibleApproved
+                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                : 'bg-[var(--surface)] text-[var(--text-muted)]'
+                            }`}
+                            title={p.accessibleApproved ? "Revoke DOM text mode" : "Approve screen reader DOM text fallback"}
+                          >
+                            {p.accessibleApproved ? '♿ Revoke Screen Reader' : '♿ Approve Screen Reader'}
+                          </button>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${badgeColor}`}>
                             {strikeLabel}
                           </span>
