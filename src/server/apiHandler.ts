@@ -62,7 +62,7 @@ export function isGeminiModelNotFoundError(err: any): boolean {
   );
 }
 
-export const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+export const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
 
 export async function generateContentWithFallback(
   ai: GoogleGenAI,
@@ -123,29 +123,11 @@ function parseBody(req: IncomingMessage): Promise<any> {
   });
 }
 
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(
-  clientKey: string,
-  maxRequests: number,
-  windowMs: number
-): { allowed: boolean; retryAfterSec?: number } {
-  const now = Date.now();
-  const record = rateLimitMap.get(clientKey);
-
-  if (!record || now > record.resetAt) {
-    rateLimitMap.set(clientKey, { count: 1, resetAt: now + windowMs });
-    return { allowed: true };
-  }
-
-  if (record.count >= maxRequests) {
-    const retryAfterSec = Math.ceil((record.resetAt - now) / 1000);
-    return { allowed: false, retryAfterSec };
-  }
-
-  record.count += 1;
-  return { allowed: true };
-}
+import {
+  sharedRateLimiter,
+  checkWarmupRateLimit,
+  checkGenerateQuizRateLimit,
+} from './sharedRateLimiter.ts';
 
 export function handleTime(_req: IncomingMessage, res: ServerResponse) {
   res.statusCode = 200;
@@ -154,10 +136,18 @@ export function handleTime(_req: IncomingMessage, res: ServerResponse) {
   res.end(JSON.stringify({ serverTime: Date.now() }));
 }
 
-export function handleWarmup(_req: IncomingMessage, res: ServerResponse) {
-  res.statusCode = 200;
+export function handleWarmup(req: IncomingMessage, res: ServerResponse) {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'no-store');
+  const clientKey = (req.headers['x-forwarded-for'] as string) || req.socket?.remoteAddress || 'client';
+  const rate = checkWarmupRateLimit(clientKey);
+  if (!rate.allowed) {
+    res.statusCode = 429;
+    res.setHeader('Retry-After', String(rate.retryAfterSec || 60));
+    res.end(JSON.stringify({ error: 'Too many warm-up requests. Please wait.' }));
+    return;
+  }
+  res.statusCode = 200;
   res.end(JSON.stringify({ status: 'ok', warmed: true, timestamp: Date.now() }));
 }
 
@@ -183,7 +173,7 @@ export async function handleGenerateQuiz(req: IncomingMessage, res: ServerRespon
       return;
     }
 
-    const rateCheck = checkRateLimit(`gen_${uid}`, 10, 60 * 1000);
+    const rateCheck = checkGenerateQuizRateLimit(uid);
     if (!rateCheck.allowed) {
       res.statusCode = 429;
       res.setHeader('Retry-After', String(rateCheck.retryAfterSec));

@@ -5,6 +5,7 @@
 
 import express from 'express';
 import type { Request, Response } from 'express';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
@@ -17,13 +18,20 @@ import { calculateFairScore, evaluateAnswer } from './src/lib/scoring.ts';
 import { createHashBlock } from './src/lib/integrity.ts';
 import {
   clampLatency,
-  globalRateLimiter,
   extractQuestionStartTimeMs,
   validatePlayerEligibility,
   validateAndTrackPowerUp,
   globalTimingAnomalyDetector,
   MAX_ALLOWED_LATENCY_MS,
 } from './src/server/scoringHardening.ts';
+import {
+  sharedRateLimiter,
+  checkWarmupRateLimit,
+  checkGenerateQuizRateLimit,
+  checkValidateRateLimit,
+  checkBatchValidateRateLimit,
+  checkAnswerRateLimit,
+} from './src/server/sharedRateLimiter.ts';
 import { handleSendResults, handleSendTestEmail, handleSmtpHealth, getSmtpTransporter } from './src/server/resultEmailsHandler.ts';
 import { handleIntegrityEvent, handleReinstatePlayer } from './src/server/integrityHandler.ts';
 
@@ -122,6 +130,63 @@ const adminAuth = getAuth();
 const app = express();
 const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 3000 : 3001);
 
+// Security Hardening via Helmet: CSP, HSTS, noSniff, xFrameOptions, hidePoweredBy
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          'https://apis.google.com',
+          'https://*.firebaseapp.com',
+          'https://*.googleapis.com',
+          'https://accounts.google.com',
+          'blob:',
+        ],
+        connectSrc: [
+          "'self'",
+          'https://*.googleapis.com',
+          'https://*.firebaseio.com',
+          'https://firestore.googleapis.com',
+          'https://identitytoolkit.googleapis.com',
+          'https://securetoken.googleapis.com',
+          'https://accounts.google.com',
+          'wss://*.firebaseio.com',
+          'blob:',
+          'data:',
+        ],
+        frameSrc: [
+          "'self'",
+          'https://*.firebaseapp.com',
+          'https://accounts.google.com',
+        ],
+        imgSrc: [
+          "'self'",
+          'data:',
+          'blob:',
+          'https://*.googleusercontent.com',
+          'https://*.gstatic.com',
+        ],
+        fontSrc: ["'self'", 'data:'],
+        workerSrc: ["'self'", 'blob:'],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        objectSrc: ["'none'"],
+      },
+    },
+    hidePoweredBy: true,
+    xFrameOptions: { action: 'sameorigin' },
+    noSniff: true,
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+  })
+);
+
 // Enable CORS for local development & proxy flexibility
 app.use((_req: Request, res: Response, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -152,7 +217,7 @@ export function isGeminiModelNotFoundError(err: any): boolean {
   );
 }
 
-export const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+export const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
 
 export async function generateContentWithFallback(
   ai: GoogleGenAI,
@@ -195,35 +260,6 @@ function getGeminiClient(): GoogleGenAI | null {
       },
     },
   });
-}
-
-// In-memory rate limiting map
-interface RateLimitRecord {
-  count: number;
-  resetAt: number;
-}
-const rateLimitMap = new Map<string, RateLimitRecord>();
-
-function checkRateLimit(
-  clientKey: string,
-  maxRequests: number,
-  windowMs: number
-): { allowed: boolean; retryAfterSec?: number } {
-  const now = Date.now();
-  const record = rateLimitMap.get(clientKey);
-
-  if (!record || now > record.resetAt) {
-    rateLimitMap.set(clientKey, { count: 1, resetAt: now + windowMs });
-    return { allowed: true };
-  }
-
-  if (record.count >= maxRequests) {
-    const retryAfterSec = Math.ceil((record.resetAt - now) / 1000);
-    return { allowed: false, retryAfterSec };
-  }
-
-  record.count += 1;
-  return { allowed: true };
 }
 
 // Authentication helper for AI endpoints
@@ -304,9 +340,16 @@ app.get('/api/time', async (req: Request, res: Response): Promise<void> => {
   res.json({ serverTime: now });
 });
 
-// Endpoint 0b: Silent warm-up ping for AI generator server container
-app.get('/api/ai-warmup', (_req: Request, res: Response): void => {
+// Endpoint 0b: Silent warm-up ping for AI generator server container (rate-limited via sharedRateLimiter)
+app.get('/api/ai-warmup', (req: Request, res: Response): void => {
   res.setHeader('Cache-Control', 'no-store');
+  const clientKey = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'client';
+  const rate = checkWarmupRateLimit(clientKey);
+  if (!rate.allowed) {
+    res.setHeader('Retry-After', String(rate.retryAfterSec || 60));
+    res.status(429).json({ error: 'Too many warm-up requests. Please wait.' });
+    return;
+  }
   res.json({ status: 'ok', warmed: true, timestamp: Date.now() });
 });
 
@@ -320,8 +363,8 @@ app.post('/api/generate-quiz', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Rate limiting: 10 requests per minute per user
-    const rateCheck = checkRateLimit(`gen_${user.uid}`, 10, 60 * 1000);
+    // Rate limiting: 10 requests per minute per user via sharedRateLimiter
+    const rateCheck = checkGenerateQuizRateLimit(user.uid);
     if (!rateCheck.allowed) {
       res.setHeader('Retry-After', String(rateCheck.retryAfterSec));
       res.status(429).json({
@@ -453,8 +496,8 @@ app.post('/api/validate-question', async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Rate limiting: 30 requests per minute per user
-    const rateCheck = checkRateLimit(`val_${user.uid}`, 30, 60 * 1000);
+    // Rate limiting: 30 requests per minute per user via sharedRateLimiter
+    const rateCheck = checkValidateRateLimit(user.uid);
     if (!rateCheck.allowed) {
       res.setHeader('Retry-After', String(rateCheck.retryAfterSec));
       res.status(429).json({
@@ -542,6 +585,16 @@ app.post('/api/batch-validate-questions', async (req: Request, res: Response): P
     const user = await authenticateUser(req);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized: Firebase ID token is required' });
+      return;
+    }
+
+    // Rate limiting: 10 batch validations per minute per teacher via sharedRateLimiter
+    const rateCheck = checkBatchValidateRateLimit(user.uid);
+    if (!rateCheck.allowed) {
+      res.setHeader('Retry-After', String(rateCheck.retryAfterSec));
+      res.status(429).json({
+        error: `Rate limit exceeded. Please wait ${rateCheck.retryAfterSec} seconds before validating more questions.`,
+      });
       return;
     }
 
@@ -690,8 +743,8 @@ app.post('/api/answer', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Task 3(f): Rate limiting per uid on /api/answer
-    const rateCheck = globalRateLimiter.check(`ans_${playerId}`, 10, 10 * 1000);
+    // Task 3(f): Rate limiting per uid on /api/answer via sharedRateLimiter
+    const rateCheck = checkAnswerRateLimit(playerId);
     if (!rateCheck.allowed) {
       res.setHeader('Retry-After', String(rateCheck.retryAfterSec));
       res.status(429).json({

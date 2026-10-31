@@ -211,13 +211,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={f.label}
                       onClick={() => updateTrait('faceShape', f.id as FaceShape)}
-                      className={`py-1.5 px-2 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1.5 sm:px-2 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate w-full text-center">{f.label}</span>
+                      <span className="truncate min-w-0 max-w-full text-center">{f.label}</span>
                     </button>
                   );
                 })}
@@ -271,13 +271,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={e.label}
                       onClick={() => updateTrait('eyes', e.id as EyeStyle)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{e.label}</span>
+                      <span className="truncate min-w-0 max-w-full">{e.label}</span>
                     </button>
                   );
                 })}
@@ -300,13 +300,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={b.label}
                       onClick={() => updateTrait('eyebrows', b.id as EyebrowStyle)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{b.label}</span>
+                      <span className="truncate min-w-0 max-w-full">{b.label}</span>
                     </button>
                   );
                 })}
@@ -329,13 +329,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={m.label}
                       onClick={() => updateTrait('mouth', m.id as MouthStyle)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{m.label}</span>
+                      <span className="truncate min-w-0 max-w-full">{m.label}</span>
                     </button>
                   );
                 })}
@@ -363,13 +363,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={h.label}
                       onClick={() => updateTrait('hairHat', h.id as HairHatStyle)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{h.label}</span>
+                      <span className="truncate min-w-0 max-w-full">{h.label}</span>
                     </button>
                   );
                 })}
@@ -392,13 +392,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={g.label}
                       onClick={() => updateTrait('glasses', g.id as GlassesStyle)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{g.label}</span>
+                      <span className="truncate min-w-0 max-w-full">{g.label}</span>
                     </button>
                   );
                 })}
@@ -421,13 +421,13 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
                       aria-checked={isChecked}
                       title={a.label}
                       onClick={() => updateTrait('accessory', a.id as AccessoryStyle)}
-                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[11px] sm:text-xs font-bold transition-all text-center truncate flex items-center justify-center min-w-0 ${
+                      className={`py-1.5 px-1 sm:px-1.5 rounded-lg border-2 text-[10.5px] sm:text-xs font-bold transition-all text-center flex items-center justify-center min-w-0 overflow-hidden ${
                         isChecked
                           ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[1.5px_1.5px_0px_var(--shadow)]'
                           : 'bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface)]'
                       }`}
                     >
-                      <span className="truncate">{a.label}</span>
+                      <span className="truncate min-w-0 max-w-full">{a.label}</span>
                     </button>
                   );
                 })}

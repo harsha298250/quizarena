@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { sharedRateLimiter, SharedRateLimiter } from './sharedRateLimiter.ts';
+
 export const MAX_ALLOWED_LATENCY_MS = 300;
 
 /**
@@ -17,49 +19,9 @@ export function clampLatency(latencyMs: unknown, maxAllowed: number = MAX_ALLOWE
   return Math.min(num, maxAllowed);
 }
 
-/**
- * In-memory sliding-window rate limiter
- */
-export interface RateLimitRecord {
-  count: number;
-  resetAt: number;
-}
-
-export class RateLimiter {
-  private map = new Map<string, RateLimitRecord>();
-
-  public check(
-    clientKey: string,
-    maxRequests: number,
-    windowMs: number,
-    now: number = Date.now()
-  ): { allowed: boolean; retryAfterSec?: number } {
-    const record = this.map.get(clientKey);
-
-    if (!record || now > record.resetAt) {
-      this.map.set(clientKey, { count: 1, resetAt: now + windowMs });
-      return { allowed: true };
-    }
-
-    if (record.count >= maxRequests) {
-      const retryAfterSec = Math.max(1, Math.ceil((record.resetAt - now) / 1000));
-      return { allowed: false, retryAfterSec };
-    }
-
-    record.count += 1;
-    return { allowed: true };
-  }
-
-  public reset(clientKey?: string) {
-    if (clientKey) {
-      this.map.delete(clientKey);
-    } else {
-      this.map.clear();
-    }
-  }
-}
-
-export const globalRateLimiter = new RateLimiter();
+export type { RateLimitRecord } from './sharedRateLimiter.ts';
+export { SharedRateLimiter as RateLimiter };
+export const globalRateLimiter = sharedRateLimiter;
 
 /**
  * Extracts and normalizes server-set question start time into epoch milliseconds.
