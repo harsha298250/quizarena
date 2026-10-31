@@ -32,8 +32,8 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
     } catch {}
     return getDeterministicAvatar('TurboOtter');
   });
-  const [email, setEmail] = useState<string>('');
-  const [emailConsent, setEmailConsent] = useState<boolean>(false);
+  const [email, setEmail] = useState<string>(() => auth.currentUser?.email || '');
+  const [emailConsent, setEmailConsent] = useState<boolean>(() => Boolean(auth.currentUser?.email));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showAccommodations, setShowAccommodations] = useState<boolean>(false);
   const [networkMetrics, setNetworkMetrics] = useState<NetworkMetrics>({
@@ -58,6 +58,13 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
     // Initial real latency & clock offset measurement
     measureServerTimeMetrics().then(setNetworkMetrics);
 
+    const unsubAuth = auth.onAuthStateChanged(u => {
+      if (u?.email) {
+        setEmail(prev => prev || u.email || '');
+        setEmailConsent(true);
+      }
+    });
+
     // Re-measure every 10 seconds per fairness requirement (a)
     const timer = setInterval(() => {
       measureServerTimeMetrics().then(setNetworkMetrics);
@@ -72,7 +79,10 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
       }
     }
 
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      unsubAuth();
+    };
   }, []);
 
   const [isPreChecking, setIsPreChecking] = useState<boolean>(false);
@@ -118,13 +128,16 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
       localStorage.setItem('quizarena_avatar_config', JSON.stringify(avatarConfig));
     } catch {}
 
+    const hasValidEmail = Boolean(email && email.trim() && email.includes('@'));
+    const finalConsent = Boolean(emailConsent || hasValidEmail);
+
     const newPlayer: Player = {
       id: playerId,
       nickname: cleanName,
       avatar: JSON.stringify(avatarConfig),
       avatarConfig,
-      email: emailConsent ? email : undefined,
-      emailConsent,
+      email: hasValidEmail ? email.trim() : undefined,
+      emailConsent: finalConsent,
       score: 0,
       streak: 0,
       maxStreak: 0,
@@ -222,7 +235,13 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
           <input
             type="email"
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={e => {
+              const val = e.target.value;
+              setEmail(val);
+              if (val.trim() && !emailConsent) {
+                setEmailConsent(true);
+              }
+            }}
             placeholder="student@example.edu"
             className="paper-input w-full rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-bold"
           />

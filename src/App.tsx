@@ -128,7 +128,7 @@ export default function App() {
           });
         }
       }
-    } catch (e) {}
+    } catch (e) { }
 
     // Load teacher's quizzes from Firestore after login
     const unsubAuth = auth.onAuthStateChanged(async user => {
@@ -238,7 +238,7 @@ export default function App() {
         'quizarena_active_session',
         JSON.stringify({ gameId: game.id, playerId: hostId, role: 'host' })
       );
-    } catch (e) {}
+    } catch (e) { }
   };
 
   // Player joins with PIN
@@ -300,12 +300,12 @@ export default function App() {
     const existingPlayer = await GameEngine.getPlayer(gameSession.id, newPlayer.id);
     const resolvedPlayer: Player = existingPlayer
       ? {
-          ...newPlayer,
-          strikes: existingPlayer.strikes || 0,
-          status: existingPlayer.status || 'active',
-          isTerminated: Boolean(existingPlayer.isTerminated || existingPlayer.status === 'terminated_integrity'),
-          integrityScore: existingPlayer.integrityScore ?? 100,
-        }
+        ...newPlayer,
+        strikes: existingPlayer.strikes || 0,
+        status: existingPlayer.status || 'active',
+        isTerminated: Boolean(existingPlayer.isTerminated || existingPlayer.status === 'terminated_integrity'),
+        integrityScore: existingPlayer.integrityScore ?? 100,
+      }
       : newPlayer;
 
     setActiveGame(gameSession);
@@ -316,7 +316,7 @@ export default function App() {
         'quizarena_active_session',
         JSON.stringify({ gameId: gameSession.id, playerId: resolvedPlayer.id, role: 'player', pin })
       );
-    } catch (e) {}
+    } catch (e) { }
     await GameEngine.joinGame(gameSession.id, resolvedPlayer);
   };
 
@@ -378,7 +378,7 @@ export default function App() {
     sound.playClick();
     try {
       sessionStorage.removeItem('quizarena_active_session');
-    } catch (e) {}
+    } catch (e) { }
     setActiveGame(null);
     setActivePlayer(null);
     setGameRole(null);

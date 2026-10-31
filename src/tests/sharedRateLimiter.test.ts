@@ -61,3 +61,4 @@ assert.strictEqual(checkIntegrityRateLimit(playerId, t0 + 200).allowed, false, '
 assert.strictEqual(checkIntegrityRateLimit(playerId, t0 + 1100).allowed, true, 'Integrity event after 1s window resets');
 
 console.log('✅ All Shared Rate Limiter tests passed successfully!');
+
