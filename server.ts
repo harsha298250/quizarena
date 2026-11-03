@@ -122,22 +122,21 @@ const hasAdminCredentials = Boolean(
 
 export function assertAdminCredentialsPresent(): void {
   if (!hasAdminCredentials && process.env.NODE_ENV !== 'test') {
-    console.error(`
+    console.warn(`
 ================================================================================
-❌ [QuizArena Fatal Startup Error] Firebase Admin Credentials Missing!
+⚠️ [QuizArena Admin Credentials Notice] Firebase Admin Credentials Missing!
 --------------------------------------------------------------------------------
 The QuizArena server requires Firebase Admin credentials for server-side ID
 token verification, atomic scoring transactions, and anti-cheat enforcement.
 
 Please supply credentials through one of the following methods:
   1. Place 'serviceAccountKey.json' in the project root directory.
-  2. Set FIREBASE_SERVICE_ACCOUNT_KEY in your .env file (raw JSON or file path).
+  2. Set FIREBASE_SERVICE_ACCOUNT_KEY in your environment (raw JSON or file path).
   3. Set GOOGLE_APPLICATION_CREDENTIALS environment variable.
 
-Refer to README.md section "Firebase Admin SDK Credentials" for instructions.
+The server is operating in degraded mode; /health will report unauthenticated status.
 ================================================================================
     `);
-    process.exit(1);
   }
 }
 
@@ -153,7 +152,8 @@ const adminDb = getFirestore(firestoreDbId);
 const adminAuth = getAuth();
 
 const app = express();
-const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 3000 : 3001);
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.NODE_ENV === 'production' ? 3000 : 3001);
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Security Hardening via Helmet: CSP, COOP, HSTS, noSniff, xFrameOptions, hidePoweredBy
 app.use(
@@ -1082,11 +1082,19 @@ app.get('*', (_req, res) => {
   }
 });
 
+const isMain = Boolean(
+  process.argv[1] && (
+    path.resolve(process.argv[1]) === path.resolve(__filename) ||
+    process.argv[1].endsWith('server.ts') ||
+    process.argv[1].endsWith('server.js')
+  )
+);
+
 let server: any;
-if (process.env.NODE_ENV !== 'test') {
-  server = app.listen(PORT, () => {
+if (process.env.NODE_ENV !== 'test' && isMain) {
+  server = app.listen(PORT, HOST, () => {
     assertAdminCredentialsPresent();
-    console.log(`QuizArena Server running on port ${PORT}`);
+    console.log(`QuizArena Server running on http://${HOST}:${PORT}`);
     console.log(`[QuizArena] Gemini Model in use: ${GEMINI_MODEL}`);
   });
 

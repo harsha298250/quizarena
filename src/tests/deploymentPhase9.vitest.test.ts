@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { validateServerEnvironment, isAllowedCorsOrigin } from '../server/envValidator.ts';
-import app from '../../server.ts';
+import app, { assertAdminCredentialsPresent } from '../../server.ts';
 
 describe('Phase 9 — Production Deployment & Infrastructure Hardening', () => {
   const originalEnv = process.env;
@@ -262,6 +262,23 @@ describe('Phase 9 — Production Deployment & Infrastructure Hardening', () => {
       // Verify no genuine private keys or real tokens are contained
       expect(envEx).not.toContain('AIzaSy'); // Google API key prefix
       expect(envEx).not.toContain('-----BEGIN PRIVATE KEY-----');
+    });
+
+    it('assertAdminCredentialsPresent should not invoke process.exit(1) on startup', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      assertAdminCredentialsPresent();
+
+      expect(exitSpy).not.toHaveBeenCalled();
+      exitSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+
+    it('server.ts source should bind on HOST 0.0.0.0 and PORT for Render port scan compliance', () => {
+      const serverCode = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf-8');
+      expect(serverCode).toContain("const HOST = process.env.HOST || '0.0.0.0';");
+      expect(serverCode).toContain('server = app.listen(PORT, HOST');
     });
   });
 });
