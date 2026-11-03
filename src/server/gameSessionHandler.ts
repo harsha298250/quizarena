@@ -105,6 +105,7 @@ export async function handleCreateGame(
     showLeaderboardBetween: true,
     autoEmailResults: true,
     scoringProfile: quiz.gameMode === 'accuracy' ? 'accuracy_only' : 'speed_weighted',
+    progressionMode: customSettings.progressionMode === 'automatic' ? 'automatic' : 'manual',
     requireApprovalToJoin: false,
     teamMode: quiz.gameMode === 'team',
     ...customSettings,

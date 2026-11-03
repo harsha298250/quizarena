@@ -90,6 +90,7 @@ export interface GameSettings {
   showLeaderboardBetween: boolean;
   autoEmailResults: boolean;
   scoringProfile: 'speed_weighted' | 'accuracy_only';
+  progressionMode?: 'manual' | 'automatic';
   requireApprovalToJoin: boolean;
   teamMode: boolean;
 }

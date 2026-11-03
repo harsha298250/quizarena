@@ -245,6 +245,45 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             </div>
           </div>
 
+          {/* Question Progression Mode Selector */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs font-bold text-[var(--text)]">
+            <div className="flex items-center gap-2">
+              <span className="text-base">⏱️</span>
+              <div>
+                <span className="block font-black">Question Progression:</span>
+                <span className="text-[11px] font-semibold text-[var(--text-muted)]">
+                  {game.settings?.progressionMode === 'automatic'
+                    ? 'Questions auto-reveal and advance when time expires'
+                    : 'Host controls every step with Next / Reveal buttons or Spacebar'}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => onUpdateSettings?.({ progressionMode: 'manual' })}
+                className={`paper-btn paper-btn-sm text-xs font-bold ${
+                  game.settings?.progressionMode !== 'automatic'
+                    ? 'paper-btn-primary'
+                    : 'bg-[var(--surface)] text-[var(--text)]'
+                }`}
+              >
+                Manual (Host clicks Next)
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateSettings?.({ progressionMode: 'automatic' })}
+                className={`paper-btn paper-btn-sm text-xs font-bold ${
+                  game.settings?.progressionMode === 'automatic'
+                    ? 'bg-[var(--ok)] text-white'
+                    : 'bg-[var(--surface)] text-[var(--text)]'
+                }`}
+              >
+                ⚡ Automatic (Timer sync)
+              </button>
+            </div>
+          </div>
+
           <div className="p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-[11px] font-semibold text-[var(--text-muted)] flex items-start gap-2">
             <span className="text-sm shrink-0">♿</span>
             <span>

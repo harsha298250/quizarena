@@ -23,6 +23,8 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
   const [answers, setAnswers] = useState<AnswerSubmission[]>([]);
   const [flags, setFlags] = useState<IntegrityFlag[]>([]);
   const [showIntegrityModal, setShowIntegrityModal] = useState<boolean>(false);
+  const [selectedPlayerForInspect, setSelectedPlayerForInspect] = useState<Player | null>(null);
+  const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
 
   // Subscribe to live submitted answers for active question
   useEffect(() => {
@@ -35,6 +37,41 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
     const unsub = GameEngine.subscribeToFlags(game.id, setFlags);
     return () => unsub();
   }, [game.id]);
+
+  // Automatic progression: countdown during reveal state
+  useEffect(() => {
+    if (game.settings?.progressionMode !== 'automatic') {
+      setAutoAdvanceCountdown(null);
+      return;
+    }
+
+    if (game.status === 'reveal' && !game.isPaused) {
+      setAutoAdvanceCountdown(5);
+      const timer = setInterval(() => {
+        setAutoAdvanceCountdown(prev => {
+          if (prev === null || prev <= 1) {
+            clearInterval(timer);
+            handleNextQuestion();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(timer);
+    } else if (game.status !== 'reveal') {
+      setAutoAdvanceCountdown(null);
+    }
+  }, [game.status, game.isPaused, game.settings?.progressionMode, game.currentQuestionIndex]);
+
+  // Early reveal in automatic mode if all active players have submitted
+  useEffect(() => {
+    if (game.settings?.progressionMode === 'automatic' && game.status === 'question_active' && !game.isPaused) {
+      if (players.length > 0 && answers.length >= players.length) {
+        handleReveal();
+      }
+    }
+  }, [answers.length, players.length, game.status, game.isPaused, game.settings?.progressionMode]);
 
   // Timer countdown
   useEffect(() => {
@@ -197,7 +234,13 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
           </div>
 
           {/* Host Action Buttons */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {autoAdvanceCountdown !== null && (
+              <span className="sticker-badge bg-[var(--ok)] text-white text-xs font-black animate-pulse">
+                ⏱️ Advancing in {autoAdvanceCountdown}s
+              </span>
+            )}
+
             <button
               onClick={handleTogglePause}
               className="paper-btn paper-btn-sm paper-btn-secondary text-xs"
@@ -320,6 +363,38 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
           <p className="text-sm font-semibold text-[var(--text)]">
             {currentQuestion.explanation}
           </p>
+        </div>
+      )}
+
+      {/* Contenders Quick Bar: Click any participant to inspect detailed responses & telemetry */}
+      {players.length > 0 && (
+        <div className="paper-card p-3 bg-[var(--surface)] border-2 space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-[var(--text-muted)]">
+            <span>Contenders ({players.length}) — Click any player to inspect answers &amp; strikes:</span>
+            <span>{answers.length} / {players.length} answered</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 max-h-28 overflow-y-auto">
+            {players.map(p => {
+              const hasAnsweredCurrent = answers.some(a => a.playerId === p.id);
+              const strikeCount = p.strikes || 0;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedPlayerForInspect(p)}
+                  className={`paper-btn paper-btn-sm text-xs flex items-center gap-1.5 py-1 px-2.5 transition-all ${
+                    hasAnsweredCurrent ? 'border-[var(--ok)] ring-1 ring-[var(--ok)]' : ''
+                  }`}
+                  title={`Inspect participant ${p.nickname}`}
+                >
+                  <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={20} />
+                  <span className="font-bold">{p.nickname}</span>
+                  <span className="text-[10px] font-mono-code opacity-80">{p.score}pts</span>
+                  {strikeCount > 0 && <span className="text-red-500 font-black text-[10px]">⚠️{strikeCount}</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -568,6 +643,148 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                 className="paper-btn paper-btn-ok w-full py-2 font-black text-xs shadow-[2px_2px_0px_var(--shadow)]"
               >
                 Close Integrity Panel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Host Participant Inspection Modal */}
+      {selectedPlayerForInspect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 animate-fadeIn">
+          <div className="paper-modal p-6 max-w-2xl w-full space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between shrink-0 border-b-2 border-[var(--border)] pb-3">
+              <div className="flex items-center gap-3">
+                <Avatar
+                  config={selectedPlayerForInspect.avatarConfig || selectedPlayerForInspect.avatar}
+                  seed={selectedPlayerForInspect.nickname}
+                  size={46}
+                />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+                      {selectedPlayerForInspect.nickname}
+                    </h3>
+                    <span className="sticker-badge bg-[var(--surface-2)] text-[var(--text)] text-[10px]">
+                      UID: {selectedPlayerForInspect.id.slice(0, 8)}...
+                    </span>
+                  </div>
+                  <span className="text-xs font-semibold text-[var(--text-muted)]">
+                    Score: {selectedPlayerForInspect.score.toLocaleString()} pts • Streak: {selectedPlayerForInspect.streak || 0} • Status: {selectedPlayerForInspect.status || 'active'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedPlayerForInspect(null)}
+                className="paper-btn paper-btn-sm paper-btn-secondary text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1">
+              {/* Telemetry & Strike Actions */}
+              <div className="p-3 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] flex flex-wrap items-center justify-between gap-2 text-xs font-bold">
+                <div>
+                  <span className="text-[var(--text-muted)] block">Authoritative Strikes:</span>
+                  <span className="text-[var(--text)]">
+                    {selectedPlayerForInspect.strikes || 0} Strikes • Integrity Score {selectedPlayerForInspect.integrityScore ?? 100}%
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(selectedPlayerForInspect.isTerminated || (selectedPlayerForInspect.strikes || 0) > 0) && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await GameEngine.reinstatePlayer(game.id, selectedPlayerForInspect.id);
+                        setSelectedPlayerForInspect({
+                          ...selectedPlayerForInspect,
+                          strikes: 0,
+                          isTerminated: false,
+                          status: 'active',
+                        });
+                      }}
+                      className="paper-btn paper-btn-sm bg-emerald-600 text-white text-xs font-bold shadow-none"
+                    >
+                      ✓ Reinstate Player
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await GameEngine.updatePlayerAccessibleApproval(
+                        game.id,
+                        selectedPlayerForInspect.id,
+                        !selectedPlayerForInspect.accessibleApproved
+                      );
+                      setSelectedPlayerForInspect({
+                        ...selectedPlayerForInspect,
+                        accessibleApproved: !selectedPlayerForInspect.accessibleApproved,
+                      });
+                    }}
+                    className="paper-btn paper-btn-sm text-xs font-bold shadow-none"
+                  >
+                    {selectedPlayerForInspect.accessibleApproved ? '♿ Revoke Screen Reader' : '♿ Approve Screen Reader'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Question-by-Question Response Audit */}
+              <div className="space-y-2">
+                <h4 className="font-['Bricolage_Grotesque'] font-black text-sm text-[var(--text)]">
+                  Question Response Breakdown
+                </h4>
+                <div className="space-y-2">
+                  {game.questions.map((q, qIdx) => {
+                    const isClosed = qIdx < game.currentQuestionIndex || (qIdx === game.currentQuestionIndex && (game.status === 'reveal' || game.status === 'leaderboard'));
+                    const isCurrent = qIdx === game.currentQuestionIndex;
+                    const sub = answers.find(a => a.playerId === selectedPlayerForInspect.id && a.questionIndex === qIdx);
+
+                    return (
+                      <div
+                        key={q.id || qIdx}
+                        className={`p-3 rounded-xl border-2 ${
+                          isCurrent
+                            ? 'border-[var(--accent)] bg-[var(--surface-2)]'
+                            : 'border-[var(--border)] bg-[var(--surface)]'
+                        } text-xs space-y-1`}
+                      >
+                        <div className="flex items-center justify-between font-bold">
+                          <span className="text-[var(--text)] font-black truncate max-w-[70%]">
+                            Q{qIdx + 1}: {q.text}
+                          </span>
+                          {isClosed ? (
+                            sub?.isCorrect ? (
+                              <span className="text-emerald-600 font-black">✓ Correct (+{sub.pointsAwarded || 0})</span>
+                            ) : sub ? (
+                              <span className="text-red-500 font-black">✕ Incorrect (0 pts)</span>
+                            ) : (
+                              <span className="text-[var(--text-muted)] font-bold">No Answer Submitted</span>
+                            )
+                          ) : (
+                            <span className="text-amber-500 font-bold">{sub ? 'Answer Locked In' : 'Waiting for Submission'}</span>
+                          )}
+                        </div>
+
+                        {sub && (
+                          <div className="text-[11px] text-[var(--text-muted)] flex flex-wrap items-center gap-3 font-semibold">
+                            <span>Selected: {sub.selectedIndices?.map(i => `Option ${i + 1}`).join(', ') || sub.textAnswer || '—'}</span>
+                            {sub.responseTimeMs !== undefined && <span>Response Time: {sub.responseTimeMs}ms</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="shrink-0 pt-2 border-t border-[var(--border)]">
+              <button
+                onClick={() => setSelectedPlayerForInspect(null)}
+                className="paper-btn paper-btn-secondary w-full py-2 font-bold text-xs"
+              >
+                Close Inspection
               </button>
             </div>
           </div>
