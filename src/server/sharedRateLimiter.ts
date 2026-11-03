@@ -80,6 +80,14 @@ export function checkAnswerRateLimit(playerId: string, now: number = Date.now())
   return sharedRateLimiter.check(`ans_${playerId}`, 10, 10 * 1000, now);
 }
 
+export function resetAnswerRateLimit(playerId?: string): void {
+  if (playerId) {
+    sharedRateLimiter.reset(`ans_${playerId}`);
+  } else {
+    sharedRateLimiter.reset();
+  }
+}
+
 export function checkIntegrityRateLimit(playerId: string, now: number = Date.now()): RateLimitCheckResult {
   // Max 2 integrity telemetry events per second per player
   return sharedRateLimiter.check(`integ_${playerId}`, 2, 1000, now);

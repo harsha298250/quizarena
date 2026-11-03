@@ -23,6 +23,7 @@ import {
   validateAndTrackPowerUp,
   globalTimingAnomalyDetector,
   MAX_ALLOWED_LATENCY_MS,
+  serverMeasuredLatencyMap,
 } from './src/server/scoringHardening.ts';
 import {
   sharedRateLimiter,
@@ -32,6 +33,11 @@ import {
   checkBatchValidateRateLimit,
   checkAnswerRateLimit,
 } from './src/server/sharedRateLimiter.ts';
+import {
+  handleAnswerSubmission,
+  handleUsePowerUp,
+  handleApproveAccommodation,
+} from './src/server/answerSubmissionHandler.ts';
 import { handleSendResults, handleSendTestEmail, handleSmtpHealth, getSmtpTransporter } from './src/server/resultEmailsHandler.ts';
 import { handleIntegrityEvent, handleReinstatePlayer } from './src/server/integrityHandler.ts';
 import {
@@ -307,7 +313,7 @@ interface PendingLatencyNonce {
   issuedAt: number;
 }
 const pendingLatencyNonces = new Map<string, PendingLatencyNonce>();
-export const serverMeasuredLatencyMap = new Map<string, number>();
+export { serverMeasuredLatencyMap };
 
 // Clean up stale latency nonces (> 30s) every 2 minutes
 setInterval(() => {
@@ -689,308 +695,17 @@ app.post('/api/advance-question', async (req: Request, res: Response): Promise<v
 
 // Endpoint 4: Server-side Answer Validation, Fair Scoring & Transactional Verification
 app.post('/api/answer', async (req: Request, res: Response): Promise<void> => {
-  try {
-    // 1. Verify Firebase ID Token via firebase-admin
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header' });
-      return;
-    }
+  await handleAnswerSubmission(req, res, { adminAuth, adminDb });
+});
 
-    const idToken = authHeader.split('Bearer ')[1].trim();
-    let playerId = '';
-    try {
-      const decodedToken = await adminAuth.verifyIdToken(idToken);
-      playerId = decodedToken.uid;
-    } catch (authError) {
-      console.warn('Token verification failed:', authError);
-      res.status(401).json({ error: 'Unauthorized: Invalid or expired Firebase ID token' });
-      return;
-    }
+// Endpoint 5: Secure Server-side Power-Up Activation (50/50, time freeze, double points)
+app.post('/api/use-powerup', async (req: Request, res: Response): Promise<void> => {
+  await handleUsePowerUp(req, res, { adminAuth, adminDb });
+});
 
-    // Task 3(f): Rate limiting per uid on /api/answer via sharedRateLimiter
-    const rateCheck = checkAnswerRateLimit(playerId);
-    if (!rateCheck.allowed) {
-      res.setHeader('Retry-After', String(rateCheck.retryAfterSec));
-      res.status(429).json({
-        error: `Rate limit exceeded. Please wait ${rateCheck.retryAfterSec} seconds before submitting another answer.`,
-      });
-      return;
-    }
-
-    const {
-      gameId,
-      questionIndex,
-      selectedIndices = [],
-      textAnswer,
-      clientTimestamp,
-      powerUps,
-      rawResponseTimeMs,
-    } = req.body;
-
-    if (!gameId || questionIndex === undefined) {
-      res.status(400).json({ error: 'gameId and questionIndex are required' });
-      return;
-    }
-
-    // 2. Fetch game document and check if question is active
-    const gameDocRef = adminDb.doc(`games/${gameId}`);
-    const gameDoc = await gameDocRef.get();
-    if (!gameDoc.exists) {
-      res.status(404).json({ error: 'Game session not found' });
-      return;
-    }
-
-    const gameData = gameDoc.data() || {};
-    if (gameData.status !== 'question_active') {
-      res.status(400).json({ error: 'Question is not active for answers' });
-      return;
-    }
-
-    if (gameData.currentQuestionIndex !== questionIndex) {
-      res.status(400).json({
-        error: `Question index mismatch: expected ${gameData.currentQuestionIndex}, got ${questionIndex}`,
-      });
-      return;
-    }
-
-    // Task 3(b): Use server-set questionStartTime for elapsed time calculation
-    const now = Date.now();
-    const timeLimitSec = gameData.timeLimit || 20;
-    const allowedWindowMs = timeLimitSec * 1000 + 3500;
-    const questionStartMs =
-      extractQuestionStartTimeMs(gameData.questionStartTime) ||
-      gameData.questionStartTimeMs ||
-      0;
-
-    let serverElapsedMs = rawResponseTimeMs || 1000;
-    if (questionStartMs > 0) {
-      serverElapsedMs = Math.max(0, now - questionStartMs);
-      if (serverElapsedMs > allowedWindowMs) {
-        res.status(400).json({ error: 'Answer submitted too late: question time limit expired' });
-        return;
-      }
-    }
-
-    // 3. Fetch secret answer key from host-only subcollection games/{id}/secrets/answerKey
-    const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
-    const secretDoc = await secretDocRef.get();
-
-    let secretQuestion: any = null;
-    if (secretDoc.exists) {
-      const secretData = secretDoc.data() || {};
-      const answersList = secretData.answers || [];
-      secretQuestion = answersList.find((a: any) => a.questionIndex === questionIndex);
-    }
-    if (!secretQuestion && gameData.questions?.[questionIndex]) {
-      secretQuestion = gameData.questions[questionIndex];
-    }
-    if (!secretQuestion) {
-      res.status(500).json({ error: 'Answer key not found for this question' });
-      return;
-    }
-
-    // 4. Compute correctness on server
-    const isCorrect = evaluateAnswer(
-      secretQuestion.type,
-      selectedIndices,
-      secretQuestion.correctAnswers || [],
-      textAnswer,
-      secretQuestion.acceptedTextAnswers || []
-    );
-
-    // Task 3(c): Wrap the duplicate check, player verification, power-up check, and answer write in a Firestore transaction
-    const answerId = `ans_${questionIndex}_${playerId}`;
-    const answerDocRef = adminDb.doc(`games/${gameId}/answers/${answerId}`);
-    const playerDocRef = adminDb.doc(`games/${gameId}/players/${playerId}`);
-
-    let txResult: any;
-    try {
-      txResult = await adminDb.runTransaction(async (transaction) => {
-        // Task 3(e): Verify player existence and ensure player is not kicked
-        const playerDoc = await transaction.get(playerDocRef);
-        const playerEligibility = validatePlayerEligibility(playerDoc.exists, playerDoc.data());
-        if (!playerEligibility.eligible) {
-          const err: any = new Error(playerEligibility.error);
-          err.statusCode = playerEligibility.statusCode;
-          throw err;
-        }
-
-        const playerData = playerDoc.data() || {};
-
-        // Task 3(c): Reject duplicate answers inside transaction
-        const existingAnswerDoc = await transaction.get(answerDocRef);
-        if (existingAnswerDoc.exists) {
-          const err: any = new Error('Duplicate answer: already submitted for this question');
-          err.statusCode = 409;
-          throw err;
-        }
-
-        // Task 3(d): Track power-up usage per player on the server (single use)
-        const requestedDoublePoints = Boolean(powerUps?.doublePoints || powerUps?.doublePointsUsed);
-        const powerUpCheck = validateAndTrackPowerUp(
-          playerData,
-          requestedDoublePoints ? 'doublePoints' : undefined
-        );
-        if (!powerUpCheck.allowed) {
-          const err: any = new Error(powerUpCheck.error);
-          err.statusCode = 400;
-          throw err;
-        }
-        const willUseDoublePoints = powerUpCheck.willUse;
-
-        // Task 3(a): Stop trusting playerData.latencyMs, clamp to server-side maximum of 300 ms
-        const measuredPing = serverMeasuredLatencyMap.get(playerId);
-        const clampedLatency = clampLatency(measuredPing !== undefined ? measuredPing : playerData.latencyMs);
-
-        const currentStreak = playerData.streak || 0;
-        const currentScore = playerData.score || 0;
-        const maxStreak = playerData.maxStreak || 0;
-        const correctCount = playerData.correctCount || 0;
-
-        const scoreResult = calculateFairScore({
-          basePoints: secretQuestion.points || 1000,
-          isCorrect,
-          timeLimitSeconds: secretQuestion.timeLimit || timeLimitSec,
-          rawResponseTimeMs: serverElapsedMs,
-          latencyMs: clampedLatency,
-          clockOffsetMs: 0,
-          currentStreak,
-          scoringProfile: gameData.settings?.scoringProfile || 'speed_weighted',
-          doublePointsPowerUp: willUseDoublePoints,
-        });
-
-        // Task 7(e): Server looks up the previous hash instead of trusting client-supplied prevHash
-        let serverPrevHash = '0000000000000000000000000000000000000000000000000000000000000000';
-        if (gameData.lastAuditHash) {
-          serverPrevHash = gameData.lastAuditHash;
-        } else {
-          try {
-            const latestAnswerSnap = await adminDb
-              .collection(`games/${gameId}/answers`)
-              .orderBy('serverTimestamp', 'desc')
-              .limit(1)
-              .get();
-            if (!latestAnswerSnap.empty) {
-              const lastData = latestAnswerSnap.docs[0].data();
-              if (lastData?.hash) {
-                serverPrevHash = lastData.hash;
-              }
-            }
-          } catch (lookupErr) {
-            console.warn('Could not query last answer hash for audit chain:', lookupErr);
-          }
-        }
-
-        const auditBlock = await createHashBlock(
-          serverPrevHash,
-          questionIndex,
-          playerId,
-          questionIndex,
-          scoreResult.finalPoints,
-          now
-        );
-
-        const submissionData = {
-          id: answerId,
-          gameId,
-          playerId,
-          playerNickname: playerData.nickname || 'Player',
-          questionIndex,
-          selectedIndices,
-          textAnswer: textAnswer || null,
-          isCorrect,
-          pointsAwarded: scoreResult.finalPoints,
-          responseTimeMs: scoreResult.compensatedResponseTimeMs,
-          clientTimestamp: clientTimestamp || now,
-          serverTimestamp: now,
-          serverSubmittedAt: FieldValue.serverTimestamp(),
-          prevHash: serverPrevHash,
-          hash: auditBlock.hash,
-          powerUpsUsed: {
-            doublePoints: willUseDoublePoints,
-          },
-        };
-
-        // Write answer document and update latest audit hash on the game doc
-        transaction.set(answerDocRef, submissionData);
-        transaction.update(gameDocRef, { lastAuditHash: auditBlock.hash });
-
-        // Server-side timing anomaly detection (implausibly fast or uniform timing across questions)
-        const timingAnomaly = globalTimingAnomalyDetector.recordAndCheck(playerId, serverElapsedMs);
-        if (timingAnomaly.isAnomaly) {
-          const flagId = `flag_${now}_${Math.random().toString(36).substring(2, 7)}`;
-          const flagDocRef = adminDb.doc(`games/${gameId}/flags/${flagId}`);
-          transaction.set(flagDocRef, {
-            id: flagId,
-            playerId,
-            playerNickname: playerData.nickname || 'Player',
-            type: timingAnomaly.type,
-            severity: timingAnomaly.severity || 'medium',
-            reason: timingAnomaly.reason,
-            timestamp: new Date().toISOString(),
-            questionIndex,
-          });
-        }
-
-        // Update player score, streaks, and mark power-up as used on server
-        const newStreak = scoreResult.newStreak;
-        const newScore = currentScore + scoreResult.finalPoints;
-        const newMaxStreak = Math.max(maxStreak, newStreak);
-        const newCorrectCount = isCorrect ? correctCount + 1 : correctCount;
-
-        const playerUpdates: Record<string, any> = {
-          score: FieldValue.increment(scoreResult.finalPoints),
-          streak: newStreak,
-          maxStreak: newMaxStreak,
-          correctCount: isCorrect ? FieldValue.increment(1) : correctCount,
-          lastSeen: FieldValue.serverTimestamp(),
-        };
-
-        if (willUseDoublePoints) {
-          playerUpdates['powerUps.doublePointsUsed'] = true;
-          playerUpdates['usedPowerUps.doublePoints'] = true;
-        }
-
-        transaction.update(playerDocRef, playerUpdates);
-
-        return {
-          submissionData,
-          updatedPlayer: {
-            id: playerId,
-            score: newScore,
-            streak: newStreak,
-            maxStreak: newMaxStreak,
-            correctCount: newCorrectCount,
-            powerUps: {
-              ...(playerData.powerUps || {}),
-              doublePointsUsed: Boolean(playerData.powerUps?.doublePointsUsed || willUseDoublePoints),
-            },
-          },
-        };
-      });
-    } catch (txError: any) {
-      if (txError.statusCode) {
-        res.status(txError.statusCode).json({ error: txError.message });
-        return;
-      }
-      throw txError;
-    }
-
-    res.json({
-      success: true,
-      submission: {
-        ...txResult.submissionData,
-        serverSubmittedAt: now,
-      },
-      updatedPlayer: txResult.updatedPlayer,
-    });
-  } catch (error) {
-    console.error('Error processing answer submission:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : 'Internal server error processing answer',
-    });
-  }
+// Endpoint 6: Host-only Accommodation Approval (extra time multiplier, screen reader DOM mode)
+app.post('/api/approve-accommodation', async (req: Request, res: Response): Promise<void> => {
+  await handleApproveAccommodation(req, res, { adminAuth, adminDb });
 });
 
 // POST /api/create-game - Server-controlled game creation with verified host ownership

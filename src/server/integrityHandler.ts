@@ -24,6 +24,9 @@ export const MAX_STRIKES_LIMIT = 6;
 // In-memory deduplication: playerId_eventType -> timestamp
 const lastEventMap = new Map<string, number>();
 
+// Replay prevention cache: eventId -> timestamp (retains up to 2000 recent unique event IDs)
+const seenEventIds = new Map<string, number>();
+
 // In-memory rate limiter: playerId -> { count, windowStart } (2 per 1000ms window)
 const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
 
@@ -112,7 +115,7 @@ export async function handleIntegrityEvent(
       return;
     }
 
-    const { gameId, eventType, reason = '', questionIndex } = req.body || {};
+    const { gameId, eventType, reason = '', questionIndex, eventId } = req.body || {};
 
     if (!gameId || typeof gameId !== 'string') {
       res.status(400).json({ error: 'Missing or invalid gameId parameter' });
@@ -124,6 +127,31 @@ export async function handleIntegrityEvent(
         error: `Invalid eventType '${eventType}'. Allowed types: ${ALLOWED_INTEGRITY_EVENT_TYPES.join(', ')}`,
       });
       return;
+    }
+
+    // Sanitize reason string & validate questionIndex if present
+    const cleanReason = typeof reason === 'string' ? reason.slice(0, 300) : '';
+    if (questionIndex !== undefined && (typeof questionIndex !== 'number' || questionIndex < 0 || !Number.isInteger(questionIndex))) {
+      res.status(400).json({ error: 'questionIndex must be a non-negative integer' });
+      return;
+    }
+
+    // Check replay of specific event ID
+    if (eventId && typeof eventId === 'string') {
+      if (seenEventIds.has(eventId)) {
+        res.status(200).json({
+          success: true,
+          deduped: true,
+          replayed: true,
+          message: 'Integrity event already processed',
+        });
+        return;
+      }
+      seenEventIds.set(eventId, Date.now());
+      if (seenEventIds.size > 2000) {
+        const oldestKey = seenEventIds.keys().next().value;
+        if (oldestKey) seenEventIds.delete(oldestKey);
+      }
     }
 
     // 2. Rate-limit to 2 events per second per player
@@ -307,6 +335,25 @@ export async function handleReinstatePlayer(
       reinstatedBy: hostUid,
       updatedAt: nowIso,
     });
+
+    // Record reinstatement audit flag in games/{gameId}/flags if collection is available
+    if (typeof adminDb.collection === 'function') {
+      try {
+        const flagRef = adminDb.collection(`games/${gameId}/flags`).doc();
+        await flagRef.set({
+          id: flagRef.id,
+          playerId,
+          playerNickname: playerSnap.data()?.nickname || 'Player',
+          type: 'reinstatement',
+          severity: 'low',
+          reason: `Host (${hostUid}) reinstated player; strikes reset to 0`,
+          timestamp: nowIso,
+          approvedBy: hostUid,
+        });
+      } catch (flagErr) {
+        console.warn('Could not record reinstatement audit flag:', flagErr);
+      }
+    }
 
     res.status(200).json({
       success: true,

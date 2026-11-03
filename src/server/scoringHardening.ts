@@ -7,6 +7,8 @@ import { sharedRateLimiter, SharedRateLimiter } from './sharedRateLimiter.ts';
 
 export const MAX_ALLOWED_LATENCY_MS = 300;
 
+export const serverMeasuredLatencyMap = new Map<string, number>();
+
 /**
  * Clamps client-reported latency to [0, MAX_ALLOWED_LATENCY_MS].
  * Prevents players from forging high latencies to artificially inflate speed-weighted scores.

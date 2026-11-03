@@ -1037,12 +1037,37 @@ export class GameEngine {
     return false;
   }
 
-  // Host approves or revokes accessible DOM text mode for screen readers
+  // Host approves or revokes accessible DOM text mode & extra time accommodations via secure backend
   public static async updatePlayerAccessibleApproval(
     gameId: string,
     playerId: string,
-    accessibleApproved: boolean
-  ): Promise<void> {
+    accessibleApproved: boolean,
+    extraTimeMultiplier?: number
+  ): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    try {
+      const res = await fetch('/api/approve-accommodation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({
+          gameId,
+          playerId,
+          accessibleApproved,
+          extraTimeMultiplier,
+        }),
+      });
+      if (res.ok) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('POST /api/approve-accommodation failed:', e);
+    }
+
     if (isFirebaseConfigured && db) {
       try {
         await updateDoc(doc(db, 'games', gameId, 'players', playerId), {
@@ -1066,6 +1091,47 @@ export class GameEngine {
         players: updated,
       });
     } catch (e) {}
+    return true;
+  }
+
+  // Activate single-use power-up via trusted server endpoint POST /api/use-powerup
+  public static async usePowerUp(
+    gameId: string,
+    powerUp: 'fiftyFifty' | 'timeFreeze' | 'doublePoints',
+    questionIndex: number
+  ): Promise<{ success: boolean; hiddenOptionIndices?: number[]; addedTimeMs?: number; error?: string }> {
+    const user = auth.currentUser || (await ensureAnonymousAuth());
+    const idToken = (await user?.getIdToken()) || '';
+
+    try {
+      const response = await fetch('/api/use-powerup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({
+          gameId,
+          powerUp,
+          questionIndex,
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        return { success: false, error: errJson.error || `HTTP ${response.status}` };
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        hiddenOptionIndices: data.hiddenOptionIndices,
+        addedTimeMs: data.addedTimeMs,
+      };
+    } catch (err: any) {
+      console.warn('POST /api/use-powerup error:', err);
+      return { success: false, error: err.message || 'Network error activating power-up' };
+    }
   }
 
   // Get single player from Firestore with local fallback

@@ -320,16 +320,22 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     else sound.playWrong();
   };
 
-  // Power-Up: 50/50 (eliminate 2 incorrect options)
-  const handleUse5050 = () => {
+  // Power-Up: 50/50 (eliminate 2 incorrect options via authoritative server)
+  const handleUse5050 = async () => {
     if (player.powerUps.fiftyFiftyUsed || hasSubmitted) return;
     sound.playPowerUp();
-    const correctIdx = currentQuestion.correctAnswers?.[0];
-    const wrongOptions = currentQuestion.options
-      .map((_, idx) => idx)
-      .filter(idx => (correctIdx !== undefined ? idx !== correctIdx : idx >= 2));
-    const toHide = wrongOptions.slice(0, 2);
-    setHiddenOptions(toHide);
+
+    // Call server to safely determine which 2 wrong options to hide without exposing the answer key
+    const res = await GameEngine.usePowerUp(game.id, 'fiftyFifty', game.currentQuestionIndex);
+    if (res.success && Array.isArray(res.hiddenOptionIndices)) {
+      setHiddenOptions(res.hiddenOptionIndices);
+    } else {
+      // Local fallback if offline or server returned default
+      const wrongOptions = currentQuestion.options
+        .map((_, idx) => idx)
+        .filter(idx => idx >= 2);
+      setHiddenOptions(wrongOptions.slice(0, 2));
+    }
 
     const updated: Player = {
       ...player,
