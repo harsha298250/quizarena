@@ -10,7 +10,7 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Anonymous players MUST NOT count for administrative/teacher collections
+    // Anonymous players MUST NOT count for administrative/teacher/host collections
     function isNonAnonymous() {
       return isSignedIn() &&
         (!('firebase' in request.auth.token) ||
@@ -26,7 +26,7 @@ service cloud.firestore {
     }
 
     function isGameHost(gameId) {
-      return isSignedIn() &&
+      return isNonAnonymous() &&
         exists(/databases/$(database)/documents/games/$(gameId)) &&
         get(/databases/$(database)/documents/games/$(gameId)).data.hostId == request.auth.uid;
     }
@@ -37,108 +37,133 @@ service cloud.firestore {
         get(/databases/$(database)/documents/competitions/$(competitionId)).data.organizerId == request.auth.uid;
     }
 
-    // Users collection
+    function isPlayerInGame(gameId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/games/$(gameId)/players/$(request.auth.uid));
+    }
+
+    // ==========================================
+    // 1. Users collection: Private user profiles
+    // ==========================================
+    // - Users can read ONLY their own private profile.
+    // - Unrelated authenticated users CANNOT read other users' profile records.
+    // - Users cannot modify their own roles or administrative privileges.
+    // - Immutable ownership identifiers are preserved.
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create, update: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+        (!('role' in request.resource.data) || request.resource.data.role == 'student' || request.resource.data.role == 'user') &&
+        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
+      allow update: if isOwner(userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'avatarConfig', 'bio', 'themePreference', 'updatedAt']) &&
+        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
+        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin);
       allow delete: if isOwner(userId);
     }
 
-    // Quizzes collection: teacher-owned with uid (no public-read fallback for quizzes without authorId)
+    // ==========================================
+    // 2. Quizzes & Question Bank: Teacher owned
+    // ==========================================
     match /quizzes/{quizId} {
       allow read: if isSignedIn() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
+      allow create: if isNonAnonymous() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isNonAnonymous() && resource.data.authorId == request.auth.uid;
     }
 
-    // Question Bank: non-anonymous teacher owner only
     match /questionBank/{questionId} {
       allow read: if isNonAnonymous() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
       allow create: if isNonAnonymous() && request.resource.data.authorId == request.auth.uid;
       allow update, delete: if isNonAnonymous() && resource.data.authorId == request.auth.uid;
     }
 
-    // Games collection and subcollections
+    // ==========================================
+    // 3. Games collection and subcollections
+    // ==========================================
     match /games/{gameId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.hostId == request.auth.uid;
-      allow update: if isSignedIn() && resource.data.hostId == request.auth.uid;
-      allow delete: if isSignedIn() && resource.data.hostId == request.auth.uid;
+      // Disallow public unrestricted listing. Only host or enrolled players can read the game.
+      allow read: if isGameHost(gameId) || isPlayerInGame(gameId);
 
-      // Host-only subcollection for correct answer keys
+      // Games are created server-side via POST /api/create-game with verified hostId.
+      // Direct client creation is blocked to prevent spoofed host IDs.
+      allow create: if false;
+      allow update: if isGameHost(gameId);
+      allow delete: if isGameHost(gameId);
+
+      // Subcollection: Secrets (Host-only answer keys, never accessible to players)
       match /secrets/{secretId} {
         allow read, write: if isGameHost(gameId);
       }
 
-      // Guest emails subcollection: host and owning player only
+      // Subcollection: Kicked players (Server-controlled scalable blacklist)
+      match /kickedPlayers/{playerId} {
+        allow read: if isGameHost(gameId) || (isSignedIn() && request.auth.uid == playerId);
+        allow write: if false; // server-side Admin SDK only
+      }
+
+      // Subcollection: Guest emails (Host and owning player only)
       match /guestEmails/{playerId} {
         allow read: if (isSignedIn() && request.auth.uid == playerId) || isGameHost(gameId);
         allow create, update: if isSignedIn() && request.auth.uid == playerId;
         allow delete: if (isSignedIn() && request.auth.uid == playerId) || isGameHost(gameId);
       }
 
-      // Players subcollection (server-protected scoring, power-ups, latency, and kick status)
+      // Subcollection: Players
+      // - Direct client creation is blocked. Players MUST join through POST /api/join.
+      // - Direct client deletion is blocked. Players CANNOT delete records to reset strikes/penalties.
+      // - Direct client modification of score, strikes, status, powerUps, accommodations is blocked.
+      // - Only avatar presentation fields may be updated by the player.
       match /players/{playerId} {
-        allow read: if true;
-        allow create: if (
-          isSignedIn() &&
-          request.auth.uid == playerId &&
-          (!('score' in request.resource.data) || request.resource.data.score == 0) &&
-          (!('streak' in request.resource.data) || request.resource.data.streak == 0) &&
-          (!('maxStreak' in request.resource.data) || request.resource.data.maxStreak == 0) &&
-          (!('correctCount' in request.resource.data) || request.resource.data.correctCount == 0) &&
-          (!('isKicked' in request.resource.data) || request.resource.data.isKicked == false) &&
-          (!('usedPowerUps' in request.resource.data)) &&
-          (!('avatarConfig' in request.resource.data) || (request.resource.data.avatarConfig is map && request.resource.data.avatarConfig.size() <= 12))
-        );
+        allow read: if isGameHost(gameId) || isPlayerInGame(gameId);
+        allow create: if false; // Server Admin SDK only via POST /api/join
+        allow delete: if false; // Server Admin SDK only (preserve integrity history)
         allow update: if (
           (isSignedIn() && request.auth.uid == playerId &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatarConfig', 'avatar']) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatarConfig', 'avatar', 'lastSeen']) &&
             (!('avatarConfig' in request.resource.data) || (request.resource.data.avatarConfig is map && request.resource.data.avatarConfig.size() <= 12))) ||
           isGameHost(gameId)
         );
-        allow delete: if (
-          (isSignedIn() && request.auth.uid == playerId) ||
-          isGameHost(gameId)
-        );
       }
 
-      // Answers subcollection: players cannot write answers directly (server writes via Admin SDK)
+      // Subcollection: Answers
+      // - Players CANNOT read other players' submitted answers.
+      // - An individual player can read ONLY their own answers.
+      // - Host can read all answers for analytics and cohort scorecards.
+      // - Answers can only be created/scored server-side by Admin SDK via /api/answer.
       match /answers/{answerId} {
-        allow read: if true;
-        allow create, update: if false;
+        allow read: if isGameHost(gameId) || (isSignedIn() && resource.data.playerId == request.auth.uid);
+        allow create, update: if false; // Server Admin SDK only via POST /api/answer
         allow delete: if isGameHost(gameId);
       }
 
-      // Flags subcollection: only the host can read live flags, player can create their own flag
+      // Subcollection: Flags (Integrity telemetry)
       match /flags/{flagId} {
         allow read: if isGameHost(gameId);
         allow create: if isSignedIn() && request.resource.data.playerId == request.auth.uid;
         allow update, delete: if isGameHost(gameId);
       }
 
-      // Live Q&A subcollection: author or host can manage, participants can read
+      // Subcollection: Live Q&A
       match /questionsQA/{qaId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+        allow read: if isGameHost(gameId) || isPlayerInGame(gameId);
+        allow create: if isPlayerInGame(gameId) && request.resource.data.authorId == request.auth.uid;
         allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isGameHost(gameId);
         allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isGameHost(gameId);
       }
     }
 
-    // Competitions collection
+    // ==========================================
+    // 4. Competitions collection
+    // ==========================================
     match /competitions/{competitionId} {
-      allow read: if true;
-      allow create: if isNonAnonymous();
+      allow read: if isSignedIn();
+      allow create: if isNonAnonymous() && request.resource.data.organizerId == request.auth.uid;
       allow update, delete: if isCompetitionOrganizer(competitionId);
 
-      // Rounds: only competition organizer can write
       match /rounds/{roundId} {
         allow read: if isSignedIn();
         allow create, update, delete: if isCompetitionOrganizer(competitionId);
       }
 
-      // Appeals: appellant and organizer only
       match /appeals/{appealId} {
         allow read: if (isSignedIn() && resource.data.playerId == request.auth.uid) || isCompetitionOrganizer(competitionId);
         allow create: if isSignedIn() && request.resource.data.playerId == request.auth.uid;
@@ -146,7 +171,9 @@ service cloud.firestore {
       }
     }
 
-    // Mail queue: non-anonymous owner or recipient only
+    // ==========================================
+    // 5. Mail queue & Templates
+    // ==========================================
     match /mail/{mailId} {
       allow read: if isNonAnonymous() && (
         resource.data.ownerId == request.auth.uid ||
@@ -156,7 +183,6 @@ service cloud.firestore {
       allow update, delete: if isNonAnonymous() && resource.data.ownerId == request.auth.uid;
     }
 
-    // Email templates: non-anonymous teacher owner only
     match /emailTemplates/{templateId} {
       allow read: if isNonAnonymous() && (resource.data.ownerId == request.auth.uid || resource.data.isPublic == true);
       allow create: if isNonAnonymous() && request.resource.data.ownerId == request.auth.uid;

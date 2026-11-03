@@ -53,6 +53,47 @@ export class GameEngine {
 
   // Create game session
   public static async createGame(quiz: Quiz, hostId: string, hostName: string): Promise<GameSession> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    // Requirement 1 & 5: Server-side game creation with verified host ownership
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/create-game', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            quiz,
+            hostName,
+          }),
+        });
+
+        if (res.ok) {
+          const resData = await res.json();
+          const createdGame = resData.game;
+          // Keep full question keys in host local storage
+          const hostSession: GameSession = {
+            ...createdGame,
+            questions: quiz.questions,
+          };
+          localStorage.setItem(`quizarena_game_${createdGame.id}`, JSON.stringify(hostSession));
+          return hostSession;
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${res.status}`);
+        }
+      } catch (e) {
+        if (isFirebaseConfigured) {
+          notifyFirestoreError('Failed to initialize game session on server', e);
+          throw e;
+        }
+      }
+    }
+
+    // Offline / Demo fallback
     const pin = this.generatePin();
     const gameId = `game_${pin}`;
 
@@ -69,7 +110,6 @@ export class GameEngine {
       teamMode: quiz.gameMode === 'team',
     };
 
-    // (a) Remove correct answers from public questions for players
     const sanitizedQuestions = quiz.questions.map(q => {
       const { correctAnswers, acceptedTextAnswers, ...rest } = q;
       return rest as any;
@@ -94,48 +134,12 @@ export class GameEngine {
       updatedAt: new Date().toISOString(),
     };
 
-    try {
-      // 1. Write public game document WITHOUT correct answers
-      await setDoc(doc(db, 'games', gameId), {
-        ...session,
-        serverCreatedAt: serverTimestamp(),
-      });
-
-      // 2. Write correct answers to host-only subcollection games/{id}/secrets/answerKey
-      await setDoc(doc(db, 'games', gameId, 'secrets', 'answerKey'), {
-        gameId,
-        hostId,
-        createdAt: serverTimestamp(),
-        answers: quiz.questions.map((q, idx) => ({
-          questionIndex: idx,
-          id: q.id,
-          type: q.type,
-          correctAnswers: q.correctAnswers || [],
-          acceptedTextAnswers: q.acceptedTextAnswers || [],
-          explanation: q.explanation || '',
-          points: q.points || 1000,
-          timeLimit: q.timeLimit || 20,
-        })),
-      });
-    } catch (e) {
-      if (isFirebaseConfigured) {
-        notifyFirestoreError('Failed to initialize game session in Firestore', e);
-        throw e;
-      } else {
-        console.warn('Firestore createGame fallback to local state:', e);
-      }
-    }
-
-    // Save full questions for host in local storage
     const hostSession: GameSession = {
       ...session,
       questions: quiz.questions,
     };
-    if (!isFirebaseConfigured) {
-      localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(hostSession));
-      // Broadcast public session
-      broadcastChannel?.postMessage({ type: 'GAME_CREATED', session });
-    }
+    localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(hostSession));
+    broadcastChannel?.postMessage({ type: 'GAME_CREATED', session });
 
     return hostSession;
   }
@@ -242,81 +246,166 @@ export class GameEngine {
     };
   }
 
-  // Join Game as a Player
-  public static async joinGame(gameId: string, player: Player): Promise<void> {
+  // Join Game as a Player via secure server-controlled endpoint POST /api/join
+  public static async joinGame(
+    gameId: string,
+    player: Player
+  ): Promise<{ game?: GameSession; player: Player }> {
+    const pin = gameId.replace(/^game_/, '');
     const user = auth.currentUser || (await ensureAnonymousAuth());
+    const idToken = (await user?.getIdToken()) || '';
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/join', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            pin,
+            nickname: player.nickname,
+            avatarConfig: player.avatarConfig,
+            email: player.email,
+            emailConsent: player.emailConsent,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to join game (HTTP ${res.status})`);
+        }
+
+        const data = await res.json();
+        return {
+          game: data.game,
+          player: data.player,
+        };
+      } catch (e) {
+        if (isFirebaseConfigured) {
+          notifyFirestoreError(`Failed to join game session ${gameId}`, e);
+          throw e;
+        }
+      }
+    }
+
+    // Offline / Demo fallback
     if (user && player.id !== user.uid) {
       player.id = user.uid;
     }
-
-    const { email, emailConsent, ...publicPlayer } = player;
-
+    const localPlayersKey = `quizarena_players_${gameId}`;
+    let players: Player[] = [];
     try {
-      // 1. Write public player doc WITHOUT email or emailConsent
-      await setDoc(doc(db, 'games', gameId, 'players', player.id), {
-        ...publicPlayer,
-        score: 0,
-        streak: 0,
-        maxStreak: 0,
-        correctCount: 0,
-        serverJoinedAt: serverTimestamp(),
-      });
+      players = JSON.parse(localStorage.getItem(localPlayersKey) || '[]');
+    } catch (e) {}
+    const filtered = players.filter(p => p.id !== player.id);
+    filtered.push(player);
+    localStorage.setItem(localPlayersKey, JSON.stringify(filtered));
 
-      // 2. Move guest email into host-only subcollection games/{id}/guestEmails/{playerId}
-      if (email) {
-        await setDoc(doc(db, 'games', gameId, 'guestEmails', player.id), {
-          playerId: player.id,
-          playerNickname: player.nickname,
-          email,
-          emailConsent: Boolean(emailConsent),
-          createdAt: serverTimestamp(),
+    broadcastChannel?.postMessage({
+      type: 'PLAYERS_UPDATED',
+      gameId,
+      players: filtered,
+    });
+
+    return { player };
+  }
+
+  // Host kicks a player via server-controlled endpoint POST /api/kick-player
+  public static async kickPlayer(
+    gameId: string,
+    playerId: string,
+    reason: string = 'Kicked by host'
+  ): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/kick-player', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            gameId,
+            playerId,
+            reason,
+          }),
         });
-      }
-    } catch (e) {
-      if (isFirebaseConfigured) {
-        notifyFirestoreError(`Failed to register player in Firestore for game ${gameId}`, e);
-        throw e;
-      } else {
-        console.warn('Firestore player join fallback:', e);
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to kick player');
+        }
+      } catch (err) {
+        console.warn('POST /api/kick-player error:', err);
+        throw err;
       }
     }
 
-    if (!isFirebaseConfigured) {
-      // Update local cache only in demo mode
-      const localPlayersKey = `quizarena_players_${gameId}`;
-      let players: Player[] = [];
-      try {
-        players = JSON.parse(localStorage.getItem(localPlayersKey) || '[]');
-      } catch (e) {}
-      const filtered = players.filter(p => p.id !== player.id);
-      filtered.push(player);
-      localStorage.setItem(localPlayersKey, JSON.stringify(filtered));
-
-      if (email) {
-        try {
-          const localKey = `quizarena_guest_emails_${gameId}`;
-          const current: Array<{
-            playerId: string;
-            playerNickname: string;
-            email: string;
-            emailConsent: boolean;
-          }> = JSON.parse(localStorage.getItem(localKey) || '[]');
-          current.push({
-            playerId: player.id,
-            playerNickname: player.nickname,
-            email,
-            emailConsent: Boolean(emailConsent),
-          });
-          localStorage.setItem(localKey, JSON.stringify(current));
-        } catch {}
-      }
-
+    // Update local cache and broadcast
+    const localPlayersKey = `quizarena_players_${gameId}`;
+    try {
+      const players: Player[] = JSON.parse(localStorage.getItem(localPlayersKey) || '[]');
+      const updated = players.filter(p => p.id !== playerId);
+      localStorage.setItem(localPlayersKey, JSON.stringify(updated));
       broadcastChannel?.postMessage({
         type: 'PLAYERS_UPDATED',
         gameId,
-        players: filtered,
+        players: updated,
       });
+    } catch {}
+
+    return true;
+  }
+
+  // Player leaves game via server-controlled endpoint POST /api/leave
+  public static async leaveGame(gameId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/leave', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ gameId }),
+        });
+        return res.ok;
+      } catch (err) {
+        console.warn('POST /api/leave error:', err);
+      }
     }
+    return true;
+  }
+
+  // Host locks or unlocks lobby via POST /api/lock-lobby
+  public static async lockLobby(gameId: string, isLocked: boolean): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/lock-lobby', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ gameId, isLocked }),
+        });
+        return res.ok;
+      } catch (err) {
+        console.warn('POST /api/lock-lobby error:', err);
+      }
+    }
+    return true;
   }
 
   // Host retrieves guest emails from host-only subcollection games/{id}/guestEmails

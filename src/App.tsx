@@ -296,28 +296,23 @@ export default function App() {
       localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(gameSession));
     }
 
-    // Check if player document already exists on server (e.g. rejoining/refreshing) to preserve strikes & status
-    const existingPlayer = await GameEngine.getPlayer(gameSession.id, newPlayer.id);
-    const resolvedPlayer: Player = existingPlayer
-      ? {
-        ...newPlayer,
-        strikes: existingPlayer.strikes || 0,
-        status: existingPlayer.status || 'active',
-        isTerminated: Boolean(existingPlayer.isTerminated || existingPlayer.status === 'terminated_integrity'),
-        integrityScore: existingPlayer.integrityScore ?? 100,
-      }
-      : newPlayer;
-
-    setActiveGame(gameSession);
-    setActivePlayer(resolvedPlayer);
-    setGameRole('player');
     try {
-      sessionStorage.setItem(
-        'quizarena_active_session',
-        JSON.stringify({ gameId: gameSession.id, playerId: resolvedPlayer.id, role: 'player', pin })
-      );
-    } catch (e) { }
-    await GameEngine.joinGame(gameSession.id, resolvedPlayer);
+      const joinRes = await GameEngine.joinGame(gameSession.id, newPlayer);
+      const resolvedPlayer = joinRes.player;
+      const resolvedGame = joinRes.game || gameSession;
+
+      setActiveGame(resolvedGame);
+      setActivePlayer(resolvedPlayer);
+      setGameRole('player');
+      try {
+        sessionStorage.setItem(
+          'quizarena_active_session',
+          JSON.stringify({ gameId: resolvedGame.id, playerId: resolvedPlayer.id, role: 'player', pin })
+        );
+      } catch (e) { }
+    } catch (joinErr: any) {
+      alert(joinErr.message || 'Failed to join game');
+    }
   };
 
   // Subscribe to live game changes when activeGame is set
@@ -376,6 +371,9 @@ export default function App() {
 
   const handleLeaveGame = () => {
     sound.playClick();
+    if (activeGame && gameRole === 'player') {
+      GameEngine.leaveGame(activeGame.id).catch(() => {});
+    }
     try {
       sessionStorage.removeItem('quizarena_active_session');
     } catch (e) { }
@@ -422,9 +420,16 @@ export default function App() {
                 players={players}
                 isHost={gameRole === 'host'}
                 onStartGame={handleStartGame}
-                onKickPlayer={id => {
-                  const updated = players.filter(p => p.id !== id);
-                  setPlayers(updated);
+                onKickPlayer={async id => {
+                  try {
+                    if (activeGame) {
+                      await GameEngine.kickPlayer(activeGame.id, id);
+                    }
+                    const updated = players.filter(p => p.id !== id);
+                    setPlayers(updated);
+                  } catch (err: any) {
+                    alert(err.message || 'Failed to kick player');
+                  }
                 }}
                 onUpdateSettings={settings => {
                   if (!activeGame) return;

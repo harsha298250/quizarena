@@ -34,6 +34,13 @@ import {
 } from './src/server/sharedRateLimiter.ts';
 import { handleSendResults, handleSendTestEmail, handleSmtpHealth, getSmtpTransporter } from './src/server/resultEmailsHandler.ts';
 import { handleIntegrityEvent, handleReinstatePlayer } from './src/server/integrityHandler.ts';
+import {
+  handleCreateGame,
+  handleJoinGame,
+  handleKickPlayer,
+  handleLeaveGame,
+  handleLockLobby,
+} from './src/server/gameSessionHandler.ts';
 
 dotenv.config();
 
@@ -130,16 +137,16 @@ const adminAuth = getAuth();
 const app = express();
 const PORT = process.env.PORT || (process.env.NODE_ENV === 'production' ? 3000 : 3001);
 
-// Security Hardening via Helmet: CSP, HSTS, noSniff, xFrameOptions, hidePoweredBy
+// Security Hardening via Helmet: CSP, COOP, HSTS, noSniff, xFrameOptions, hidePoweredBy
 app.use(
   helmet({
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
           "'unsafe-inline'",
-          "'unsafe-eval'",
           'https://apis.google.com',
           'https://*.firebaseapp.com',
           'https://*.googleapis.com',
@@ -1033,6 +1040,31 @@ app.post('/api/answer', async (req: Request, res: Response): Promise<void> => {
       error: error instanceof Error ? error.message : 'Internal server error processing answer',
     });
   }
+});
+
+// POST /api/create-game - Server-controlled game creation with verified host ownership
+app.post('/api/create-game', async (req: Request, res: Response): Promise<void> => {
+  await handleCreateGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/join - Server-controlled player join with token verification, capacity enforcement & kick check
+app.post('/api/join', async (req: Request, res: Response): Promise<void> => {
+  await handleJoinGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/kick-player - Server-controlled kick recording in scalable subcollection
+app.post('/api/kick-player', async (req: Request, res: Response): Promise<void> => {
+  await handleKickPlayer(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/leave - Controlled leave preserving integrity history
+app.post('/api/leave', async (req: Request, res: Response): Promise<void> => {
+  await handleLeaveGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/lock-lobby - Host-only lobby lock toggle
+app.post('/api/lock-lobby', async (req: Request, res: Response): Promise<void> => {
+  await handleLockLobby(req, res, { adminAuth, adminDb });
 });
 
 // POST /api/integrity-event - Authenticated transactional strike recording & auto-termination at Strike 6
