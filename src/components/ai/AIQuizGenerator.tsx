@@ -415,7 +415,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
         <div className="lg:col-span-2 space-y-4">
           <div className="paper-card p-5 bg-[var(--surface)] space-y-4">
             {/* Source Tab Toggle */}
-            <div className="flex items-center gap-2 border-b-2 border-[var(--border)] pb-3">
+            <div className="flex flex-wrap items-center gap-2 border-b-2 border-[var(--border)] pb-3">
               <button
                 onClick={() => setSourceMode('paste')}
                 className={`paper-btn paper-btn-sm ${sourceMode === 'paste' ? 'paper-btn-primary' : 'bg-[var(--surface)] text-[var(--text)]'}`}
@@ -700,7 +700,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
               </div>
 
               {/* Bulk actions */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={allAccepted ? handleRejectAll : handleAcceptAll}
