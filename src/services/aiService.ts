@@ -275,17 +275,27 @@ class AIService {
   }
 
   /**
-   * Generates AI Insights from game answer analytics
+   * Generates AI Insights from game answer analytics (Privacy-conscious, zero PII)
    */
   public async generateInsights(stats: {
     quizTitle: string;
     totalPlayers: number;
     averageAccuracy: number;
     weakestQuestions: { text: string; correctRate: number }[];
-    topPerformers: string[];
-    lowestPerformers: string[];
+    topPerformers?: string[]; // Deprecated: PII stripped
+    lowestPerformers?: string[]; // Deprecated: PII stripped
     coAttainments: { coTag: string; accuracyRate: number; isAttained: boolean }[];
   }): Promise<AIInsightsReport> {
+    if (stats.totalPlayers === 0) {
+      return {
+        overallSummary: 'Insufficient data: No participant submissions recorded for this assessment session.',
+        strengths: ['No attempts recorded yet.'],
+        strugglingAreas: ['No assessment data available to compute learning gaps.'],
+        studentsNeedingSupport: ['None recorded.'],
+        actionableNextSteps: ['Administer the quiz and collect student answers before generating diagnostics.'],
+      };
+    }
+
     const strugglingAreas = stats.weakestQuestions.map(
       q => `"${q.text.slice(0, 50)}..." (${Math.round(q.correctRate * 100)}% accuracy)`
     );
@@ -293,7 +303,7 @@ class AIService {
     const unattainedCOs = stats.coAttainments.filter(c => !c.isAttained).map(c => c.coTag);
 
     return {
-      overallSummary: `Class achieved an average score of ${Math.round(
+      overallSummary: `Class achieved an aggregate accuracy of ${Math.round(
         stats.averageAccuracy * 100
       )}% across ${stats.totalPlayers} participants on "${stats.quizTitle}". ${
         stats.averageAccuracy >= 0.75
@@ -301,19 +311,17 @@ class AIService {
           : 'Concepts show moderate comprehension gaps requiring targeted review.'
       }`,
       strengths: [
-        'Rapid response latency on recall questions',
-        'High engagement and active participation rate across the cohort',
+        'Cohort demonstrated consistent active submission participation.',
         stats.coAttainments.find(c => c.isAttained)?.coTag
           ? `Attainment criteria successfully met for ${stats.coAttainments.find(c => c.isAttained)?.coTag}`
-          : 'Consistent peer collaboration',
+          : 'High engagement across core syllabus objectives.',
       ],
-      strugglingAreas: strugglingAreas.length > 0 ? strugglingAreas : ['Higher-order analytical scenario questions'],
-      studentsNeedingSupport: stats.lowestPerformers.length > 0 ? stats.lowestPerformers : ['Self-paced learners'],
+      strugglingAreas: strugglingAreas.length > 0 ? strugglingAreas : ['No significant high-error misconception clusters identified.'],
+      studentsNeedingSupport: ['Students scoring below the 50th percentile in the cohort distribution.'],
       actionableNextSteps: [
         unattainedCOs.length > 0
           ? `Deploy a 5-question Spaced Repetition Reteach pack targeting ${unattainedCOs.join(', ')}.`
           : 'Reinforce edge-case scenarios with open-ended group discussion.',
-        'Pair students who scored in the top tier with peers for guided peer explanation.',
         'Review the highest distractor misconception during the next classroom opening review.',
       ],
     };

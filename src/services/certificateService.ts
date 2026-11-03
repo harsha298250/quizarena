@@ -265,28 +265,47 @@ export async function generateCertificatePdf(data: CertificateData): Promise<voi
 export function exportLmsGradeCsv(rows: {
   studentId: string;
   studentName: string;
-  email: string;
+  email?: string;
   score: number;
   rank: number;
   correctAnswers: number;
+  incorrectAnswers?: number;
+  unansweredQuestions?: number;
   totalQuestions: number;
   accuracy: string;
+  completionRate?: string;
   completionTime: string;
 }[], quizTitle: string) {
-  const headers = ['Student ID', 'Student Name', 'Email', 'Score', 'Rank', 'Correct Count', 'Total Questions', 'Accuracy %', 'Submitted At'];
+  const headers = [
+    'Student ID',
+    'Student Name',
+    'Email',
+    'Score',
+    'Rank',
+    'Correct Count',
+    'Incorrect Count',
+    'Unanswered Count',
+    'Total Questions',
+    'Accuracy %',
+    'Completion %',
+    'Submitted At'
+  ];
   const csvContent = [
     headers.join(','),
     ...rows.map(r =>
       [
-        `"${r.studentId}"`,
-        `"${r.studentName}"`,
-        `"${r.email || ''}"`,
-        r.score,
-        r.rank,
-        r.correctAnswers,
-        r.totalQuestions,
-        `"${r.accuracy}"`,
-        `"${r.completionTime}"`,
+        `"${r.studentId || ''}"`,
+        `"${(r.studentName || '').replace(/"/g, '""')}"`,
+        `"${(r.email || '').replace(/"/g, '""')}"`,
+        r.score ?? 0,
+        r.rank ?? 0,
+        r.correctAnswers ?? 0,
+        r.incorrectAnswers ?? 0,
+        r.unansweredQuestions ?? 0,
+        r.totalQuestions ?? 0,
+        `"${r.accuracy ?? '0%'}"`,
+        `"${r.completionRate ?? '100%'}"`,
+        `"${r.completionTime || ''}"`,
       ].join(',')
     ),
   ].join('\n');

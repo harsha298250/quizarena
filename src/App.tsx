@@ -523,6 +523,7 @@ export default function App() {
           <AnalyticsDashboard
             quiz={activeGame ? (quizzes.find(q => q.id === activeGame.quizId) || quizzes[0]) : quizzes[0]}
             players={players}
+            hostId={auth.currentUser?.uid}
             onLaunchReteachPack={handleHostQuiz}
           />
         )}

@@ -30,6 +30,7 @@ import {
 interface AnalyticsDashboardProps {
   quiz?: Quiz;
   players?: Player[];
+  hostId?: string;
   onLaunchReteachPack: (reteachQuiz: Quiz) => void;
 }
 
@@ -38,6 +39,7 @@ const PALETTE = ['#FF5A36', '#FFC83D', '#14B8A6', '#4DA3FF', '#8B5CF6'];
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   quiz: initialQuiz,
   players: initialPlayers = [],
+  hostId,
   onLaunchReteachPack,
 }) => {
   const [gamesList, setGamesList] = useState<FinishedGameSummary[]>([]);
@@ -46,16 +48,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const [attainmentTarget, setAttainmentTarget] = useState<number>(60);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [analytics, setAnalytics] = useState<FullGameAnalytics | null>(null);
+  const [loadedQuestions, setLoadedQuestions] = useState<Quiz['questions']>([]);
 
   const [aiInsights, setAiInsights] = useState<AIInsightsReport | null>(null);
   const [isGeneratingInsights, setIsGeneratingInsights] = useState<boolean>(false);
 
-  // Load available games list on mount
+  // Load available games list on mount scoped strictly to hostId
   useEffect(() => {
     let mounted = true;
     async function loadGames() {
       setIsLoading(true);
-      const list = await getFinishedGamesList();
+      const list = await getFinishedGamesList(hostId);
       if (!mounted) return;
 
       setGamesList(list);
@@ -72,9 +75,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             gameId: 'live_active',
             quizTitle: initialQuiz.title,
             finishedAt: new Date().toISOString(),
+            hostId,
           }
         );
         setAnalytics(computed);
+        setLoadedQuestions(initialQuiz.questions);
       }
       setIsLoading(false);
     }
@@ -82,7 +87,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [hostId]);
 
   // Filter games list by date
   const filteredGames = useMemo(() => {
@@ -112,12 +117,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     let mounted = true;
     async function fetchAndCompute() {
       setIsLoading(true);
-      const { game, questions, players, answers } = await loadGameData(selectedGameId);
+      const { game, questions, players, answers } = await loadGameData(selectedGameId, hostId);
       if (!mounted) return;
 
       if (game || questions.length > 0) {
+        const activeQuestions = questions.length > 0 ? questions : (initialQuiz?.questions || []);
         const computed = computeGameAnalytics(
-          questions.length > 0 ? questions : (initialQuiz?.questions || []),
+          activeQuestions,
           players.length > 0 ? players : initialPlayers,
           answers,
           attainmentTarget,
@@ -126,11 +132,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             quizTitle: game?.quizTitle || initialQuiz?.title || 'Game Assessment',
             finishedAt: game?.updatedAt || game?.createdAt,
             isDemo: Boolean((game as any)?.isDemo || selectedGameId.startsWith('demo_')),
+            hostId: game?.hostId || hostId,
           }
         );
         setAnalytics(computed);
+        setLoadedQuestions(activeQuestions);
       } else {
         setAnalytics(null);
+        setLoadedQuestions([]);
       }
       setIsLoading(false);
     }
@@ -139,7 +148,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     return () => {
       mounted = false;
     };
-  }, [selectedGameId, attainmentTarget]);
+  }, [selectedGameId, attainmentTarget, hostId]);
 
   // Trigger AI Insights with strictly real data
   const handleGenerateAIInsights = async () => {
@@ -172,30 +181,41 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }
   };
 
-  // Launch Reteach Quiz Pack
+  // Launch Reteach Quiz Pack with genuine original questions
   const handleReteachPack = () => {
     sound.playClick();
     if (!analytics || analytics.hardestQuestions.length === 0) return;
 
-    const weakQuestions = analytics.hardestQuestions.slice(0, 3).map(h => ({
-      id: h.questionId,
-      text: h.questionText,
-      options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
-      correctAnswers: [0],
-      type: 'multiple_choice' as const,
-      points: 1000,
-      timeLimit: h.timeLimit,
-      bloomLevel: h.bloomLevel as any,
-      courseOutcomeTag: h.courseOutcomeTag,
-      topicTag: h.courseOutcomeTag || 'General',
-      explanation: 'Targeted reinforcement question addressing identified misconception.',
-    }));
+    // Map each hardest question back to genuine question records with original options and explanations
+    const weakQuestions = analytics.hardestQuestions.slice(0, 5).map(h => {
+      const originalQ = loadedQuestions.find(q => q.id === h.questionId || q.text === h.questionText);
+      if (originalQ) {
+        return {
+          ...originalQ,
+          id: `reteach_${Date.now()}_${originalQ.id}`,
+          explanation: originalQ.explanation || 'Key Concept Reinforcement',
+        };
+      }
+      return {
+        id: h.questionId,
+        text: h.questionText,
+        options: ['Option A', 'Option B', 'Option C', 'Option D'],
+        correctAnswers: [0],
+        type: 'multiple_choice' as const,
+        points: 1000,
+        timeLimit: h.timeLimit || 25,
+        bloomLevel: h.bloomLevel as any,
+        courseOutcomeTag: h.courseOutcomeTag,
+        topicTag: h.courseOutcomeTag || 'General',
+        explanation: 'Targeted reinforcement question addressing identified misconception.',
+      };
+    });
 
     const reteachQuiz: Quiz = {
       id: `quiz_reteach_${Date.now()}`,
       title: `[Reteach Pack] ${analytics.quizTitle}`,
       description: 'Personalized practice focusing on identified cohort misconceptions.',
-      authorId: 'host_active',
+      authorId: hostId || 'host_active',
       authorName: 'Instructor AI',
       isPublic: true,
       gameMode: 'accuracy',
@@ -209,18 +229,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     onLaunchReteachPack(reteachQuiz);
   };
 
+  // Export 100% of participants with genuine performance records
   const handleExportCsv = () => {
     sound.playClick();
-    if (!analytics) return;
-    const rows = analytics.topPerformers.concat(analytics.lowestPerformers).map((p, idx) => ({
-      studentId: `s_${idx + 1}`,
-      studentName: p.nickname,
-      email: 'N/A',
-      score: p.score,
-      rank: p.rank,
-      correctAnswers: Math.round(p.score / 1000),
-      totalQuestions: analytics.questionStats.length,
-      accuracy: `${analytics.overallAccuracy}%`,
+    if (!analytics || !analytics.studentRecords) return;
+    const rows = analytics.studentRecords.map(s => ({
+      studentId: s.playerId,
+      studentName: s.nickname,
+      email: '',
+      score: s.score,
+      rank: s.rank,
+      correctAnswers: s.correctCount,
+      incorrectAnswers: s.incorrectCount,
+      unansweredQuestions: s.unansweredCount,
+      totalQuestions: s.totalQuestions,
+      accuracy: `${s.accuracyRate}%`,
+      completionRate: `${s.completionRate}%`,
       completionTime: analytics.finishedAt,
     }));
     exportLmsGradeCsv(rows, analytics.quizTitle);

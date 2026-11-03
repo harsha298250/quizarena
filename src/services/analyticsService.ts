@@ -5,7 +5,7 @@
 
 import { Question, Player, AnswerSubmission, GameSession, Quiz } from '../types/quiz';
 import { db, isFirebaseConfigured } from '../lib/firebase';
-import { collection, getDocs, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 
 export interface QuestionAnalytics {
   questionIndex: number;
@@ -25,7 +25,8 @@ export interface QuestionAnalytics {
     count: number;
     percentage: number;
   } | null;
-  discriminationIndex: number; // -1.0 to 1.0
+  discriminationIndex: number; // -1.0 to 1.0 (0 if insufficient data or equal)
+  insufficientData?: boolean;
 }
 
 export interface CourseOutcomeAnalytics {
@@ -36,6 +37,10 @@ export interface CourseOutcomeAnalytics {
   accuracyRate: number; // 0.0 - 1.0
   attainmentTarget: number; // 0.0 - 1.0
   isAttained: boolean;
+  totalMaxPoints: number;
+  totalEarnedPoints: number;
+  marksAttainmentRate: number; // 0.0 - 1.0
+  hasSufficientData: boolean;
 }
 
 export interface BloomAnalytics {
@@ -45,6 +50,24 @@ export interface BloomAnalytics {
   totalAttempts: number;
   correctAttempts: number;
   accuracy: number;
+  masteryPercentage: number;
+}
+
+export interface StudentPerformanceRecord {
+  playerId: string;
+  nickname: string;
+  score: number;
+  rank: number;
+  totalQuestions: number;
+  attemptedQuestions: number;
+  correctCount: number;
+  incorrectCount: number;
+  unansweredCount: number;
+  completionRate: number; // 0 - 100
+  accuracyRate: number; // 0 - 100
+  totalTimeMs: number;
+  avgResponseTimeMs: number;
+  isCompleted: boolean;
 }
 
 export interface FinishedGameSummary {
@@ -53,6 +76,7 @@ export interface FinishedGameSummary {
   pin: string;
   finishedAt: string;
   playerCount: number;
+  hostId?: string;
   isDemo?: boolean;
 }
 
@@ -68,6 +92,7 @@ export interface FullGameAnalytics {
   hardestQuestions: QuestionAnalytics[];
   coStats: CourseOutcomeAnalytics[];
   bloomStats: BloomAnalytics[];
+  studentRecords: StudentPerformanceRecord[];
   topPerformers: Array<{ rank: number; nickname: string; score: number }>;
   lowestPerformers: Array<{ rank: number; nickname: string; score: number }>;
 }
@@ -81,24 +106,64 @@ export function computeGameAnalytics(
   players: Player[],
   answers: AnswerSubmission[],
   attainmentThresholdPercent: number = 60,
-  gameMetadata?: { gameId: string; quizTitle: string; finishedAt?: string; isDemo?: boolean }
+  gameMetadata?: { gameId: string; quizTitle: string; finishedAt?: string; isDemo?: boolean; hostId?: string }
 ): FullGameAnalytics {
   const totalPlayers = players.length;
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+  const totalQuestionsCount = questions.length;
+
+  // Build Answer lookups by questionIndex
+  const answersByQuestion = new Map<number, AnswerSubmission[]>();
+  // Build Answer lookups by playerId
+  const answersByPlayer = new Map<string, AnswerSubmission[]>();
+
+  answers.forEach(ans => {
+    // By Question
+    const qList = answersByQuestion.get(ans.questionIndex) || [];
+    qList.push(ans);
+    answersByQuestion.set(ans.questionIndex, qList);
+
+    // By Player
+    const pList = answersByPlayer.get(ans.playerId) || [];
+    pList.push(ans);
+    answersByPlayer.set(ans.playerId, pList);
+  });
+
+  // Calculate Student Individual Performance Records
+  const studentRecords: StudentPerformanceRecord[] = sortedPlayers.map((p, idx) => {
+    const pAnswers = answersByPlayer.get(p.id) || [];
+    const attemptedQuestions = pAnswers.length;
+    const correctCount = pAnswers.filter(a => a.isCorrect).length;
+    const incorrectCount = attemptedQuestions - correctCount;
+    const unansweredCount = Math.max(0, totalQuestionsCount - attemptedQuestions);
+    const completionRate = totalQuestionsCount > 0 ? Math.round((attemptedQuestions / totalQuestionsCount) * 1000) / 10 : 0;
+    const accuracyRate = attemptedQuestions > 0 ? Math.round((correctCount / attemptedQuestions) * 1000) / 10 : 0;
+    const totalTimeMs = pAnswers.reduce((sum, a) => sum + (a.responseTimeMs || 0), 0);
+    const avgResponseTimeMs = attemptedQuestions > 0 ? Math.round(totalTimeMs / attemptedQuestions) : 0;
+
+    return {
+      playerId: p.id,
+      nickname: p.nickname,
+      score: p.score,
+      rank: idx + 1,
+      totalQuestions: totalQuestionsCount,
+      attemptedQuestions,
+      correctCount,
+      incorrectCount,
+      unansweredCount,
+      completionRate,
+      accuracyRate,
+      totalTimeMs,
+      avgResponseTimeMs,
+      isCompleted: totalQuestionsCount > 0 && attemptedQuestions >= totalQuestionsCount,
+    };
+  });
 
   // Determine Upper and Lower tiers for Discrimination Index
   // Standard psychometrics: 27% top, 27% bottom (or halves if cohort < 10)
   const tierSize = totalPlayers >= 10 ? Math.max(1, Math.round(totalPlayers * 0.27)) : Math.max(1, Math.floor(totalPlayers / 2));
   const upperPlayerIds = new Set(sortedPlayers.slice(0, tierSize).map(p => p.id));
   const lowerPlayerIds = new Set(sortedPlayers.slice(-tierSize).map(p => p.id));
-
-  // Build Answer lookups by questionIndex
-  const answersByQuestion = new Map<number, AnswerSubmission[]>();
-  answers.forEach(ans => {
-    const list = answersByQuestion.get(ans.questionIndex) || [];
-    list.push(ans);
-    answersByQuestion.set(ans.questionIndex, list);
-  });
 
   // 1. Per-Question Analytics
   const questionStats: QuestionAnalytics[] = questions.map((q, idx) => {
@@ -146,6 +211,8 @@ export function computeGameAnalytics(
 
     // Discrimination Index D = (R_upper / N_upper) - (R_lower / N_lower)
     let discriminationIndex = 0;
+    let insufficientData = totalPlayers < 4 || totalAttempts === 0;
+
     if (tierSize > 0 && totalAttempts > 0) {
       const upperAnswers = qAnswers.filter(a => upperPlayerIds.has(a.playerId));
       const lowerAnswers = qAnswers.filter(a => lowerPlayerIds.has(a.playerId));
@@ -173,6 +240,7 @@ export function computeGameAnalytics(
       optionDistribution,
       mostChosenWrongOption: mostChosenWrong,
       discriminationIndex,
+      insufficientData,
     };
   });
 
@@ -181,14 +249,16 @@ export function computeGameAnalytics(
 
   // 3. Course Outcome (CO) Attainment
   const targetRatio = attainmentThresholdPercent / 100;
-  const coGroups = new Map<string, { totalQuestions: number; totalAttempts: number; correctAnswers: number }>();
+  const coGroups = new Map<string, { totalQuestions: number; totalAttempts: number; correctAnswers: number; totalMaxPoints: number; totalEarnedPoints: number }>();
 
   questions.forEach(q => {
     const tag = q.courseOutcomeTag || 'CO1';
     if (!coGroups.has(tag)) {
-      coGroups.set(tag, { totalQuestions: 0, totalAttempts: 0, correctAnswers: 0 });
+      coGroups.set(tag, { totalQuestions: 0, totalAttempts: 0, correctAnswers: 0, totalMaxPoints: 0, totalEarnedPoints: 0 });
     }
-    coGroups.get(tag)!.totalQuestions++;
+    const group = coGroups.get(tag)!;
+    group.totalQuestions++;
+    group.totalMaxPoints += (q.points || 1000) * totalPlayers;
   });
 
   answers.forEach(ans => {
@@ -198,13 +268,18 @@ export function computeGameAnalytics(
       const g = coGroups.get(tag);
       if (g) {
         g.totalAttempts++;
-        if (ans.isCorrect) g.correctAnswers++;
+        if (ans.isCorrect) {
+          g.correctAnswers++;
+          g.totalEarnedPoints += ans.pointsAwarded || q.points || 1000;
+        }
       }
     }
   });
 
   const coStats: CourseOutcomeAnalytics[] = Array.from(coGroups.entries()).map(([coTag, val]) => {
     const accuracyRate = val.totalAttempts > 0 ? val.correctAnswers / val.totalAttempts : 0;
+    const marksAttainmentRate = val.totalMaxPoints > 0 ? val.totalEarnedPoints / val.totalMaxPoints : 0;
+    const hasSufficientData = val.totalAttempts > 0;
     return {
       coTag,
       totalQuestions: val.totalQuestions,
@@ -212,7 +287,11 @@ export function computeGameAnalytics(
       correctAnswers: val.correctAnswers,
       accuracyRate,
       attainmentTarget: targetRatio,
-      isAttained: accuracyRate >= targetRatio,
+      isAttained: hasSufficientData && accuracyRate >= targetRatio,
+      totalMaxPoints: val.totalMaxPoints,
+      totalEarnedPoints: val.totalEarnedPoints,
+      marksAttainmentRate,
+      hasSufficientData,
     };
   });
 
@@ -247,6 +326,7 @@ export function computeGameAnalytics(
       totalAttempts: val.totalAttempts,
       correctAttempts: val.correctAttempts,
       accuracy: acc,
+      masteryPercentage: acc,
     };
   });
 
@@ -257,7 +337,7 @@ export function computeGameAnalytics(
   const averageScore = totalPlayers > 0 ? Math.round(sortedPlayers.reduce((sum, p) => sum + p.score, 0) / totalPlayers) : 0;
 
   const topPerformers = sortedPlayers.slice(0, 3).map((p, i) => ({ rank: i + 1, nickname: p.nickname, score: p.score }));
-  const lowestPerformers = sortedPlayers.slice(-2).map((p, i) => ({ rank: totalPlayers - 1 + i, nickname: p.nickname, score: p.score }));
+  const lowestPerformers = sortedPlayers.slice(-2).map((p, i) => ({ rank: Math.max(1, totalPlayers - 1 + i), nickname: p.nickname, score: p.score }));
 
   return {
     gameId: gameMetadata?.gameId || 'game_current',
@@ -271,40 +351,48 @@ export function computeGameAnalytics(
     hardestQuestions,
     coStats,
     bloomStats,
+    studentRecords,
     topPerformers,
     lowestPerformers,
   };
 }
 
 /**
- * Fetch finished games available in Firestore and LocalStorage
+ * Fetch finished games available in Firestore and LocalStorage, strictly scoped to the authenticated host.
  */
-export async function getFinishedGamesList(): Promise<FinishedGameSummary[]> {
+export async function getFinishedGamesList(hostId?: string): Promise<FinishedGameSummary[]> {
   const gamesMap = new Map<string, FinishedGameSummary>();
 
-  // 1. Fetch from Firestore if configured
+  // 1. Fetch from Firestore if configured & hostId provided
   if (isFirebaseConfigured && db) {
     try {
       const gamesCol = collection(db, 'games');
-      const q = query(gamesCol, where('status', '==', 'finished'));
+      const q = hostId
+        ? query(gamesCol, where('hostId', '==', hostId), where('status', '==', 'finished'))
+        : query(gamesCol, where('status', '==', 'finished'));
+      
       const snap = await getDocs(q);
       snap.forEach(d => {
         const data = d.data() as GameSession;
-        gamesMap.set(d.id, {
-          id: d.id,
-          quizTitle: data.quizTitle || 'Assessment Arena',
-          pin: data.pin || '000000',
-          finishedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
-          playerCount: 0,
-          isDemo: d.id.startsWith('demo_'),
-        });
+        // Verify host authorization
+        if (!hostId || data.hostId === hostId) {
+          gamesMap.set(d.id, {
+            id: d.id,
+            quizTitle: data.quizTitle || 'Assessment Arena',
+            pin: data.pin || '000000',
+            finishedAt: data.updatedAt || data.createdAt || new Date().toISOString(),
+            playerCount: 0,
+            hostId: data.hostId,
+            isDemo: d.id.startsWith('demo_'),
+          });
+        }
       });
     } catch (e) {
       console.warn('Firestore finished games query non-fatal fallback:', e);
     }
   }
 
-  // 2. Fetch from LocalStorage
+  // 2. Fetch from LocalStorage, enforcing host scoping
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -314,7 +402,8 @@ export async function getFinishedGamesList(): Promise<FinishedGameSummary[]> {
           const raw = localStorage.getItem(key);
           if (raw) {
             const parsed = JSON.parse(raw);
-            if (parsed.status === 'finished' || parsed.questions?.length > 0) {
+            const matchesHost = !hostId || !parsed.hostId || parsed.hostId === hostId;
+            if (matchesHost && (parsed.status === 'finished' || parsed.questions?.length > 0)) {
               const playersKey = `quizarena_players_${gameId}`;
               let pCount = 0;
               try {
@@ -328,6 +417,7 @@ export async function getFinishedGamesList(): Promise<FinishedGameSummary[]> {
                 pin: parsed.pin || '000000',
                 finishedAt: parsed.updatedAt || parsed.createdAt || new Date().toISOString(),
                 playerCount: pCount,
+                hostId: parsed.hostId,
                 isDemo: gameId.startsWith('demo_') || parsed.isDemo,
               });
             }
@@ -343,9 +433,9 @@ export async function getFinishedGamesList(): Promise<FinishedGameSummary[]> {
 }
 
 /**
- * Load complete dataset (Questions, Players, Answers) for a given game ID
+ * Load complete dataset (Questions, Players, Answers) for a given game ID, verifying host ownership
  */
-export async function loadGameData(gameId: string): Promise<{
+export async function loadGameData(gameId: string, hostId?: string): Promise<{
   game: GameSession | null;
   questions: Question[];
   players: Player[];
@@ -361,54 +451,62 @@ export async function loadGameData(gameId: string): Promise<{
     try {
       const gDoc = await getDoc(doc(db, 'games', gameId));
       if (gDoc.exists()) {
-        game = gDoc.data() as GameSession;
-        questions = game.questions || [];
+        const data = gDoc.data() as GameSession;
+        // Verify host authorization if hostId provided
+        if (!hostId || data.hostId === hostId) {
+          game = data;
+          questions = game.questions || [];
 
-        // Players subcollection
-        const pSnap = await getDocs(collection(db, 'games', gameId, 'players'));
-        pSnap.forEach(d => {
-          players.push({ id: d.id, ...d.data() } as Player);
-        });
+          // Players subcollection
+          const pSnap = await getDocs(collection(db, 'games', gameId, 'players'));
+          pSnap.forEach(d => {
+            players.push({ id: d.id, ...d.data() } as Player);
+          });
 
-        // Answers subcollection
-        const aSnap = await getDocs(collection(db, 'games', gameId, 'answers'));
-        aSnap.forEach(d => {
-          answers.push({ id: d.id, ...d.data() } as AnswerSubmission);
-        });
+          // Answers subcollection
+          const aSnap = await getDocs(collection(db, 'games', gameId, 'answers'));
+          aSnap.forEach(d => {
+            answers.push({ id: d.id, ...d.data() } as AnswerSubmission);
+          });
+        }
       }
     } catch (e) {
       console.warn('Firestore loadGameData failed, checking local storage:', e);
     }
   }
 
-  // Fallback to local storage
+  // Fallback to local storage (verifying hostId if present)
   if (!game) {
     try {
       const raw = localStorage.getItem(`quizarena_game_${gameId}`);
       if (raw) {
-        game = JSON.parse(raw);
-        questions = game?.questions || [];
-      }
-    } catch {}
-  }
-
-  if (players.length === 0) {
-    try {
-      const raw = localStorage.getItem(`quizarena_players_${gameId}`);
-      if (raw) players = JSON.parse(raw);
-    } catch {}
-  }
-
-  if (answers.length === 0) {
-    try {
-      const raw = localStorage.getItem(`quizarena_answers_${gameId}`);
-      if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) answers.push(...parsed);
+        if (!hostId || !parsed.hostId || parsed.hostId === hostId) {
+          game = parsed;
+          questions = game?.questions || [];
+        }
       }
     } catch {}
+  }
+
+  if (game) {
+    if (players.length === 0) {
+      try {
+        const raw = localStorage.getItem(`quizarena_players_${gameId}`);
+        if (raw) players = JSON.parse(raw);
+      } catch {}
+    }
+
+    if (answers.length === 0) {
+      try {
+        const raw = localStorage.getItem(`quizarena_answers_${gameId}`);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) answers.push(...parsed);
+        }
+      } catch {}
+    }
   }
 
   return { game, questions, players, answers };
 }
-
