@@ -155,9 +155,16 @@ export const CertificateGallery: React.FC = () => {
                 </span>
               </div>
             </div>
+          ) : verificationResult.status === 'revoked' ? (
+            <div className="p-3 bg-red-100 dark:bg-red-950/50 border border-red-400 rounded-lg text-xs text-red-800 dark:text-red-200 font-bold space-y-1">
+              <div>⚠️ This credential was officially REVOKED by the institution.</div>
+              <div className="text-[11px] font-normal">
+                Reason: {verificationResult.revocationReason || 'Revoked by authorized issuer.'}
+              </div>
+            </div>
           ) : (
-            <div className="text-xs text-red-600 dark:text-red-400 font-medium">
-              No active certificate matches this verification ID or the credential has been revoked by the institution.
+            <div className="p-3 bg-amber-100 dark:bg-amber-950/50 border border-amber-400 rounded-lg text-xs text-amber-800 dark:text-amber-200 font-bold">
+              No active certificate matches verification ID &quot;{verificationQuery}&quot;. Please verify the format (QA-V-XXXX-XXXX-XXXX).
             </div>
           )}
         </div>
