@@ -148,6 +148,11 @@ export async function handleAnswerSubmission(
       return;
     }
 
+    if (powerUps?.doublePoints || powerUps?.doublePointsUsed) {
+      res.status(400).json({ error: "Power-up 'doublePoints' is permanently deprecated and disabled." });
+      return;
+    }
+
     // 3. Fetch Game Session Document
     const gameDocRef = adminDb.doc(`games/${gameId}`);
     const gameDoc = await gameDocRef.get();
@@ -232,6 +237,12 @@ export async function handleAnswerSubmission(
 
     const answerId = `ans_${questionIndex}_${playerId}`;
     const answerDocRef = adminDb.doc(`games/${gameId}/answers/${answerId}`);
+
+    // Reject permanently deprecated double points power-up before entering transaction
+    if (powerUps?.doublePoints || powerUps?.doublePointsUsed) {
+      res.status(400).json({ error: "Power-up 'doublePoints' is permanently deprecated and disabled." });
+      return;
+    }
 
     // 8. Atomic Firestore Transaction for duplicate prevention, eligibility, power-up usage, and scoring
     const txResult = await adminDb.runTransaction(async (transaction: any) => {
@@ -419,8 +430,9 @@ export async function handleAnswerSubmission(
       updatedPlayer: txResult.updatedPlayer,
     });
   } catch (error: any) {
-    if (error.statusCode) {
-      res.status(error.statusCode).json({ error: error.message });
+    const status = error.statusCode || error.cause?.statusCode;
+    if (status) {
+      res.status(status).json({ error: error.message });
       return;
     }
     console.error('Error processing answer submission:', error);

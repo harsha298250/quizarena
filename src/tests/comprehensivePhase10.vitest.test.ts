@@ -129,15 +129,15 @@ describe('Phase 10 — Comprehensive Testing, Security Audit & Production Harden
     });
 
     it('[P10-09] prevents duplicate power-up exploitation within the same session', () => {
-      const playerWithUsed5050 = {
-        powerUps: { fiftyFiftyUsed: true },
+      const playerWithUsedTimeFreeze = {
+        powerUps: { timeFreezeUsed: true },
       };
 
-      const resultFirst = validateAndTrackPowerUp({}, 'fiftyFifty');
+      const resultFirst = validateAndTrackPowerUp({}, 'timeFreeze');
       expect(resultFirst.allowed).toBe(true);
       expect(resultFirst.willUse).toBe(true);
 
-      const resultSecond = validateAndTrackPowerUp(playerWithUsed5050, 'fiftyFifty');
+      const resultSecond = validateAndTrackPowerUp(playerWithUsedTimeFreeze, 'timeFreeze');
       expect(resultSecond.allowed).toBe(false);
       expect(resultSecond.error).toContain('already been used');
     });

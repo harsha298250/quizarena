@@ -816,21 +816,16 @@ async function runAllTests() {
   // SECTION 4: POWER-UP SECURITY
   // ==========================================
 
-  await test('29. 50/50 power-up returns 2 wrong indices without exposing correct answer', async () => {
+  await test('29. 50/50 power-up is rejected with 400 (permanently disabled)', async () => {
     const { adminAuth, adminDb, store } = createMockBackend();
     store.set('games/game_test', {
       id: 'game_test',
       status: 'question_active',
       currentQuestionIndex: 0,
-      questions: [{ type: 'multiple_choice', options: ['Alpha', 'Beta', 'Gamma', 'Delta'], correctAnswers: [2] }],
-    });
-    store.set('games/game_test/secrets/answerKey', {
-      answers: [{ questionIndex: 0, correctAnswers: [2], options: ['Alpha', 'Beta', 'Gamma', 'Delta'] }],
     });
     store.set('games/game_test/players/player_001', {
       id: 'player_001',
       status: 'active',
-      powerUps: { fiftyFiftyUsed: false },
     });
 
     const { req, res, getStatus, getData } = mockReqRes(
@@ -839,16 +834,11 @@ async function runAllTests() {
     );
     await handleUsePowerUp(req, res, { adminAuth, adminDb });
 
-    assert.strictEqual(getStatus(), 200);
-    assert.strictEqual(getData().success, true);
-    assert.ok(Array.isArray(getData().hiddenOptionIndices));
-    assert.strictEqual(getData().hiddenOptionIndices.length, 2);
-    // Crucial security test: The hidden options MUST NOT contain the correct answer (index 2)!
-    assert.ok(!getData().hiddenOptionIndices.includes(2), 'Must NEVER hide the correct answer!');
-    assert.strictEqual(store.get('games/game_test/players/player_001').powerUps.fiftyFiftyUsed, true);
+    assert.strictEqual(getStatus(), 400);
+    assert.match(getData().error, /deprecated and disabled/);
   });
 
-  await test('30. Reusing 50/50 power-up in same game session is rejected (400)', async () => {
+  await test('30. Reusing time freeze power-up in same game session is rejected (400)', async () => {
     const { adminAuth, adminDb, store } = createMockBackend();
     store.set('games/game_test', {
       id: 'game_test',
@@ -858,12 +848,12 @@ async function runAllTests() {
     store.set('games/game_test/players/player_001', {
       id: 'player_001',
       status: 'active',
-      powerUps: { fiftyFiftyUsed: true }, // Already used!
+      powerUps: { timeFreezeUsed: true }, // Already used!
     });
 
     const { req, res, getStatus, getData } = mockReqRes(
       { authorization: 'Bearer player_token_1' },
-      { gameId: 'game_test', powerUp: 'fiftyFifty', questionIndex: 1 }
+      { gameId: 'game_test', powerUp: 'timeFreeze', questionIndex: 1 }
     );
     await handleUsePowerUp(req, res, { adminAuth, adminDb });
 
@@ -897,7 +887,7 @@ async function runAllTests() {
     assert.strictEqual(store.get('games/game_test/players/player_001').powerUps.timeFreezeActive, true);
   });
 
-  await test('32. Double points power-up multiplies points by exactly 2 and marks used', async () => {
+  await test('32. Double points power-up is rejected with 400 (permanently disabled)', async () => {
     resetAnswerRateLimit();
     const { adminAuth, adminDb, store } = createMockBackend();
     const startTime = Date.now() - 1000;
@@ -908,15 +898,9 @@ async function runAllTests() {
       questionStartTime: startTime,
       timeLimit: 20,
     });
-    store.set('games/game_test/secrets/answerKey', {
-      answers: [{ questionIndex: 0, correctAnswers: [1], points: 1000, options: ['A', 'B'] }],
-    });
     store.set('games/game_test/players/player_001', {
       id: 'player_001',
       status: 'active',
-      score: 0,
-      streak: 0,
-      powerUps: { doublePointsUsed: false },
     });
 
     const { req, res, getStatus, getData } = mockReqRes(
@@ -925,9 +909,8 @@ async function runAllTests() {
     );
     await handleAnswerSubmission(req, res, { adminAuth, adminDb });
 
-    assert.strictEqual(getStatus(), 200);
-    assert.ok(getData().submission.pointsAwarded >= 1800, 'Score must be doubled by power-up');
-    assert.strictEqual(store.get('games/game_test/players/player_001').powerUps.doublePointsUsed, true);
+    assert.strictEqual(getStatus(), 400);
+    assert.match(getData().error, /deprecated and disabled/);
   });
 
   // ==========================================
