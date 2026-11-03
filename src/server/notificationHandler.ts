@@ -18,7 +18,7 @@ import {
   handleProviderWebhook,
   isValidEmailAddress,
 } from './emailOutboxWorker';
-import { getSmtpTransporter } from './resultEmailsHandler';
+import { getSmtpTransporter, dispatchSingleEmail } from './resultEmailsHandler';
 
 export interface NotificationRouteDependencies {
   adminAuth: Auth;
@@ -182,25 +182,29 @@ export async function handleProcessOutbox(
 
   const batchSize = Number(req.query.batchSize) || 10;
 
-  // Use SMTP transporter or mock sender
+  // Use HTTPS API provider (Resend/Brevo) or SMTP transporter
   const sender = async (job: any) => {
     const transporter = getSmtpTransporter();
-    if (!transporter) {
-      // Mock sender for offline/test environments
-      return { success: true, providerMessageId: `msg_${job.id}` };
-    }
+    const fromAddress = process.env.SMTP_FROM || process.env.RESEND_FROM || 'QuizArena <notifications@quizarena.io>';
 
     try {
-      const info = await transporter.sendMail({
-        from: process.env.SMTP_FROM || 'QuizArena <notifications@quizarena.io>',
+      const dispatchResult = await dispatchSingleEmail({
         to: job.recipientEmail,
+        recipientName: job.recipientName || 'Participant',
         subject: job.subject,
         html: job.htmlContent,
-        text: job.textContent,
+        transporter,
+        fromAddress,
       });
-      return { success: true, providerMessageId: info.messageId };
+
+      if (dispatchResult.status === 'sent') {
+        return { success: true, providerMessageId: dispatchResult.messageId || `msg_${job.id}` };
+      }
+
+      // If skipped (no HTTPS keys or SMTP configured), use mock provider for test/offline environment
+      return { success: true, providerMessageId: `mock_${job.id}` };
     } catch (err: any) {
-      const isPermanent = /invalid|550|rejected/i.test(err?.message || '');
+      const isPermanent = /invalid|550|rejected|401|unauthorized/i.test(err?.message || '');
       return { success: false, error: err?.message, isPermanent };
     }
   };
