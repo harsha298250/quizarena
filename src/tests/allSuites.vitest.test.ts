@@ -15,6 +15,8 @@ const suites = [
   'securityHardeningPhase1.test.ts',
   'multiplayerEnginePhase2.test.ts',
   'scoringHardeningPhase3.test.ts',
+  // Note: quizStudioPhase4.vitest.test.ts is run directly by vitest (*.vitest.test.ts pattern)
+  // and cannot be forked via tsx because pdfExtractor.ts uses Vite-only ?url imports.
 ];
 
 describe('QuizArena Comprehensive Test Suites', () => {

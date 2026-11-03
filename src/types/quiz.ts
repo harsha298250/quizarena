@@ -47,7 +47,8 @@ export interface Question {
   courseOutcomeTag: string; // e.g. "CO1", "CO2", "CO3"
   sourcePage?: number;
   sourceQuote?: string;
-  validationBadge?: 'good' | 'check' | 'weak';
+  validationBadge?: 'good' | 'check' | 'weak' | 'ai_draft' | 'needs_review' | 'flagged';
+  difficulty?: 'easy' | 'medium' | 'hard';
   orderItems?: string[]; // for ordering question type
 }
 

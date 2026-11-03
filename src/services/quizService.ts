@@ -18,7 +18,12 @@ import { deleteUser, User } from 'firebase/auth';
 import { Quiz } from '../types/quiz';
 import { SAMPLE_QUIZZES } from '../data/sampleQuizzes';
 
-const LOCAL_STORAGE_QUIZZES_KEY = 'quizarena_quizzes';
+/** Returns a per-user localStorage key to prevent cross-user data bleed. */
+function localStorageKey(authorId: string): string {
+  if (!authorId) return 'quizarena_quizzes_anonymous';
+  // Sanitise the UID so it is safe as a key suffix (UIDs are alphanumeric, but guard anyway)
+  return `quizarena_quizzes_${authorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
 
 /**
  * Saves a quiz to Firestore under the teacher's UID and updates localStorage as cache.
@@ -30,9 +35,15 @@ export async function saveQuiz(quiz: Quiz, authorId: string): Promise<Quiz> {
     updatedAt: new Date().toISOString(),
   };
 
-  // 1. Update localStorage cache
+  // Guard: only save quizzes that belong to this author
+  if (quiz.authorId && quiz.authorId !== authorId) {
+    throw new Error(`Ownership mismatch: quiz belongs to ${quiz.authorId}, cannot overwrite as ${authorId}.`);
+  }
+
+  // 1. Update per-author localStorage cache (scoped by UID to prevent cross-user bleed)
+  const cacheKey = localStorageKey(authorId);
   try {
-    const cached: Quiz[] = JSON.parse(localStorage.getItem(LOCAL_STORAGE_QUIZZES_KEY) || '[]');
+    const cached: Quiz[] = JSON.parse(localStorage.getItem(cacheKey) || '[]');
     const idx = cached.findIndex(q => q.id === quiz.id);
     let updated: Quiz[];
     if (idx >= 0) {
@@ -41,7 +52,7 @@ export async function saveQuiz(quiz: Quiz, authorId: string): Promise<Quiz> {
     } else {
       updated = [quizWithAuthor, ...cached];
     }
-    localStorage.setItem(LOCAL_STORAGE_QUIZZES_KEY, JSON.stringify(updated));
+    localStorage.setItem(cacheKey, JSON.stringify(updated));
   } catch (e) {
     console.warn('Failed to update local quiz cache:', e);
   }
@@ -81,12 +92,13 @@ export async function loadUserQuizzes(authorId: string): Promise<Quiz[]> {
     }
   }
 
-  // Load from local storage cache
+  // Load from per-author local storage cache (prevents cross-user bleed)
+  const cacheKey = localStorageKey(authorId);
   let cachedQuizzes: Quiz[] = [];
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_QUIZZES_KEY);
+    const raw = localStorage.getItem(cacheKey);
     if (raw) {
-      cachedQuizzes = JSON.parse(raw);
+      cachedQuizzes = (JSON.parse(raw) as Quiz[]).filter(q => q.authorId === authorId || !q.authorId);
     }
   } catch (e) {}
 
@@ -104,9 +116,9 @@ export async function loadUserQuizzes(authorId: string): Promise<Quiz[]> {
 
   const merged = Array.from(quizMap.values());
 
-  // Refresh localStorage cache with merged list
+  // Refresh per-author localStorage cache with merged list
   try {
-    localStorage.setItem(LOCAL_STORAGE_QUIZZES_KEY, JSON.stringify(merged));
+    localStorage.setItem(cacheKey, JSON.stringify(merged));
   } catch (e) {}
 
   return merged;
@@ -114,8 +126,9 @@ export async function loadUserQuizzes(authorId: string): Promise<Quiz[]> {
 
 /**
  * Permanently deletes a single quiz from Firestore and localStorage cache.
+ * authorId is used to scope the correct localStorage key.
  */
-export async function deleteQuiz(quizId: string): Promise<void> {
+export async function deleteQuiz(quizId: string, authorId?: string): Promise<void> {
   // 1. Delete from Firestore
   if (isFirebaseConfigured) {
     try {
@@ -125,11 +138,12 @@ export async function deleteQuiz(quizId: string): Promise<void> {
     }
   }
 
-  // 2. Delete from localStorage cache
+  // 2. Delete from per-author localStorage cache
+  const cacheKey = authorId ? localStorageKey(authorId) : 'quizarena_quizzes_anonymous';
   try {
-    const cached: Quiz[] = JSON.parse(localStorage.getItem(LOCAL_STORAGE_QUIZZES_KEY) || '[]');
+    const cached: Quiz[] = JSON.parse(localStorage.getItem(cacheKey) || '[]');
     const filtered = cached.filter(q => q.id !== quizId);
-    localStorage.setItem(LOCAL_STORAGE_QUIZZES_KEY, JSON.stringify(filtered));
+    localStorage.setItem(cacheKey, JSON.stringify(filtered));
   } catch (e) {}
 }
 
