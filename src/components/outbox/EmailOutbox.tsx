@@ -22,9 +22,11 @@ export const EmailOutbox: React.FC = () => {
   const [isResending, setIsResending] = useState<boolean>(false);
   const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
   const [testErrorMessage, setTestErrorMessage] = useState<string | null>(null);
-  const [smtpStatus, setSmtpStatus] = useState<{
+  const [emailStatus, setEmailStatus] = useState<{
     checking: boolean;
     connected: boolean | null;
+    provider?: string;
+    fromAddress?: string;
     error?: string;
     host?: string;
   }>({ checking: true, connected: null });
@@ -46,17 +48,19 @@ export const EmailOutbox: React.FC = () => {
   }, []);
 
   const runSmtpHealthCheck = async () => {
-    setSmtpStatus(prev => ({ ...prev, checking: true }));
+    setEmailStatus(prev => ({ ...prev, checking: true }));
     try {
       const res = await checkSmtpHealthViaApi();
-      setSmtpStatus({
+      setEmailStatus({
         checking: false,
         connected: res.connected,
+        provider: res.provider,
+        fromAddress: res.fromAddress,
         host: res.host,
         error: res.error,
       });
     } catch (e: any) {
-      setSmtpStatus({
+      setEmailStatus({
         checking: false,
         connected: false,
         error: e.message || String(e),
@@ -116,6 +120,64 @@ export const EmailOutbox: React.FC = () => {
     }
   };
 
+  const handleTestResendDeliverability = async () => {
+    sound.playClick();
+    setTestErrorMessage(null);
+    setIsSendingTest(true);
+
+    const sinkTo = 'delivered@resend.dev';
+    const recipientName = 'Resend Deliverability Test Sink';
+    const mailItem = {
+      to: sinkTo,
+      recipientName,
+      subject: `QuizArena Resend API Delivery Verification [${new Date().toLocaleTimeString()}]`,
+      htmlContent: `<div style="font-family:sans-serif;padding:24px;border:3px solid #16120E;border-radius:12px;background:#FFF6E5;">
+        <h2 style="color:#FF5A36;margin-top:0;">QuizArena Resend API Verified</h2>
+        <p style="font-size:15px;line-height:1.5;">This automated test email verifies that QuizArena is communicating with the Resend HTTPS API (Port 443) using an authorized verified sender address.</p>
+        <p style="font-size:13px;color:#333;"><strong>Sender:</strong> ${emailStatus.fromAddress || 'QuizArena <onboarding@resend.dev>'}</p>
+        <p style="font-size:13px;color:#333;"><strong>Target Sink:</strong> ${sinkTo}</p>
+        <hr style="border:none;border-top:1px dashed #ccc;margin:20px 0;" />
+        <p style="font-size:12px;color:#666;">Official deliverability verification sink provided by Resend.</p>
+      </div>`,
+      status: 'queued' as const,
+      metadata: {
+        gameId: 'test_dispatch',
+        quizTitle: 'Resend API Sink Verification',
+        score: 10000,
+        rank: 1,
+        accuracy: 1.0,
+      },
+    };
+
+    const mailId = await queueResultEmail(mailItem);
+    loadEmails();
+
+    try {
+      const res = await sendTestEmailViaApi({
+        to: sinkTo,
+        recipientName,
+        subject: mailItem.subject,
+        htmlContent: mailItem.htmlContent,
+      });
+
+      if (res.success && res.status === 'sent') {
+        updateOutboxItemStatus(mailId, 'sent');
+        alert(`✓ Resend delivery test SUCCESS! Test message sent to ${sinkTo} via Resend HTTPS API.`);
+      } else {
+        const errorDesc = res.error || 'Resend delivery failed';
+        updateOutboxItemStatus(mailId, 'failed', errorDesc);
+        setTestErrorMessage(`Resend Test Failed: ${errorDesc}`);
+      }
+    } catch (err: any) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      updateOutboxItemStatus(mailId, 'failed', errMsg);
+      setTestErrorMessage(`Resend Test Error: ${errMsg}`);
+    } finally {
+      setIsSendingTest(false);
+      loadEmails();
+    }
+  };
+
   const handleSendTest = async () => {
     sound.playClick();
     setTestErrorMessage(null);
@@ -134,7 +196,7 @@ export const EmailOutbox: React.FC = () => {
     if (dispatchTimeoutRef.current) clearTimeout(dispatchTimeoutRef.current);
     dispatchTimeoutRef.current = setTimeout(() => {
       setIsSendingTest(false);
-      setTestErrorMessage('Dispatch timed out after 20 seconds. Please check SMTP settings.');
+      setTestErrorMessage('Dispatch timed out after 20 seconds. Please check email provider settings.');
     }, 20000);
 
     const recipientName = hostUser?.displayName || 'Host Administrator';
@@ -151,7 +213,7 @@ export const EmailOutbox: React.FC = () => {
         <h2 style="color:#FF5A36;margin-top:0;">QuizArena Verified Result Dispatch</h2>
         <p style="font-size:15px;line-height:1.5;">${rendered}</p>
         <hr style="border:none;border-top:1px dashed #ccc;margin:20px 0;" />
-        <p style="font-size:12px;color:#666;">Authenticated test email dispatched via QuizArena SMTP delivery pipeline to verified host: ${destination}</p>
+        <p style="font-size:12px;color:#666;">Authenticated test email dispatched via QuizArena delivery pipeline to verified host: ${destination}</p>
       </div>`,
       status: 'queued' as const,
       metadata: {
@@ -178,9 +240,9 @@ export const EmailOutbox: React.FC = () => {
 
       if (res.success && res.status === 'sent') {
         updateOutboxItemStatus(mailId, 'sent');
-        alert(`Test email successfully dispatched to ${destination} via SMTP!`);
+        alert(`Test email successfully dispatched to ${destination} via ${res.provider || 'configured provider'}!`);
       } else {
-        const errorDesc = res.error || 'SMTP delivery failed';
+        const errorDesc = res.error || 'Delivery failed';
         updateOutboxItemStatus(mailId, 'failed', errorDesc);
         setTestErrorMessage(`Dispatch failed: ${errorDesc}`);
       }
@@ -204,30 +266,49 @@ export const EmailOutbox: React.FC = () => {
             <span className="sticker-badge bg-[var(--ok)] text-white text-xs">
               Communication Layer
             </span>
-            {/* SMTP Health Pill */}
-            {smtpStatus.checking ? (
+            {/* Provider-Aware Health Pill */}
+            {emailStatus.checking ? (
               <span className="sticker-badge bg-[var(--surface-2)] text-[var(--text-muted)] text-[10px] animate-pulse">
-                Checking SMTP...
+                Checking Email Provider...
               </span>
-            ) : smtpStatus.connected ? (
+            ) : emailStatus.connected ? (
               <span
                 className="sticker-badge sticker-badge-ok text-[10px] flex items-center gap-1"
-                title={`Host: ${smtpStatus.host || 'Connected'}`}
+                title={`Host: ${emailStatus.host || 'Connected'}`}
               >
-                ● SMTP Connected
+                ● {emailStatus.provider === 'resend'
+                  ? 'Resend API Connected (HTTPS Port 443)'
+                  : emailStatus.provider === 'brevo'
+                  ? 'Brevo API Connected'
+                  : 'SMTP Connected'}
               </span>
             ) : (
               <span
                 className="sticker-badge sticker-badge-tomato text-[10px] flex items-center gap-1"
-                title={smtpStatus.error || 'Failed'}
+                title={emailStatus.error || 'Failed'}
               >
-                ✕ SMTP Failed: {smtpStatus.error || 'Not Configured'}
+                ✕ {emailStatus.provider === 'resend'
+                  ? `Resend API Error: ${emailStatus.error || 'Check RESEND_API_KEY'}`
+                  : emailStatus.provider === 'smtp'
+                  ? `SMTP Failed: ${emailStatus.error || 'Not Configured'}`
+                  : `Email Provider: ${emailStatus.error || 'Not Configured'}`}
               </span>
             )}
+
+            {/* From Address Pill */}
+            {emailStatus.fromAddress && (
+              <span
+                className="sticker-badge bg-[var(--surface-2)] text-[var(--text)] text-[10px]"
+                title="Authoritative Sender Address"
+              >
+                From: {emailStatus.fromAddress}
+              </span>
+            )}
+
             <button
               onClick={runSmtpHealthCheck}
               className="text-[11px] font-bold text-[var(--accent)] hover:underline ml-1"
-              title="Re-verify SMTP Connection"
+              title="Re-verify Email Provider Connection"
             >
               Verify
             </button>
@@ -236,18 +317,32 @@ export const EmailOutbox: React.FC = () => {
             Result Email Outbox & Template Editor
           </h1>
           <p className="text-xs font-semibold text-[var(--text-muted)] mt-1">
-            Dispatches verified cohort reports to teachers and individual performance breakdowns to students via secure authenticated SMTP (Nodemailer).
+            Dispatches verified cohort reports to teachers and individual performance breakdowns to students via HTTPS API (Resend) or authenticated SMTP.
           </p>
         </div>
 
-        <button
-          id="btnQueueTestEmail"
-          onClick={handleSendTest}
-          disabled={isSendingTest}
-          className="paper-btn paper-btn-sm paper-btn-primary text-xs font-bold disabled:opacity-50"
-        >
-          {isSendingTest ? '✉️ Dispatching...' : '✉️ Send Test Email'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Dedicated Resend Deliverability Test Button */}
+          <button
+            id="btnTestResendDeliverability"
+            onClick={handleTestResendDeliverability}
+            disabled={isSendingTest}
+            className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-bold disabled:opacity-50"
+            title="Send test email to Resend official deliverability sink (delivered@resend.dev)"
+          >
+            {isSendingTest ? '⏳ Testing...' : '⚡ Test Resend (delivered@resend.dev)'}
+          </button>
+
+          {/* Standard Host Test Button */}
+          <button
+            id="btnQueueTestEmail"
+            onClick={handleSendTest}
+            disabled={isSendingTest}
+            className="paper-btn paper-btn-sm paper-btn-primary text-xs font-bold disabled:opacity-50"
+          >
+            {isSendingTest ? '✉️ Dispatching...' : '✉️ Send Test Email'}
+          </button>
+        </div>
       </div>
 
       {testErrorMessage && (
@@ -262,7 +357,20 @@ export const EmailOutbox: React.FC = () => {
         </div>
       )}
 
-      {!smtpStatus.connected && !smtpStatus.checking && (
+      {/* Resend Domain Verification Guidance */}
+      {((testErrorMessage && /403|domain|verified/i.test(testErrorMessage)) ||
+        (emailStatus.error && /403|domain|verified/i.test(emailStatus.error))) && (
+        <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-500 rounded-xl text-xs space-y-1">
+          <div className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+            <span>💡 Resend Sender Verification Diagnostic:</span>
+          </div>
+          <p className="text-amber-800 dark:text-amber-300">
+            Resend requires sending from a verified domain. For testing with free accounts, use sender <code className="px-1 py-0.5 rounded bg-white dark:bg-black font-bold">QuizArena &lt;onboarding@resend.dev&gt;</code> and send either to your registered Resend account email or to <code className="px-1 py-0.5 rounded bg-white dark:bg-black font-bold">delivered@resend.dev</code>. To send to arbitrary students, verify your domain in the Resend Dashboard at <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="underline font-bold">resend.com/domains</a>.
+          </p>
+        </div>
+      )}
+
+      {!emailStatus.connected && !emailStatus.checking && (
         <div className="p-3 bg-[var(--surface-2)] border-2 border-[var(--border)] rounded-xl text-xs space-y-1">
           <div className="font-bold text-[var(--text)] flex items-center gap-1.5">
             <span>ℹ️ Cloud Host SMTP Setup (Render / Free Tier):</span>

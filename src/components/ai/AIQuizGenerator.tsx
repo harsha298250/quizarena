@@ -9,10 +9,12 @@ import { extractTextFromPdf, PdfExtractionResult } from '../../services/pdfExtra
 import { aiService, GenerateProgress, GEMINI_MODEL_NAME } from '../../services/aiService';
 import { SAMPLE_AI_SOURCE_TEXT } from '../../data/sampleQuizzes';
 import { sound } from '../../lib/sound';
+import { validateQuestion } from '../../lib/questionValidation';
+import { auth } from '../../lib/firebase';
 
 interface AIQuizGeneratorProps {
   existingQuizzes?: Quiz[];
-  onSaveToQuiz: (newQuiz: Quiz) => void;
+  onSaveToQuiz: (newQuiz: Quiz) => Promise<Quiz> | void;
   onHostNow: (quiz: Quiz) => void;
   onOpenInStudio?: (quiz: Quiz) => void;
 }
@@ -53,7 +55,8 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<Question | null>(null);
   const [regeneratingQuestionId, setRegeneratingQuestionId] = useState<string | null>(null);
-  const [toastMessage, setToastMessage] = useState<{ text: string; quiz?: Quiz } | null>(null);
+  const [isSavingToStudio, setIsSavingToStudio] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<{ text: string; quiz?: Quiz; isError?: boolean } | null>(null);
 
   // Silent warm-up on mount to wake up the backend / Gemini endpoints
   useEffect(() => {
@@ -262,59 +265,110 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
   };
 
   // Add to Studio as New Quiz
-  const handleAddToStudioNew = () => {
+  const handleAddToStudioNew = async () => {
     const questionsToSave = generatedQuestions.filter(q => acceptedQuestionIds.has(q.id));
     if (questionsToSave.length === 0) {
-      alert('Please select at least one question to add to Studio.');
+      setToastMessage({ text: '⚠️ Please select at least one question to add to Studio.', isError: true });
       return;
     }
+
+    const cleanTitle = quizTitle.trim() || 'AI Generated Mastery Arena';
+    if (cleanTitle.length > 120) {
+      setToastMessage({ text: '⚠️ Quiz title cannot exceed 120 characters.', isError: true });
+      return;
+    }
+
+    // Validate questions using Phase 4 question validator
+    for (let i = 0; i < questionsToSave.length; i++) {
+      const q = questionsToSave[i];
+      const val = validateQuestion(q);
+      if (!val.valid) {
+        setToastMessage({
+          text: `⚠️ Question #${i + 1} validation error: ${val.errors[0]}`,
+          isError: true,
+        });
+        return;
+      }
+    }
+
     sound.playClick();
+    setIsSavingToStudio(true);
+
+    const newQuizId = `ai_quiz_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const user = auth.currentUser;
+    const authorId = user?.uid || 'guest_teacher';
+    const authorName = user?.displayName || 'Instructor AI';
 
     const newQuiz: Quiz = {
-      id: `ai_quiz_${Date.now()}`,
-      title: quizTitle.trim() || 'AI Generated Mastery Arena',
+      id: newQuizId,
+      title: cleanTitle,
       description: `Generated from ${sourceMode} targeting ${targetCO}.`,
-      authorId: 'host_active',
-      authorName: 'Instructor AI',
+      authorId,
+      authorName,
       isPublic: true,
       gameMode: 'classic',
       tags: ['AI Generated', targetCO],
       coverColor: '#FF5A36',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      questions: questionsToSave,
+      questions: questionsToSave.map((q, idx) => ({
+        ...q,
+        id: `${newQuizId}_q_${idx + 1}`,
+      })),
     };
 
-    onSaveToQuiz(newQuiz);
-    setToastMessage({
-      text: `✓ Created new quiz "${newQuiz.title}" with ${questionsToSave.length} questions. Opening in Studio...`,
-      quiz: newQuiz,
-    });
+    try {
+      await onSaveToQuiz(newQuiz);
+      setToastMessage({
+        text: `✓ Created new quiz "${newQuiz.title}" with ${questionsToSave.length} questions. Opening in Studio...`,
+        quiz: newQuiz,
+      });
 
-    if (onOpenInStudio) {
-      setTimeout(() => {
+      if (onOpenInStudio) {
         onOpenInStudio(newQuiz);
-      }, 500);
+      }
+    } catch (err: any) {
+      setToastMessage({
+        text: `Failed to save new quiz: ${err.message || String(err)}`,
+        isError: true,
+      });
+    } finally {
+      setIsSavingToStudio(false);
     }
   };
 
   // Add to an Existing Quiz
-  const handleAddToExistingQuiz = () => {
+  const handleAddToExistingQuiz = async () => {
     const questionsToSave = generatedQuestions.filter(q => acceptedQuestionIds.has(q.id));
     if (questionsToSave.length === 0) {
-      alert('Please select at least one question to add.');
+      setToastMessage({ text: '⚠️ Please select at least one question to append.', isError: true });
       return;
     }
     const targetQuiz = existingQuizzes.find(q => q.id === selectedTargetQuizId);
     if (!targetQuiz) {
-      alert('Please select a target quiz from the dropdown.');
+      setToastMessage({ text: '⚠️ Please select an existing target quiz from the dropdown.', isError: true });
       return;
     }
+
+    // Validate incoming questions before appending
+    for (let i = 0; i < questionsToSave.length; i++) {
+      const q = questionsToSave[i];
+      const val = validateQuestion(q);
+      if (!val.valid) {
+        setToastMessage({
+          text: `⚠️ Question #${i + 1} validation error: ${val.errors[0]}`,
+          isError: true,
+        });
+        return;
+      }
+    }
+
     sound.playClick();
+    setIsSavingToStudio(true);
 
     const stampedQuestions: Question[] = questionsToSave.map((q, idx) => ({
       ...q,
-      id: `${targetQuiz.id}_q_ai_${Date.now()}_${idx}`,
+      id: `${targetQuiz.id}_q_ai_${Date.now()}_${idx + 1}_${Math.random().toString(36).substring(2, 6)}`,
     }));
 
     const updatedQuiz: Quiz = {
@@ -323,16 +377,23 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
-    onSaveToQuiz(updatedQuiz);
-    setToastMessage({
-      text: `✓ Added ${questionsToSave.length} questions to "${targetQuiz.title}". Opening in Studio...`,
-      quiz: updatedQuiz,
-    });
+    try {
+      await onSaveToQuiz(updatedQuiz);
+      setToastMessage({
+        text: `✓ Appended ${questionsToSave.length} questions to "${targetQuiz.title}". Total: ${updatedQuiz.questions.length} questions. Opening in Studio...`,
+        quiz: updatedQuiz,
+      });
 
-    if (onOpenInStudio) {
-      setTimeout(() => {
+      if (onOpenInStudio) {
         onOpenInStudio(updatedQuiz);
-      }, 500);
+      }
+    } catch (err: any) {
+      setToastMessage({
+        text: `Failed to append questions: ${err.message || String(err)}`,
+        isError: true,
+      });
+    } finally {
+      setIsSavingToStudio(false);
     }
   };
 
@@ -340,24 +401,32 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
   const handleHostLiveNow = () => {
     const questionsToSave = generatedQuestions.filter(q => acceptedQuestionIds.has(q.id));
     if (questionsToSave.length === 0) {
-      alert('Please accept at least one question before launching.');
+      setToastMessage({ text: '⚠️ Please accept at least one question before launching.', isError: true });
       return;
     }
     sound.playClick();
 
+    const user = auth.currentUser;
+    const authorId = user?.uid || 'guest_teacher';
+    const authorName = user?.displayName || 'Instructor AI';
+    const liveQuizId = `ai_quiz_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
     const liveQuiz: Quiz = {
-      id: `ai_quiz_${Date.now()}`,
+      id: liveQuizId,
       title: quizTitle.trim() || 'AI Generated Assessment Arena',
       description: `Generated from ${sourceMode} targeting ${targetCO}.`,
-      authorId: 'host_active',
-      authorName: 'Instructor AI',
+      authorId,
+      authorName,
       isPublic: true,
       gameMode: 'classic',
       tags: ['AI Generated', targetCO],
       coverColor: '#FF5A36',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      questions: questionsToSave,
+      questions: questionsToSave.map((q, idx) => ({
+        ...q,
+        id: `${liveQuizId}_q_${idx + 1}`,
+      })),
     };
 
     onSaveToQuiz(liveQuiz);
@@ -378,16 +447,33 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
     <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-20 right-4 z-50 bg-[var(--surface)] text-[var(--text)] border-3 border-[var(--border)] p-4 rounded-xl shadow-[4px_4px_0px_var(--shadow)] flex items-center justify-between gap-4 animate-fadeIn max-w-md">
+        <div
+          role="alert"
+          aria-live="polite"
+          className={`fixed top-20 right-4 z-50 p-4 rounded-xl shadow-[4px_4px_0px_var(--shadow)] flex items-center justify-between gap-4 animate-fadeIn max-w-md ${
+            toastMessage.isError
+              ? 'bg-red-100 dark:bg-red-950 text-red-900 dark:text-red-200 border-3 border-red-500'
+              : 'bg-[var(--surface)] text-[var(--text)] border-3 border-[var(--border)]'
+          }`}
+        >
           <div className="text-xs font-bold">{toastMessage.text}</div>
-          {toastMessage.quiz && onOpenInStudio && (
+          <div className="flex items-center gap-2 shrink-0">
+            {toastMessage.quiz && onOpenInStudio && (
+              <button
+                onClick={() => onOpenInStudio(toastMessage.quiz!)}
+                className="paper-btn paper-btn-sm paper-btn-primary text-xs shrink-0"
+              >
+                Open Studio →
+              </button>
+            )}
             <button
-              onClick={() => onOpenInStudio(toastMessage.quiz!)}
-              className="paper-btn paper-btn-sm paper-btn-primary text-xs shrink-0"
+              onClick={() => setToastMessage(null)}
+              className="text-xs font-black opacity-70 hover:opacity-100 p-1"
+              aria-label="Dismiss message"
             >
-              Open Studio →
+              ✕
             </button>
-          )}
+          </div>
         </div>
       )}
 
@@ -745,19 +831,26 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
               <div className="md:col-span-8 flex flex-wrap items-center gap-2">
                 {/* 1. Add to Studio as New Quiz */}
                 <button
+                  id="btnAddToStudioNew"
                   onClick={handleAddToStudioNew}
-                  className="paper-btn paper-btn-sm paper-btn-primary text-xs font-black flex items-center gap-1 shadow-[2px_2px_0px_var(--shadow)]"
+                  disabled={acceptedQuestionIds.size === 0 || isSavingToStudio}
+                  className="paper-btn paper-btn-sm paper-btn-primary text-xs font-black flex items-center gap-1 shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={acceptedQuestionIds.size === 0 ? 'Select at least one question to add to Studio' : undefined}
                 >
-                  🎨 Add to Studio (New Quiz)
+                  {isSavingToStudio
+                    ? '⏳ Saving...'
+                    : `🎨 Add ${acceptedQuestionIds.size} Question${acceptedQuestionIds.size === 1 ? '' : 's'} to Studio (New Quiz)`}
                 </button>
 
                 {/* 2. Add to an Existing Quiz */}
                 {existingQuizzes.length > 0 && (
                   <div className="flex items-center gap-1.5">
                     <select
+                      id="selectTargetQuiz"
                       value={selectedTargetQuizId}
                       onChange={e => setSelectedTargetQuizId(e.target.value)}
-                      className="rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold bg-[var(--bg-page)] text-[var(--text)] max-w-[180px] truncate"
+                      disabled={isSavingToStudio}
+                      className="rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold bg-[var(--bg-page)] text-[var(--text)] max-w-[180px] truncate disabled:opacity-50"
                       aria-label="Select existing quiz to append questions"
                     >
                       {existingQuizzes.map(q => (
@@ -767,20 +860,27 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                       ))}
                     </select>
                     <button
+                      id="btnAppendToExistingQuiz"
                       onClick={handleAddToExistingQuiz}
-                      className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-black shadow-[2px_2px_0px_var(--shadow)]"
+                      disabled={acceptedQuestionIds.size === 0 || !selectedTargetQuizId || isSavingToStudio}
+                      className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-black shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={acceptedQuestionIds.size === 0 ? 'Select at least one question to append' : undefined}
                     >
-                      ➕ Append to Quiz
+                      {isSavingToStudio
+                        ? '⏳ Appending...'
+                        : `➕ Append ${acceptedQuestionIds.size} Question${acceptedQuestionIds.size === 1 ? '' : 's'}`}
                     </button>
                   </div>
                 )}
 
                 {/* 3. Host Now */}
                 <button
+                  id="btnHostLiveNow"
                   onClick={handleHostLiveNow}
-                  className="paper-btn paper-btn-sm bg-[var(--ok)] text-white text-xs font-black shadow-[2px_2px_0px_var(--shadow)]"
+                  disabled={acceptedQuestionIds.size === 0 || isSavingToStudio}
+                  className="paper-btn paper-btn-sm bg-[var(--ok)] text-white text-xs font-black shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  🚀 Host Now
+                  🚀 Host Now ({acceptedQuestionIds.size})
                 </button>
               </div>
             </div>

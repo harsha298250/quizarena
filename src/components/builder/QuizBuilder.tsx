@@ -914,7 +914,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                   <select
                     id="questionBloomLevelSelect"
                     aria-label="Bloom Taxonomy"
-                    value={activeQuestion.bloomLevel}
+                    value={activeQuestion.bloomLevel || 'understand'}
                     onChange={e => handleUpdateQuestion('bloomLevel', e.target.value as BloomLevel)}
                     className="paper-select w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
                   >
@@ -931,7 +931,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                   <input
                     id="questionCOTagInput"
                     type="text"
-                    value={activeQuestion.courseOutcomeTag}
+                    value={activeQuestion.courseOutcomeTag || 'CO1'}
                     onChange={e => handleUpdateQuestion('courseOutcomeTag', e.target.value.toUpperCase())}
                     className="paper-input w-full rounded-lg border-2 border-[var(--border)] p-1.5 text-xs font-bold"
                     placeholder="e.g. CO1"
@@ -947,7 +947,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                 <textarea
                   id="questionExplanationTextarea"
                   rows={2}
-                  value={activeQuestion.explanation}
+                  value={activeQuestion.explanation || ''}
                   onChange={e => handleUpdateQuestion('explanation', e.target.value)}
                   className="paper-input w-full rounded-xl border-2 border-[var(--border)] p-2.5 text-xs"
                   placeholder="Explain why the answer is correct to reinforce learning..."

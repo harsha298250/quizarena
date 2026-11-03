@@ -54,9 +54,13 @@ export default function App() {
   const [activeGame, setActiveGame] = useState<GameSession | null>(null);
   const [builderSelectedQuizId, setBuilderSelectedQuizId] = useState<string | undefined>(undefined);
 
-  const handleOpenInStudio = (quiz: Quiz) => {
-    handleSaveQuiz(quiz);
-    setBuilderSelectedQuizId(quiz.id);
+  const handleOpenInStudio = async (quiz: Quiz) => {
+    try {
+      const saved = await handleSaveQuiz(quiz);
+      setBuilderSelectedQuizId(saved.id);
+    } catch {
+      setBuilderSelectedQuizId(quiz.id);
+    }
     setCurrentTab('builder');
   };
   const [activePlayer, setActivePlayer] = useState<Player | null>(null);
@@ -160,7 +164,7 @@ export default function App() {
   }, []);
 
   // Save quizzes to Firestore under teacher's UID and keep localStorage as cache
-  const handleSaveQuiz = async (quiz: Quiz) => {
+  const handleSaveQuiz = async (quiz: Quiz): Promise<Quiz> => {
     let user = auth.currentUser;
     if (!user) {
       user = await ensureAnonymousAuth();
@@ -169,17 +173,32 @@ export default function App() {
 
     try {
       const saved = await saveQuiz(quiz, authorId);
-      const existingIdx = quizzes.findIndex(q => q.id === saved.id);
-      let updated: Quiz[] = [];
-      if (existingIdx >= 0) {
-        updated = [...quizzes];
-        updated[existingIdx] = saved;
-      } else {
-        updated = [saved, ...quizzes];
-      }
-      setQuizzes(updated);
+      setQuizzes(prev => {
+        const existingIdx = prev.findIndex(q => q.id === saved.id);
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = saved;
+          return updated;
+        } else {
+          return [saved, ...prev];
+        }
+      });
+      return saved;
     } catch (e) {
       console.warn('Failed to save quiz to Firestore:', e);
+      // Fallback: ensure local app state still receives the quiz if Firestore throws
+      const fallbackQuiz: Quiz = { ...quiz, authorId, updatedAt: new Date().toISOString() };
+      setQuizzes(prev => {
+        const existingIdx = prev.findIndex(q => q.id === fallbackQuiz.id);
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = fallbackQuiz;
+          return updated;
+        } else {
+          return [fallbackQuiz, ...prev];
+        }
+      });
+      return fallbackQuiz;
     }
   };
 

@@ -128,6 +128,11 @@ export async function sendTestEmailViaApi(payload: {
 }): Promise<{
   success: boolean;
   status: 'sent' | 'failed' | 'skipped';
+  statusCode?: number;
+  provider?: string;
+  fromAddress?: string;
+  messageId?: string;
+  message?: string;
   error?: string;
   simulated?: boolean;
 }> {
@@ -158,6 +163,9 @@ export async function sendTestEmailViaApi(payload: {
       return {
         success: false,
         status: 'failed',
+        statusCode: errorJson.statusCode || resp.status,
+        provider: errorJson.provider,
+        fromAddress: errorJson.fromAddress,
         error: errorJson.error || `Server responded with ${resp.status}`,
       };
     }
@@ -169,7 +177,8 @@ export async function sendTestEmailViaApi(payload: {
       return {
         success: false,
         status: 'failed',
-        error: 'Test email dispatch timed out after 20 seconds. Check SMTP server settings.',
+        statusCode: 408,
+        error: 'Test email dispatch timed out after 20 seconds. Check email server settings.',
       };
     }
     return {
@@ -181,11 +190,14 @@ export async function sendTestEmailViaApi(payload: {
 }
 
 /**
- * Check SMTP transporter health via GET /api/smtp-health with host token
+ * Check provider / SMTP transporter health via GET /api/smtp-health with host token
  */
 export async function checkSmtpHealthViaApi(): Promise<{
   connected: boolean;
+  provider?: string;
   host?: string;
+  fromAddress?: string;
+  verified?: boolean;
   error?: string;
 }> {
   let user = auth.currentUser;
@@ -212,6 +224,8 @@ export async function checkSmtpHealthViaApi(): Promise<{
     const errJson = await resp.json().catch(() => ({}));
     return {
       connected: false,
+      provider: errJson.provider,
+      fromAddress: errJson.fromAddress,
       error: errJson.error || `HTTP ${resp.status}`,
     };
   } catch (err: any) {
@@ -220,7 +234,7 @@ export async function checkSmtpHealthViaApi(): Promise<{
     return {
       connected: false,
       error: isAborted
-        ? 'Connection timed out. Check SMTP credentials or cloud host firewall.'
+        ? 'Connection timed out. Check email credentials or cloud host firewall.'
         : (err instanceof Error ? err.message : String(err)),
     };
   }

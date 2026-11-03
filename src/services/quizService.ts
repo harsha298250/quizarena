@@ -35,8 +35,9 @@ export async function saveQuiz(quiz: Quiz, authorId: string): Promise<Quiz> {
     updatedAt: new Date().toISOString(),
   };
 
-  // Guard: only save quizzes that belong to this author
-  if (quiz.authorId && quiz.authorId !== authorId) {
+  // Guard: allow placeholder authorIds to be claimed by the active teacher without throwing ownership mismatch
+  const placeholderIds = new Set(['host_active', 'user_active', 'guest_teacher', 'Instructor AI', '']);
+  if (quiz.authorId && !placeholderIds.has(quiz.authorId) && quiz.authorId !== authorId) {
     throw new Error(`Ownership mismatch: quiz belongs to ${quiz.authorId}, cannot overwrite as ${authorId}.`);
   }
 
@@ -55,6 +56,22 @@ export async function saveQuiz(quiz: Quiz, authorId: string): Promise<Quiz> {
     localStorage.setItem(cacheKey, JSON.stringify(updated));
   } catch (e) {
     console.warn('Failed to update local quiz cache:', e);
+  }
+
+  // Also sync global quiz cache so initial loads and studio navigations reflect the new quiz immediately
+  try {
+    const globalCached: Quiz[] = JSON.parse(localStorage.getItem('quizarena_quizzes') || '[]');
+    const gIdx = globalCached.findIndex(q => q.id === quiz.id);
+    let gUpdated: Quiz[];
+    if (gIdx >= 0) {
+      gUpdated = [...globalCached];
+      gUpdated[gIdx] = quizWithAuthor;
+    } else {
+      gUpdated = [quizWithAuthor, ...globalCached];
+    }
+    localStorage.setItem('quizarena_quizzes', JSON.stringify(gUpdated));
+  } catch (e) {
+    console.warn('Failed to update global quiz cache:', e);
   }
 
   // 2. Persist to Firestore quizzes collection under teacher's UID

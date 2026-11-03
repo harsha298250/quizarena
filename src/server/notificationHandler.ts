@@ -18,7 +18,12 @@ import {
   handleProviderWebhook,
   isValidEmailAddress,
 } from './emailOutboxWorker';
-import { getSmtpTransporter, dispatchSingleEmail } from './resultEmailsHandler';
+import {
+  getSmtpTransporter,
+  dispatchSingleEmail,
+  getResolvedEmailProvider,
+  getResolvedFromAddress,
+} from './resultEmailsHandler';
 
 export interface NotificationRouteDependencies {
   adminAuth: Auth;
@@ -182,10 +187,11 @@ export async function handleProcessOutbox(
 
   const batchSize = Number(req.query.batchSize) || 10;
 
-  // Use HTTPS API provider (Resend/Brevo) or SMTP transporter
+  // Use resolved HTTPS API provider (Resend/Brevo) or SMTP transporter
   const sender = async (job: any) => {
-    const transporter = getSmtpTransporter();
-    const fromAddress = process.env.SMTP_FROM || process.env.RESEND_FROM || 'QuizArena <notifications@quizarena.io>';
+    const provider = getResolvedEmailProvider();
+    const fromAddress = getResolvedFromAddress(provider);
+    const transporter = provider === 'smtp' ? getSmtpTransporter() : null;
 
     try {
       const dispatchResult = await dispatchSingleEmail({
@@ -204,7 +210,12 @@ export async function handleProcessOutbox(
       // If skipped (no HTTPS keys or SMTP configured), use mock provider for test/offline environment
       return { success: true, providerMessageId: `mock_${job.id}` };
     } catch (err: any) {
-      const isPermanent = /invalid|550|rejected|401|unauthorized/i.test(err?.message || '');
+      const isPermanent = Boolean(
+        err?.isPermanent ||
+        err?.status === 403 ||
+        err?.status === 422 ||
+        /invalid|550|rejected|401|403|422|unauthorized|forbidden|domain.not.verified|not.allowed/i.test(err?.message || '')
+      );
       return { success: false, error: err?.message, isPermanent };
     }
   };
