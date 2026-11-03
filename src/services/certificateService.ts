@@ -16,6 +16,8 @@ export interface CertificateData {
   date: string;
   hostName?: string;
   competitionTitle?: string;
+  certificateNumber?: string;
+  verificationId?: string;
 }
 
 /**
@@ -193,15 +195,23 @@ export function buildCertificateDoc(data: CertificateData): jsPDF {
   // --- Left: Issue Date ---
   const dateLineY = 174;
   doc.setFont(fontName, 'normal');
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setTextColor(22, 18, 14);
   doc.text(`Issue Date: ${data.date}`, 32, dateLineY - 3);
   doc.setDrawColor(22, 18, 14);
   doc.setLineWidth(0.6);
   doc.line(32, dateLineY, 82, dateLineY);
-  doc.setFontSize(9);
+  doc.setFontSize(8);
   doc.setTextColor(110, 100, 90);
-  doc.text('Official Arena Record', 32, dateLineY + 6);
+  doc.text('Official Arena Record', 32, dateLineY + 5);
+
+  if (data.verificationId) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(130, 120, 110);
+    doc.text(`ID: ${data.verificationId}`, 32, dateLineY + 11);
+    doc.text('Verify: quizarena.io/verify', 32, dateLineY + 15);
+  }
 
   // --- Center: QuizArena Verification Seal ---
   const sealY = 168;

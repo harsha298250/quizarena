@@ -939,6 +939,42 @@ app.get('/api/tournaments/:id/standings', async (req: Request, res: Response): P
   await handleGetTournamentStandings(req, res, { adminAuth, adminDb });
 });
 
+// ============================================================================
+// PHASE 7: CERTIFICATE & EMAIL NOTIFICATION ENDPOINTS
+// ============================================================================
+import {
+  handleIssueCertificate,
+  handleVerifyCertificate,
+  handleRevokeCertificate,
+  handleProcessOutbox,
+  handleOutboxWebhook,
+} from './src/server/notificationHandler.ts';
+
+// POST /api/certificates/issue - Server-authoritative certificate issuance
+app.post('/api/certificates/issue', async (req: Request, res: Response): Promise<void> => {
+  await handleIssueCertificate(req, res, { adminAuth, adminDb });
+});
+
+// GET /api/certificates/verify/:verificationId - Public verification
+app.get('/api/certificates/verify/:verificationId', async (req: Request, res: Response): Promise<void> => {
+  await handleVerifyCertificate(req, res);
+});
+
+// POST /api/certificates/revoke - Issuer or admin revocation
+app.post('/api/certificates/revoke', async (req: Request, res: Response): Promise<void> => {
+  await handleRevokeCertificate(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/outbox/process - Protected email worker dispatch
+app.post('/api/outbox/process', async (req: Request, res: Response): Promise<void> => {
+  await handleProcessOutbox(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/outbox/webhook - Provider delivery/bounce webhook
+app.post('/api/outbox/webhook', async (req: Request, res: Response): Promise<void> => {
+  await handleOutboxWebhook(req, res);
+});
+
 // Serve frontend build in production
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
