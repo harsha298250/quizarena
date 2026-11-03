@@ -9,7 +9,9 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { validateServerEnvironment, isAllowedCorsOrigin } from './src/server/envValidator.ts';
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -210,17 +212,105 @@ app.use(
   })
 );
 
-// Enable CORS for local development & proxy flexibility
-app.use((_req: Request, res: Response, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  if (_req.method === 'OPTIONS') {
-    res.sendStatus(200);
+// Validate environment configuration at boot
+const envValidation = validateServerEnvironment();
+if (envValidation.warnings.length > 0) {
+  envValidation.warnings.forEach(w => console.warn(`[QuizArena Environment Warning] ${w}`));
+}
+if (!envValidation.isValid) {
+  envValidation.errors.forEach(e => console.error(`[QuizArena Environment Error] ${e}`));
+}
+
+const configuredCorsOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+// Request Correlation ID & Structured Logging Middleware
+app.use((req: Request, res: Response, next) => {
+  const reqId = (req.headers['x-request-id'] as string) || (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15));
+  (req as any).id = reqId;
+  res.setHeader('X-Request-Id', reqId);
+  const start = Date.now();
+
+  res.on('finish', () => {
+    if (req.path.startsWith('/api') || req.path === '/health') {
+      const duration = Date.now() - start;
+      console.log(JSON.stringify({
+        level: 'info',
+        timestamp: new Date().toISOString(),
+        requestId: reqId,
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: duration,
+        ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
+      }));
+    }
+  });
+  next();
+});
+
+// Production-Hardened CORS Middleware
+app.use((req: Request, res: Response, next) => {
+  const origin = req.headers.origin;
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  let allowOrigin: string | null = null;
+  if (!origin) {
+    // Non-browser or same-origin request
+    allowOrigin = null;
+  } else if (isDev || configuredCorsOrigins.length === 0 || configuredCorsOrigins.includes('*')) {
+    // In dev or when wildcard is explicitly allowed
+    allowOrigin = origin;
+  } else if (isAllowedCorsOrigin(origin, configuredCorsOrigins)) {
+    allowOrigin = origin;
+  }
+
+  if (allowOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Vary', 'Origin');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Request-Id');
+
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(allowOrigin || isDev ? 204 : 403);
     return;
   }
   next();
 });
+
+// Safe operational health check endpoint (Zero secret leakage)
+const handleHealthCheck = (_req: Request, res: Response) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const hasDb = Boolean(adminDb);
+  const hasAuth = Boolean(adminAuth);
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY');
+  const hasEmail = Boolean(process.env.RESEND_API_KEY || process.env.BREVO_API_KEY || process.env.SMTP_HOST);
+
+  const isDegraded = !hasAdminCredentials && isProduction;
+
+  res.status(isDegraded ? 503 : 200).json({
+    status: isDegraded ? 'degraded' : 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(process.uptime()),
+    environment: process.env.NODE_ENV || 'development',
+    version: '1.0.0',
+    service: 'quizarena-backend',
+    dependencies: {
+      firestore: hasDb && hasAdminCredentials ? 'ready' : (hasDb ? 'unauthenticated-mode' : 'unavailable'),
+      auth: hasAuth && hasAdminCredentials ? 'ready' : 'mock/unconfigured',
+      gemini: hasGemini ? 'configured' : 'fallback-mode',
+      email: hasEmail ? 'configured' : 'unconfigured',
+    },
+  });
+};
+
+app.get('/health', handleHealthCheck);
+app.get('/api/health', handleHealthCheck);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -980,13 +1070,49 @@ const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
 
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(200).json({
+      message: 'QuizArena Backend API is running.',
+      health: '/health',
+      docs: 'Single Page Application bundle not found in dist/. Use client frontend or /api endpoints.',
+    });
+  }
 });
 
-app.listen(PORT, () => {
-  assertAdminCredentialsPresent();
-  console.log(`QuizArena Server running on port ${PORT}`);
-  console.log(`[QuizArena] Gemini Model in use: ${GEMINI_MODEL}`);
-});
+let server: any;
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(PORT, () => {
+    assertAdminCredentialsPresent();
+    console.log(`QuizArena Server running on port ${PORT}`);
+    console.log(`[QuizArena] Gemini Model in use: ${GEMINI_MODEL}`);
+  });
 
+  // Render & Production HTTP reverse-proxy keep-alive and request timeout alignment
+  if (server) {
+    server.requestTimeout = 30000;
+    server.headersTimeout = 31000;
+    server.keepAliveTimeout = 5000;
+
+    const gracefulShutdown = (signal: string) => {
+      console.log(`[QuizArena] Received ${signal}, initiating graceful shutdown...`);
+      server.close(() => {
+        console.log('[QuizArena] HTTP server closed gracefully.');
+        process.exit(0);
+      });
+      // Safety cutoff after 10s
+      setTimeout(() => {
+        console.error('[QuizArena] Forced process termination after 10s graceful shutdown timeout.');
+        process.exit(1);
+      }, 10000).unref();
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  }
+}
+
+export { server };
 export default app;

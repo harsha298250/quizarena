@@ -188,5 +188,44 @@ service cloud.firestore {
       allow create: if isNonAnonymous() && request.resource.data.ownerId == request.auth.uid;
       allow update, delete: if isNonAnonymous() && resource.data.ownerId == request.auth.uid;
     }
+
+    // ==========================================
+    // 6. Tournaments & Brackets (Phase 6 Hardened)
+    // ==========================================
+    match /tournaments/{tournamentId} {
+      // Any authenticated user can view tournament listings and live brackets
+      allow read: if isSignedIn();
+
+      // Creation, rounds, and match progression are strictly server-authoritative
+      // via POST /api/tournaments/* with verified host tokens and atomic transactions.
+      allow create, delete: if false;
+      allow update: if isNonAnonymous() && resource.data.hostId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'bannerUrl', 'theme']);
+
+      match /matches/{matchId} {
+        allow read: if isSignedIn();
+        allow write: if false; // Server-authoritative Admin SDK only
+      }
+
+      match /registrations/{registrationId} {
+        allow read: if isSignedIn() && (
+          request.auth.uid == registrationId ||
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.hostId == request.auth.uid
+        );
+        allow write: if false; // Server-authoritative Admin SDK with capacity checks
+      }
+    }
+
+    // ==========================================
+    // 7. Digital Certificates (Phase 7 Hardened)
+    // ==========================================
+    match /certificates/{certificateId} {
+      // Recipients, issuers, and public verification callers can read certificate metadata
+      allow read: if isSignedIn() || resource.data.status == 'valid';
+
+      // Issuance and revocation are strictly server-authoritative via Admin SDK
+      // (/api/certificates/issue, /api/certificates/revoke). Direct client writes blocked.
+      allow write: if false;
+    }
   }
 }

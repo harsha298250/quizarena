@@ -1,0 +1,44 @@
+name: QuizArena CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build, Lint & Automated Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: TypeScript & Static Analysis Lint
+        run: npm run lint
+
+      - name: Execute Vitest Suite (Phases 1-9)
+        run: npm test
+        env:
+          NODE_ENV: test
+          GEMINI_API_KEY: ci-mock-key
+          FIREBASE_SERVICE_ACCOUNT_KEY: '{"project_id":"ci-quizarena-test"}'
+
+      - name: Build Production Frontend Assets
+        run: npm run build
+

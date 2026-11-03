@@ -1,0 +1,53 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default-deny all storage operations
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidImage() {
+      return request.resource.contentType.matches('image/(png|jpeg|jpg|webp|gif)')
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    function isValidPdf() {
+      return request.resource.contentType == 'application/pdf'
+        && request.resource.size < 15 * 1024 * 1024;
+    }
+
+    // 1. User profile avatars
+    match /avatars/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId) && isValidImage() && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // 2. Quiz illustration assets
+    match /quizzes/{quizId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidImage();
+    }
+
+    // 3. Digital Certificate documents
+    // Public read for verification; write is strictly server-authoritative via Admin SDK
+    match /certificates/{certificateId}/{fileName} {
+      allow read: if true;
+      allow write: if false; // Server Admin SDK only
+    }
+
+    // 4. Tournament media & banners
+    match /tournaments/{tournamentId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidImage();
+    }
+  }
+}
+
