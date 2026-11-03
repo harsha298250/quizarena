@@ -23,6 +23,8 @@ interface NavbarProps {
   theme?: ThemeMode;
   setTheme?: (t: ThemeMode) => void;
   onDeleteMyData?: () => void;
+  userRole?: 'host' | 'student';
+  setUserRole?: (role: 'host' | 'student') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,6 +37,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   theme,
   setTheme,
   onDeleteMyData,
+  userRole = 'host',
+  setUserRole,
 }) => {
   const [isMuted, setIsMuted] = useState(sound.getMuted());
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -77,15 +81,27 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
-  const navItems = [
+  // Role-based navigation items
+  const hostNavItems = [
+    { id: 'host_dashboard', label: 'Dashboard', icon: '🏠' },
     { id: 'arena', label: t.navJoin, icon: '🎮' },
     { id: 'builder', label: t.navBuilder, icon: '✏️' },
     { id: 'ai', label: t.navAI, icon: '✨' },
     { id: 'competitions', label: t.navCompetitions, icon: '🏆' },
     { id: 'analytics', label: t.navAnalytics, icon: '📊' },
     { id: 'outbox', label: t.navOutbox, icon: '📬' },
-    { id: 'practice', label: t.navPractice, icon: '🎯' },
+    { id: 'certificates', label: 'Certificates', icon: '🎓' },
   ];
+
+  const studentNavItems = [
+    { id: 'student_dashboard', label: 'My Portal', icon: '🏠' },
+    { id: 'arena', label: t.navJoin, icon: '🎮' },
+    { id: 'competitions', label: t.navCompetitions, icon: '🏆' },
+    { id: 'practice', label: t.navPractice, icon: '🎯' },
+    { id: 'certificates', label: 'Certificates', icon: '🎓' },
+  ];
+
+  const navItems = userRole === 'student' ? studentNavItems : hostNavItems;
 
   return (
     <header className="sticky top-0 z-40 border-b-3 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] transition-colors">
@@ -200,22 +216,62 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Settings Dropdown Popover */}
             {settingsOpen && (
-              <div className="absolute right-0 mt-2 w-64 rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] p-3 shadow-[4px_4px_0px_var(--shadow)] z-50 space-y-3 animate-fadeIn">
+              <div className="absolute right-0 mt-2 w-64 rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text)] p-3 shadow-lg z-50 space-y-3 animate-fadeIn">
                 <div className="border-b border-[var(--border)]/20 pb-2">
-                  <div className="text-xs font-bold text-[var(--text)]">Settings & Profile</div>
-                  <div className="text-[11px] text-[var(--text-muted)] truncate">
-                    {currentUser ? currentUser.email || currentUser.displayName || 'Signed In' : 'Guest / Player Mode'}
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold text-[var(--text)]">Profile & Mode</div>
+                    <span className="sticker-badge sticker-badge-primary text-[10px] py-0.5 px-1.5">
+                      {userRole === 'host' ? 'Host' : 'Student'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                    {currentUser ? currentUser.email || currentUser.displayName || 'Signed In' : 'Guest Mode'}
                   </div>
                 </div>
 
+                {/* Role Switcher */}
+                {setUserRole && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Switch Experience</div>
+                    <div className="grid grid-cols-2 gap-1 p-0.5 bg-[var(--surface-2)] rounded-lg border border-[var(--border)]">
+                      <button
+                        onClick={() => {
+                          sound.playClick();
+                          setUserRole('host');
+                          setCurrentTab('host_dashboard');
+                          setSettingsOpen(false);
+                        }}
+                        className={`py-1 text-[11px] font-bold rounded-md transition-all ${
+                          userRole === 'host' ? 'bg-[var(--accent)] text-white shadow-xs' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        🎓 Host
+                      </button>
+                      <button
+                        onClick={() => {
+                          sound.playClick();
+                          setUserRole('student');
+                          setCurrentTab('student_dashboard');
+                          setSettingsOpen(false);
+                        }}
+                        className={`py-1 text-[11px] font-bold rounded-md transition-all ${
+                          userRole === 'student' ? 'bg-[var(--accent)] text-white shadow-xs' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        🎒 Student
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1">
-                  <div className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Privacy & Data</div>
+                  <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Privacy & Data</div>
                   <button
                     onClick={() => {
                       setSettingsOpen(false);
                       setDeleteConfirmOpen(true);
                     }}
-                    className="w-full text-left px-2.5 py-1.5 text-xs font-bold rounded-lg border border-red-500 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 hover:bg-red-100 flex items-center gap-2 transition-colors"
+                    className="w-full text-left px-2.5 py-1.5 text-xs font-bold rounded-lg border border-red-500/30 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 hover:bg-red-100 flex items-center gap-2 transition-colors"
                   >
                     <span aria-hidden="true">🗑️</span>
                     <span>Delete My Data (GDPR)</span>

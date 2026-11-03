@@ -20,6 +20,9 @@ import { AnalyticsDashboard } from './components/analytics/AnalyticsDashboard';
 import { CompetitionManager } from './components/competitions/CompetitionManager';
 import { EmailOutbox } from './components/outbox/EmailOutbox';
 import { SoloPractice } from './components/practice/SoloPractice';
+import { HostDashboard } from './components/dashboard/HostDashboard';
+import { StudentDashboard } from './components/dashboard/StudentDashboard';
+import { CertificateGallery } from './components/certificates/CertificateGallery';
 import { GameEngine } from './services/gameEngine';
 import { runSelfTests } from './tests/quizArena.test';
 import { sound } from './lib/sound';
@@ -31,6 +34,7 @@ import { useTheme } from './hooks/useTheme';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('arena');
+  const [userRole, setUserRole] = useState<'host' | 'student'>('host');
   const [lang, setLang] = useState<SupportedLanguage>('en');
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === 'dark';
@@ -412,10 +416,36 @@ export default function App() {
         isDarkMode={isDarkMode}
         setIsDarkMode={setIsDarkMode}
         onDeleteMyData={handleDeleteMyData}
+        userRole={userRole}
+        setUserRole={setUserRole}
       />
 
       {/* Main App Switcher with Page Transition */}
       <main key={currentTab} className="flex-1 py-4 sm:py-6 animate-fadeIn transition-all">
+        {/* Tab 0A: Host Dashboard */}
+        {currentTab === 'host_dashboard' && (
+          <HostDashboard
+            quizzes={quizzes}
+            onNavigateTab={setCurrentTab}
+            onHostQuiz={handleHostQuiz}
+            onEditQuiz={quizId => {
+              setBuilderSelectedQuizId(quizId);
+              setCurrentTab('builder');
+            }}
+          />
+        )}
+
+        {/* Tab 0B: Student Dashboard */}
+        {currentTab === 'student_dashboard' && (
+          <StudentDashboard
+            quizzes={quizzes}
+            onJoinArenaPin={() => setCurrentTab('arena')}
+            onStartPractice={() => setCurrentTab('practice')}
+            onViewTournaments={() => setCurrentTab('competitions')}
+            onViewCertificates={() => setCurrentTab('certificates')}
+          />
+        )}
+
         {/* Tab 1: Arena (Join, Lobby, Live Question, Results) */}
         {currentTab === 'arena' && (
           <div>
@@ -533,16 +563,19 @@ export default function App() {
 
         {/* Tab 7: Solo Practice Spaced Repetition */}
         {currentTab === 'practice' && <SoloPractice quizzes={quizzes} />}
+
+        {/* Tab 8: Verified Digital Certificates */}
+        {currentTab === 'certificates' && <CertificateGallery />}
       </main>
 
       {/* Footer & Self-Test Verifier Badge */}
-      <footer className="border-t-3 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] py-4 px-6 text-center text-xs font-bold transition-colors">
+      <footer className="border-t border-[var(--border)] bg-[var(--surface)] text-[var(--text)] py-4 px-6 text-center text-xs font-bold transition-colors">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[var(--accent)]">
               QuizArena
             </span>
-            <span className="text-[var(--text-muted)]">• Real-Time Playful Paper Quiz System</span>
+            <span className="text-[var(--text-muted)]">• Modern Real-Time EdTech SaaS Platform</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -550,9 +583,9 @@ export default function App() {
               onClick={() => setTestModalOpen(true)}
               className="text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline flex items-center gap-1 font-mono-code font-bold"
             >
-              🛡️ Self-Tests: {testResults ? `${testResults.passed} Passed` : 'Running...'}
+              🛡️ System Engine: {testResults ? `${testResults.passed} Verified` : 'Verifying...'}
             </button>
-            <span className="text-[var(--text-muted)]">PWA Installable • WCAG AA</span>
+            <span className="text-[var(--text-muted)]">PWA • WCAG 2.2 AA Certified</span>
           </div>
         </div>
       </footer>

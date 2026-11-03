@@ -59,17 +59,37 @@ export function getAuthErrorMessage(code: string, fallbackMessage?: string): str
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialRole?: 'host' | 'student';
+  onRoleChange?: (role: 'host' | 'student') => void;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRole = 'host', onRoleChange }) => {
   const [isRegister, setIsRegister] = useState<boolean>(false);
+  const [selectedRole, setSelectedRole] = useState<'host' | 'student'>(initialRole);
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
+
+  const handleRoleSelect = (role: 'host' | 'student') => {
+    sound.playClick();
+    setSelectedRole(role);
+    if (onRoleChange) onRoleChange(role);
+  };
 
   const handleGoogleSignIn = async () => {
     sound.playClick();
@@ -170,25 +190,55 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         </button>
 
         <div className="text-center mb-5">
-          <span className="sticker-badge sticker-badge-sunshine text-[11px] font-black uppercase">
-            Host / Teacher Access
-          </span>
+          <div className="flex items-center justify-center gap-1.5 p-1 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] mb-3">
+            <button
+              type="button"
+              onClick={() => handleRoleSelect('host')}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                selectedRole === 'host'
+                  ? 'bg-[var(--accent)] text-white shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              🎓 Teacher / Host
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRoleSelect('student')}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+                selectedRole === 'student'
+                  ? 'bg-[var(--accent)] text-white shadow-xs'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              🎒 Student / Learner
+            </button>
+          </div>
+
           <h2 className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--text)] mt-1">
-            {isRegister ? 'Create Host Account' : 'Sign In to QuizArena'}
+            {isRegister
+              ? selectedRole === 'host'
+                ? 'Create Host Account'
+                : 'Create Student Account'
+              : selectedRole === 'host'
+              ? 'Sign In as Host'
+              : 'Sign In as Student'}
           </h2>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Manage your quizzes, launch live competitions, and view cohort analytics.
+            {selectedRole === 'host'
+              ? 'Manage quizzes, launch live competitions, and view cohort analytics.'
+              : 'View your assessment results, track progress, and download verified certificates.'}
           </p>
         </div>
 
         {/* Feedback messages */}
         {errorMsg && (
-          <div className="mb-4 rounded-xl border-2 border-red-600 bg-red-100 dark:bg-red-950/60 p-2.5 text-xs font-bold text-red-800 dark:text-red-200">
+          <div role="alert" className="mb-4 rounded-xl border border-red-500 bg-red-50 dark:bg-red-950/40 p-2.5 text-xs font-bold text-red-700 dark:text-red-300">
             ⚠️ {errorMsg}
           </div>
         )}
         {infoMsg && (
-          <div className="mb-4 rounded-xl border-2 border-[var(--ok)] bg-emerald-100 dark:bg-emerald-950/60 p-2.5 text-xs font-bold text-emerald-900 dark:text-emerald-200">
+          <div role="status" className="mb-4 rounded-xl border border-[var(--ok)] bg-emerald-50 dark:bg-emerald-950/40 p-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
             {infoMsg}
           </div>
         )}
@@ -222,30 +272,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         </button>
 
         <div className="relative flex py-2 items-center">
-          <div className="grow border-t-2 border-[var(--border)]/20"></div>
-          <span className="shrink mx-3 text-[11px] font-bold text-[var(--text-muted)] uppercase">or with email</span>
-          <div className="grow border-t-2 border-[var(--border)]/20"></div>
+          <div className="grow border-t border-[var(--border)]"></div>
+          <span className="shrink mx-3 text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider">or with email</span>
+          <div className="grow border-t border-[var(--border)]"></div>
         </div>
 
         {/* 2. Email & Password Form */}
         <form onSubmit={handleEmailAuthSubmit} className="space-y-3 mt-2">
           <div>
-            <label className="block text-xs font-black uppercase text-[var(--text)] mb-1">
+            <label htmlFor="auth-email-input" className="block text-xs font-black uppercase text-[var(--text)] mb-1">
               Email Address
             </label>
             <input
+              id="auth-email-input"
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="teacher@school.edu"
+              placeholder={selectedRole === 'host' ? 'teacher@school.edu' : 'student@school.edu'}
               required
-              className="w-full rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)] focus:outline-none"
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm font-medium text-[var(--text)] shadow-xs focus:outline-none"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-black uppercase text-[var(--text)]">
+              <label htmlFor="auth-password-input" className="text-xs font-black uppercase text-[var(--text)]">
                 Password
               </label>
               {!isRegister && (
@@ -258,22 +309,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </button>
               )}
             </div>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              className="w-full rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)] focus:outline-none"
-            />
+            <div className="relative">
+              <input
+                id="auth-password-input"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 pr-10 text-sm font-medium text-[var(--text)] shadow-xs focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-[var(--text-muted)] hover:text-[var(--text)] text-xs font-bold"
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full paper-btn paper-btn-primary font-extrabold text-sm py-2.5 mt-2"
+            className="w-full paper-btn paper-btn-primary font-extrabold text-sm py-2.5 mt-2 flex items-center justify-center gap-2"
           >
-            {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In with Email'}
+            {loading ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Please wait...</span>
+              </>
+            ) : isRegister ? (
+              'Create Account'
+            ) : (
+              'Sign In with Email'
+            )}
           </button>
         </form>
 

@@ -188,3 +188,18 @@ export function revokeCertificate(
 
   return { success: true, certificate: cert };
 }
+
+/**
+ * Retrieves all issued certificates for a given recipient owner ID.
+ */
+export function getIssuedCertificatesByOwner(ownerId: string): IssuedCertificate[] {
+  const result: IssuedCertificate[] = [];
+  for (const cert of certificateStore.values()) {
+    if (cert.ownerId === ownerId) {
+      result.push(cert);
+    }
+  }
+  return result;
+}
+
+
