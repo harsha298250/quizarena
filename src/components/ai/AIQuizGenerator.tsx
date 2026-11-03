@@ -397,7 +397,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="sticker-badge bg-[var(--accent-2-bg)] text-[var(--text)] sticker-rot-1">AI Flagship</span>
-              <span className="text-xs font-bold text-[var(--ok)]">{GEMINI_MODEL_NAME} Engine</span>
+              <span className="text-xs font-bold text-[var(--ok)]">Gemini + Grok Dual-Engine</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)]">
               AI Quiz Generator &amp; Syllabus Alignment

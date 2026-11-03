@@ -61,8 +61,13 @@ export function checkWarmupRateLimit(clientKey: string, now: number = Date.now()
 }
 
 export function checkGenerateQuizRateLimit(uid: string, now: number = Date.now()): RateLimitCheckResult {
-  // Max 10 generations per minute per teacher
+  // Max 10 generations per minute per authenticated teacher
   return sharedRateLimiter.check(`gen_${uid}`, 10, 60 * 1000, now);
+}
+
+export function checkAnonymousGenerateQuizRateLimit(uid: string, now: number = Date.now()): RateLimitCheckResult {
+  // Max 5 generations per 10 minutes per anonymous/guest user
+  return sharedRateLimiter.check(`gen_anon_${uid}`, 5, 10 * 60 * 1000, now);
 }
 
 export function checkValidateRateLimit(uid: string, now: number = Date.now()): RateLimitCheckResult {
