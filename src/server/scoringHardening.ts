@@ -106,6 +106,14 @@ export function validateAndTrackPowerUp(
     return { allowed: true, willUse: false };
   }
 
+  if (powerUpName === 'fiftyFifty' || powerUpName === 'doublePoints') {
+    return {
+      allowed: false,
+      error: `Power-up "${powerUpName}" is permanently deprecated and disabled.`,
+      willUse: false,
+    };
+  }
+
   const alreadyUsed = Boolean(
     playerData?.powerUps?.[`${powerUpName}Used`] ||
     playerData?.usedPowerUps?.[powerUpName]

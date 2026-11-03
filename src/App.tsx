@@ -487,7 +487,8 @@ export default function App() {
               <PodiumView
                 game={activeGame}
                 players={players}
-                activePlayerId={activePlayer?.id}
+                activePlayerId={gameRole === 'player' ? activePlayer?.id : undefined}
+                isHost={gameRole === 'host'}
                 onPlayAgain={handleLeaveGame}
                 onReviewAnalytics={() => {
                   handleLeaveGame();

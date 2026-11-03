@@ -10,11 +10,13 @@ import { sound } from '../../lib/sound';
 import { generateCertificatePdf } from '../../services/certificateService';
 import { TrophyIcon, FlameIcon } from '../common/CustomIcons';
 import { Avatar } from '../common/Avatar';
+import { auth } from '../../lib/firebase';
 
 interface PodiumViewProps {
   game: GameSession;
   players: Player[];
   activePlayerId?: string;
+  isHost?: boolean;
   onPlayAgain: () => void;
   onReviewAnalytics: () => void;
 }
@@ -23,11 +25,15 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
   game,
   players,
   activePlayerId,
+  isHost,
   onPlayAgain,
   onReviewAnalytics,
 }) => {
   const [selectedReviewQuestion, setSelectedReviewQuestion] = useState<Question | null>(null);
   const [revealStep, setRevealStep] = useState<number>(0);
+
+  // Determine whether current viewer is the host
+  const isViewerHost = Boolean(isHost || (auth?.currentUser?.uid && game.hostId && auth.currentUser.uid === game.hostId));
 
   // Sort players by score descending
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
@@ -35,8 +41,9 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
   const second = sortedPlayers[1];
   const third = sortedPlayers[2];
 
-  const activePlayer = players.find(p => p.id === activePlayerId) || sortedPlayers[0];
-  const activeRank = sortedPlayers.findIndex(p => p.id === activePlayer?.id) + 1;
+  // If host is viewing, they do NOT have an active student personal record
+  const activePlayer = !isViewerHost && activePlayerId ? players.find(p => p.id === activePlayerId) : null;
+  const activeRank = activePlayer ? sortedPlayers.findIndex(p => p.id === activePlayer.id) + 1 : 0;
 
   // Staggered Reveal: 3rd place (0.5s) -> 2nd place (1.2s) -> 1st place (2.0s + confetti)
   useEffect(() => {
@@ -248,8 +255,39 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
         </button>
       </div>
 
+      {/* Host Summary Banner when Host is Viewing */}
+      {isViewerHost && (
+        <div className="paper-card p-5 border-3 bg-[var(--surface-2)] shadow-[4px_4px_0px_var(--shadow)] flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">👑</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+                  Host View: {game.hostName || 'Host'}
+                </span>
+                <span className="sticker-badge bg-[var(--accent)] text-[var(--text-on-accent)] text-xs font-black">
+                  Host
+                </span>
+              </div>
+              <span className="text-xs font-bold text-[var(--text-muted)]">
+                Host UID: {game.hostId} • Total Contenders: {players.length}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              sound.playClick();
+              onReviewAnalytics();
+            }}
+            className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold"
+          >
+            📊 Review Cohort Analytics
+          </button>
+        </div>
+      )}
+
       {/* Personal Player Summary Card */}
-      {activePlayer && (
+      {activePlayer && !isViewerHost && (
         <div className="paper-card p-6 border-3 shadow-[5px_5px_0px_var(--shadow)] space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-[var(--border)]/20 pb-3">
             <div>
@@ -305,7 +343,7 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
         </h3>
 
         {/* Player's Own Rank PINNED at Top */}
-        {activePlayer && (
+        {activePlayer && !isViewerHost && (
           <div className="paper-card p-4 border-3 bg-[var(--surface-2)] shadow-[4px_4px_0px_var(--shadow)] flex items-center justify-between gap-3 animate-pop-in">
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-[var(--accent)] text-[var(--text-on-accent)] font-mono-code font-black text-lg border-2 border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)]">
@@ -344,7 +382,8 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
             {sortedPlayers.map((p, idx) => {
               // Simulated momentum / rank change arrow
               const rankChange = idx === 0 ? 1 : (idx % 3 === 0 ? 2 : (idx % 2 === 0 ? -1 : 0));
-              const isCurrentPlayer = p.id === activePlayerId;
+              const isCurrentPlayer = !isViewerHost && p.id === activePlayerId;
+              const isHostPlayer = isViewerHost && p.id === game.hostId;
 
               return (
                 <div
@@ -374,7 +413,9 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
 
                     <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={36} />
                     <span className="font-bold text-base text-[var(--text)]">
-                      {p.nickname} {isCurrentPlayer && <span className="text-xs text-[var(--accent)]">(You)</span>}
+                      {p.nickname}{' '}
+                      {isCurrentPlayer && <span className="text-xs text-[var(--accent)] font-black">(You)</span>}
+                      {isHostPlayer && <span className="text-xs text-[var(--ok)] font-black">(Host)</span>}
                     </span>
                   </div>
 

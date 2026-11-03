@@ -462,8 +462,13 @@ export async function handleUsePowerUp(
       return;
     }
 
-    if (powerUp !== 'fiftyFifty' && powerUp !== 'timeFreeze' && powerUp !== 'doublePoints') {
-      res.status(400).json({ error: `Invalid power-up '${powerUp}'. Supported: fiftyFifty, timeFreeze, doublePoints` });
+    if (powerUp === 'fiftyFifty' || powerUp === 'doublePoints') {
+      res.status(400).json({ error: `Power-up '${powerUp}' is permanently deprecated and disabled.` });
+      return;
+    }
+
+    if (powerUp !== 'timeFreeze') {
+      res.status(400).json({ error: `Invalid power-up '${powerUp}'. Only 'timeFreeze' is supported.` });
       return;
     }
 

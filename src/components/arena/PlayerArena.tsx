@@ -27,7 +27,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   const [textAnswer, setTextAnswer] = useState<string>('');
   const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
   const [submissionResult, setSubmissionResult] = useState<{ isCorrect: boolean; pointsAwarded: number } | null>(null);
-  const [activeDoublePoints, setActiveDoublePoints] = useState<boolean>(false);
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
 
   // Read-Aloud (TTS) state
@@ -207,7 +206,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     setTextAnswer('');
     setHasSubmitted(false);
     setSubmissionResult(null);
-    setActiveDoublePoints(false);
     setQuestionStartTime(extractQuestionStartTimeMs(game.questionStartTime) || Date.now());
 
     // Fewer options accommodation
@@ -285,9 +283,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       undefined,
       currentQuestion,
       game.settings,
-      rawTimeMs,
-      undefined,
-      { doublePoints: activeDoublePoints }
+      rawTimeMs
     );
 
     setSubmissionResult(result);
@@ -310,50 +306,12 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       textAnswer,
       currentQuestion,
       game.settings,
-      rawTimeMs,
-      undefined,
-      { doublePoints: activeDoublePoints }
+      rawTimeMs
     );
 
     setSubmissionResult(result);
     if (result.isCorrect) sound.playCorrect();
     else sound.playWrong();
-  };
-
-  // Power-Up: 50/50 (eliminate 2 incorrect options via authoritative server)
-  const handleUse5050 = async () => {
-    if (player.powerUps.fiftyFiftyUsed || hasSubmitted) return;
-    sound.playPowerUp();
-
-    // Call server to safely determine which 2 wrong options to hide without exposing the answer key
-    const res = await GameEngine.usePowerUp(game.id, 'fiftyFifty', game.currentQuestionIndex);
-    if (res.success && Array.isArray(res.hiddenOptionIndices)) {
-      setHiddenOptions(res.hiddenOptionIndices);
-    } else {
-      // Local fallback if offline or server returned default
-      const wrongOptions = currentQuestion.options
-        .map((_, idx) => idx)
-        .filter(idx => idx >= 2);
-      setHiddenOptions(wrongOptions.slice(0, 2));
-    }
-
-    const updated: Player = {
-      ...player,
-      powerUps: { ...player.powerUps, fiftyFiftyUsed: true },
-    };
-    onUpdatePlayer(updated);
-  };
-
-  // Power-Up: Double Points
-  const handleUseDoublePoints = () => {
-    if (player.powerUps.doublePointsUsed || hasSubmitted) return;
-    sound.playPowerUp();
-    setActiveDoublePoints(true);
-    const updated: Player = {
-      ...player,
-      powerUps: { ...player.powerUps, doublePointsUsed: true },
-    };
-    onUpdatePlayer(updated);
   };
 
   const optionButtons = [
@@ -407,37 +365,6 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
           </span>
         </div>
       )}
-
-      {/* Power-Ups Bar (Once per match) */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={handleUse5050}
-          disabled={player.powerUps.fiftyFiftyUsed || hasSubmitted}
-          className={`paper-btn paper-btn-sm text-xs font-bold py-2 ${
-            player.powerUps.fiftyFiftyUsed ? 'opacity-50 cursor-not-allowed' : 'paper-btn-secondary'
-          }`}
-        >
-          {player.powerUps.fiftyFiftyUsed ? '50/50 (Used)' : '⚡ 50/50 (Cut 2)'}
-        </button>
-
-        <button
-          onClick={handleUseDoublePoints}
-          disabled={player.powerUps.doublePointsUsed || hasSubmitted}
-          className={`paper-btn paper-btn-sm text-xs font-bold py-2 ${
-            player.powerUps.doublePointsUsed
-              ? 'opacity-50 cursor-not-allowed'
-              : activeDoublePoints
-              ? 'bg-[var(--accent)] text-[var(--text-on-accent)]'
-              : 'paper-btn-ok'
-          }`}
-        >
-          {player.powerUps.doublePointsUsed
-            ? '2x Points (Used)'
-            : activeDoublePoints
-            ? '🔥 2x Active!'
-            : '⭐ 2x Double Points'}
-        </button>
-      </div>
 
       {/* Clear Question Progress */}
       <div className="space-y-1">
