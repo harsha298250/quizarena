@@ -897,6 +897,48 @@ app.get('/api/smtp-health', async (req: Request, res: Response): Promise<void> =
   });
 });
 
+// ============================================================================
+// PHASE 6: TOURNAMENT & COMPETITION HARDENING ENDPOINTS
+// ============================================================================
+import {
+  handleCreateTournament,
+  handleRegisterTournament,
+  handleCancelRegistration,
+  handleStartRound,
+  handleFinalizeMatch,
+  handleGetTournamentStandings,
+} from './src/server/tournamentHandler.ts';
+
+// POST /api/tournaments/create
+app.post('/api/tournaments/create', async (req: Request, res: Response): Promise<void> => {
+  await handleCreateTournament(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/tournaments/register
+app.post('/api/tournaments/register', async (req: Request, res: Response): Promise<void> => {
+  await handleRegisterTournament(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/tournaments/cancel-registration
+app.post('/api/tournaments/cancel-registration', async (req: Request, res: Response): Promise<void> => {
+  await handleCancelRegistration(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/tournaments/start-round
+app.post('/api/tournaments/start-round', async (req: Request, res: Response): Promise<void> => {
+  await handleStartRound(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/tournaments/finalize-match
+app.post('/api/tournaments/finalize-match', async (req: Request, res: Response): Promise<void> => {
+  await handleFinalizeMatch(req, res, { adminAuth, adminDb });
+});
+
+// GET /api/tournaments/:id/standings
+app.get('/api/tournaments/:id/standings', async (req: Request, res: Response): Promise<void> => {
+  await handleGetTournamentStandings(req, res, { adminAuth, adminDb });
+});
+
 // Serve frontend build in production
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
