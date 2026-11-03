@@ -13,6 +13,7 @@ const suites = [
   'resultEmails.test.ts',
   'scoringHardening.test.ts',
   'securityHardeningPhase1.test.ts',
+  'multiplayerEnginePhase2.test.ts',
 ];
 
 describe('QuizArena Comprehensive Test Suites', () => {

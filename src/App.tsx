@@ -107,25 +107,30 @@ export default function App() {
     };
     window.addEventListener('quizarena_firestore_error', handleFsError);
 
-    // Restore active session on page reload/refresh so refresh cannot reset strikes or session
+    // Authoritative session recovery on page reload/refresh
     try {
       const savedSession = sessionStorage.getItem('quizarena_active_session');
       if (savedSession) {
-        const { gameId, playerId, role } = JSON.parse(savedSession);
-        if (gameId && playerId) {
-          Promise.all([
-            GameEngine.getGame(gameId),
-            GameEngine.getPlayer(gameId, playerId),
-          ]).then(([game, player]) => {
-            if (game && player) {
-              setActiveGame(game);
-              setActivePlayer(player);
-              setGameRole(role || 'player');
-              setCurrentTab('arena');
-            }
-          }).catch(err => {
-            console.warn('Could not restore session on refresh:', err);
-          });
+        const { gameId } = JSON.parse(savedSession);
+        if (gameId) {
+          GameEngine.recoverSession(gameId)
+            .then(recovery => {
+              if (recovery && recovery.game) {
+                setActiveGame(recovery.game);
+                if (recovery.role === 'player' && recovery.player) {
+                  setActivePlayer(recovery.player);
+                  setGameRole('player');
+                } else if (recovery.role === 'host') {
+                  setGameRole('host');
+                }
+                setCurrentTab('arena');
+              } else {
+                sessionStorage.removeItem('quizarena_active_session');
+              }
+            })
+            .catch(() => {
+              sessionStorage.removeItem('quizarena_active_session');
+            });
         }
       }
     } catch (e) { }
@@ -317,15 +322,16 @@ export default function App() {
 
   // Subscribe to live game changes when activeGame is set
   useEffect(() => {
-    if (!activeGame) return;
+    if (!activeGame?.id) return;
 
-    const unsubGame = GameEngine.subscribeToGame(activeGame.id, updated => {
+    const gameId = activeGame.id;
+    const unsubGame = GameEngine.subscribeToGame(gameId, updated => {
       if (updated) {
         setActiveGame(updated);
       }
     });
 
-    const unsubPlayers = GameEngine.subscribeToPlayers(activeGame.id, updatedPlayers => {
+    const unsubPlayers = GameEngine.subscribeToPlayers(gameId, updatedPlayers => {
       setPlayers(updatedPlayers);
       if (activePlayer) {
         const live = updatedPlayers.find(p => p.id === activePlayer.id);
@@ -339,7 +345,7 @@ export default function App() {
       unsubGame();
       unsubPlayers();
     };
-  }, [activeGame?.id, activePlayer?.id]);
+  }, [activeGame?.id]);
 
   // Track games for which result emails have already been dispatched
   const sentEmailsGameIds = useRef<Set<string>>(new Set());
@@ -363,10 +369,14 @@ export default function App() {
     }
   }, [activeGame?.status, activeGame?.id, gameRole, players]);
 
-  const handleStartGame = () => {
+  const handleStartGame = async () => {
     if (!activeGame) return;
     sound.playClick();
-    GameEngine.updateGameStatus(activeGame, 'question_active', 0);
+    try {
+      await GameEngine.startGame(activeGame.id);
+    } catch (err: any) {
+      alert(err.message || 'Failed to start game');
+    }
   };
 
   const handleLeaveGame = () => {

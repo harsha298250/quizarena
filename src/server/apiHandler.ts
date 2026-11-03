@@ -74,8 +74,9 @@ export async function generateContentWithFallback(
 
   for (const model of modelsToTry) {
     try {
+      // 30s timeout per candidate model so a non-existent or lagging model never delays fallback past reverse proxy limits
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Model ${model} timeout`)), 12000)
+        setTimeout(() => reject(new Error(`Model ${model} timeout`)), 30000)
       );
       const res = await Promise.race([
         ai.models.generateContent({

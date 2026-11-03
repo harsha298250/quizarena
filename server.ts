@@ -40,6 +40,16 @@ import {
   handleKickPlayer,
   handleLeaveGame,
   handleLockLobby,
+  handleStartGame,
+  handleAdvanceQuestion,
+  handleRevealAnswer,
+  handleShowLeaderboard,
+  handlePauseGame,
+  handleResumeGame,
+  handleEndGame,
+  handleCancelGame,
+  handleSessionRecovery,
+  handleReconcilePlayerCount,
 } from './src/server/gameSessionHandler.ts';
 
 dotenv.config();
@@ -236,9 +246,9 @@ export async function generateContentWithFallback(
 
   for (const model of modelsToTry) {
     try {
-      // 12s timeout per candidate model so a non-existent or lagging model never delays fallback past reverse proxy limits
+      // 30s timeout per candidate model so a non-existent or lagging model never delays fallback past reverse proxy limits
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Model ${model} timeout`)), 12000)
+        setTimeout(() => reject(new Error(`Model ${model} timeout`)), 30000)
       );
       const res = await Promise.race([
         ai.models.generateContent({
@@ -672,68 +682,9 @@ Return JSON array assessing each question by id.`;
   }
 });
 
-// Endpoint 3: Host Advances Question & Sets Authoritative questionStartTime
+// Endpoint 3: Host Advances Question & Sets Authoritative questionStartTime (Idempotent & Sequenced)
 app.post('/api/advance-question', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header' });
-      return;
-    }
-
-    const idToken = authHeader.split('Bearer ')[1].trim();
-    let hostUid = '';
-    try {
-      const decodedToken = await adminAuth.verifyIdToken(idToken);
-      hostUid = decodedToken.uid;
-    } catch {
-      res.status(401).json({ error: 'Unauthorized: Invalid Firebase ID token' });
-      return;
-    }
-
-    const { gameId, questionIndex, timeLimit } = req.body;
-    if (!gameId || questionIndex === undefined) {
-      res.status(400).json({ error: 'gameId and questionIndex are required' });
-      return;
-    }
-
-    const gameDocRef = adminDb.doc(`games/${gameId}`);
-    const gameDoc = await gameDocRef.get();
-    if (!gameDoc.exists) {
-      res.status(404).json({ error: 'Game session not found' });
-      return;
-    }
-
-    const gameData = gameDoc.data() || {};
-    if (gameData.hostId !== hostUid) {
-      res.status(403).json({ error: 'Forbidden: Only the game host can advance questions' });
-      return;
-    }
-
-    const durationSec = timeLimit || gameData.questions?.[questionIndex]?.timeLimit || gameData.timeLimit || 20;
-    const now = Date.now();
-
-    await gameDocRef.update({
-      status: 'question_active',
-      currentQuestionIndex: questionIndex,
-      questionStartTime: FieldValue.serverTimestamp(),
-      questionStartTimeMs: now,
-      timeLimit: durationSec,
-      isPaused: false,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    res.json({
-      success: true,
-      status: 'question_active',
-      currentQuestionIndex: questionIndex,
-      questionStartTimeMs: now,
-      timeLimit: durationSec,
-    });
-  } catch (error) {
-    console.error('Error advancing question:', error);
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to advance question' });
-  }
+  await handleAdvanceQuestion(req, res, { adminAuth, adminDb });
 });
 
 // Endpoint 4: Server-side Answer Validation, Fair Scoring & Transactional Verification
@@ -1065,6 +1016,51 @@ app.post('/api/leave', async (req: Request, res: Response): Promise<void> => {
 // POST /api/lock-lobby - Host-only lobby lock toggle
 app.post('/api/lock-lobby', async (req: Request, res: Response): Promise<void> => {
   await handleLockLobby(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/start-game - Host starts game from lobby (initializes Q0 and server timestamp)
+app.post('/api/start-game', async (req: Request, res: Response): Promise<void> => {
+  await handleStartGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/reveal-answer - Host reveals correct answer
+app.post('/api/reveal-answer', async (req: Request, res: Response): Promise<void> => {
+  await handleRevealAnswer(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/show-leaderboard - Host displays cohort leaderboard
+app.post('/api/show-leaderboard', async (req: Request, res: Response): Promise<void> => {
+  await handleShowLeaderboard(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/pause-game - Host pauses active question round
+app.post('/api/pause-game', async (req: Request, res: Response): Promise<void> => {
+  await handlePauseGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/resume-game - Host resumes paused question round
+app.post('/api/resume-game', async (req: Request, res: Response): Promise<void> => {
+  await handleResumeGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/end-game - Host completes game session
+app.post('/api/end-game', async (req: Request, res: Response): Promise<void> => {
+  await handleEndGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/cancel-game - Host cancels session
+app.post('/api/cancel-game', async (req: Request, res: Response): Promise<void> => {
+  await handleCancelGame(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/session-recovery - Recover authoritative session and player state on refresh or reconnect
+app.post('/api/session-recovery', async (req: Request, res: Response): Promise<void> => {
+  await handleSessionRecovery(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/reconcile-player-count - Host tool to heal diverging capacity counts
+app.post('/api/reconcile-player-count', async (req: Request, res: Response): Promise<void> => {
+  await handleReconcilePlayerCount(req, res, { adminAuth, adminDb });
 });
 
 // POST /api/integrity-event - Authenticated transactional strike recording & auto-termination at Strike 6

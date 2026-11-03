@@ -72,7 +72,8 @@ export type GameSessionStatus =
   | 'reveal'
   | 'leaderboard'
   | 'paused'
-  | 'finished';
+  | 'finished'
+  | 'cancelled';
 
 export interface GameSettings {
   shuffleQuestions: boolean;

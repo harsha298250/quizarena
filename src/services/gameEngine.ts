@@ -448,12 +448,60 @@ export class GameEngine {
     }
   }
 
-  // Host updates game status (State Machine: lobby -> question_active -> reveal -> leaderboard -> finished)
+  // Host updates game status via authoritative server endpoints
   public static async updateGameStatus(
     game: GameSession,
     newStatus: GameSession['status'],
     questionIndex?: number
   ): Promise<void> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        let endpoint = '/api/advance-question';
+        let body: any = { gameId: game.id };
+
+        if (newStatus === 'question_active') {
+          if (game.status === 'lobby') {
+            endpoint = '/api/start-game';
+          } else {
+            endpoint = '/api/advance-question';
+            body.targetQuestionIndex = questionIndex !== undefined ? questionIndex : (game.currentQuestionIndex + 1);
+            body.timeLimit = questionIndex !== undefined ? game.questions[questionIndex]?.timeLimit : game.timeLimit;
+          }
+        } else if (newStatus === 'reveal') {
+          endpoint = '/api/reveal-answer';
+        } else if (newStatus === 'leaderboard') {
+          endpoint = '/api/show-leaderboard';
+        } else if (newStatus === 'finished') {
+          endpoint = '/api/end-game';
+        } else if (newStatus === 'cancelled') {
+          endpoint = '/api/cancel-game';
+        }
+
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.error || `Server rejected transition to ${newStatus}`);
+        }
+      } catch (err: any) {
+        if (isFirebaseConfigured) {
+          notifyFirestoreError(`Failed to update game status to "${newStatus}"`, err);
+          throw err;
+        }
+      }
+    }
+
+    // Offline / Demo fallback
     const updated: GameSession = {
       ...game,
       status: newStatus,
@@ -466,68 +514,165 @@ export class GameEngine {
       updatedAt: new Date().toISOString(),
     };
 
-    if (newStatus === 'question_active') {
-      try {
-        const user = auth.currentUser || (await ensureAnonymousAuth());
-        const idToken = (await user?.getIdToken()) || '';
-        const resp = await fetch('/api/advance-question', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-          },
-          body: JSON.stringify({
-            gameId: game.id,
-            questionIndex: updated.currentQuestionIndex,
-            timeLimit: updated.timeLimit,
-          }),
-        });
-
-        if (resp.ok) {
-          const resData = await resp.json();
-          if (resData.questionStartTimeMs) {
-            updated.questionStartTime = resData.questionStartTimeMs;
-          }
-        } else {
-          // Direct Firestore write fallback
-          await updateDoc(doc(db, 'games', game.id), {
-            status: newStatus,
-            currentQuestionIndex: updated.currentQuestionIndex,
-            questionStartTime: serverTimestamp(),
-            timeLimit: updated.timeLimit,
-            updatedAt: serverTimestamp(),
-          });
-        }
-      } catch (err) {
-        if (isFirebaseConfigured) {
-          notifyFirestoreError(`Failed to advance question in game ${game.id}`, err);
-          throw err;
-        } else {
-          console.warn('Firestore advance question fallback:', err);
-        }
-      }
-    } else {
-      try {
-        await updateDoc(doc(db, 'games', game.id), {
-          status: newStatus,
-          currentQuestionIndex: updated.currentQuestionIndex,
-          timeLimit: updated.timeLimit,
-          updatedAt: serverTimestamp(),
-        });
-      } catch (e) {
-        if (isFirebaseConfigured) {
-          notifyFirestoreError(`Failed to update game status to "${newStatus}" in Firestore`, e);
-          throw e;
-        } else {
-          console.warn('Firestore update status fallback:', e);
-        }
-      }
-    }
-
     if (!isFirebaseConfigured) {
       localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(updated));
       broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
     }
+  }
+
+  // Host starts the game from lobby
+  public static async startGame(gameId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      const res = await fetch('/api/start-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ gameId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to start game');
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // Host pauses active round
+  public static async pauseGame(gameId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      const res = await fetch('/api/pause-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ gameId }),
+      });
+      return res.ok;
+    }
+    return true;
+  }
+
+  // Host resumes active round
+  public static async resumeGame(gameId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      const res = await fetch('/api/resume-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ gameId }),
+      });
+      return res.ok;
+    }
+    return true;
+  }
+
+  // Host ends game session
+  public static async endGame(gameId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      const res = await fetch('/api/end-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ gameId }),
+      });
+      return res.ok;
+    }
+    return true;
+  }
+
+  // Host cancels game session
+  public static async cancelGame(gameId: string): Promise<boolean> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      const res = await fetch('/api/cancel-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ gameId }),
+      });
+      return res.ok;
+    }
+    return true;
+  }
+
+  // Recover session on page refresh or reconnect
+  public static async recoverSession(gameId: string): Promise<{
+    role: 'host' | 'player';
+    game: GameSession;
+    player?: Player;
+  } | null> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/session-recovery', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ gameId }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          return data;
+        } else {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    }
+
+    // LocalStorage fallback for demo
+    try {
+      const saved = localStorage.getItem(`quizarena_game_${gameId}`);
+      if (saved) {
+        return { role: 'player', game: JSON.parse(saved) };
+      }
+    } catch {}
+    return null;
+  }
+
+  // Host reconciles player count
+  public static async reconcilePlayerCount(gameId: string): Promise<number | null> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      const res = await fetch('/api/reconcile-player-count', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ gameId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.reconciledCount;
+      }
+    }
+    return null;
   }
 
   // Submit player answer (Server-side scoring via POST /api/answer)

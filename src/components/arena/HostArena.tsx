@@ -85,32 +85,46 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
 
   const handleReveal = () => {
     sound.playCorrect();
-    GameEngine.updateGameStatus(game, 'reveal');
+    GameEngine.updateGameStatus(game, 'reveal').catch(err => {
+      console.warn('Failed to reveal answers:', err);
+    });
   };
 
   const handleShowLeaderboard = () => {
     sound.playClick();
-    GameEngine.updateGameStatus(game, 'leaderboard');
+    GameEngine.updateGameStatus(game, 'leaderboard').catch(err => {
+      console.warn('Failed to show leaderboard:', err);
+    });
   };
 
   const handleNextQuestion = () => {
     sound.playClick();
     const nextIdx = game.currentQuestionIndex + 1;
     if (nextIdx >= game.questions.length) {
-      GameEngine.updateGameStatus(game, 'finished');
-      onFinishGame();
+      GameEngine.endGame(game.id).then(() => {
+        onFinishGame();
+      }).catch(err => {
+        console.warn('Failed to end game:', err);
+        onFinishGame();
+      });
     } else {
-      GameEngine.updateGameStatus(game, 'question_active', nextIdx);
+      GameEngine.updateGameStatus(game, 'question_active', nextIdx).catch(err => {
+        console.warn('Failed to advance question:', err);
+      });
     }
   };
 
   const handleTogglePause = () => {
     sound.playClick();
-    const isPaused = !game.isPaused;
-    GameEngine.updateGameStatus(
-      { ...game, isPaused },
-      game.status
-    );
+    if (game.isPaused) {
+      GameEngine.resumeGame(game.id).catch(err => {
+        console.warn('Failed to resume game:', err);
+      });
+    } else {
+      GameEngine.pauseGame(game.id).catch(err => {
+        console.warn('Failed to pause game:', err);
+      });
+    }
   };
 
   if (!currentQuestion) {

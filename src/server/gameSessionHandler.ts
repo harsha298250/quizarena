@@ -445,6 +445,9 @@ export async function handleKickPlayer(
         throw new Error('PLAYER_NOT_FOUND');
       }
 
+      const currentPlayerData = playerSnap.data() || {};
+      const isAlreadyKicked = currentPlayerData.status === 'kicked' || currentPlayerData.isKicked === true;
+
       // Update player doc to kicked (DO NOT delete doc, preserve history)
       transaction.update(playerDocRef, {
         status: 'kicked',
@@ -461,12 +464,14 @@ export async function handleKickPlayer(
         kickedAt: FieldValue.serverTimestamp(),
       });
 
-      // Decrement capacity
-      const newCount = Math.max(0, (gameData.playerCount || 1) - 1);
-      transaction.update(gameDocRef, {
-        playerCount: newCount,
-        updatedAt: new Date().toISOString(),
-      });
+      // Decrement capacity only if player was not already kicked (idempotency guard)
+      if (!isAlreadyKicked) {
+        const newCount = Math.max(0, (gameData.playerCount || 1) - 1);
+        transaction.update(gameDocRef, {
+          playerCount: newCount,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     });
 
     res.status(200).json({
@@ -542,6 +547,9 @@ export async function handleLeaveGame(
         return;
       }
 
+      const currentPlayerData = playerSnap.data() || {};
+      const isAlreadyLeft = currentPlayerData.status === 'left';
+
       // Mark status as 'left', preserving strike records and integrity telemetry
       transaction.update(playerDocRef, {
         status: 'left',
@@ -549,12 +557,15 @@ export async function handleLeaveGame(
         lastSeen: new Date().toISOString(),
       });
 
-      const gameData = gameSnap.data();
-      const newCount = Math.max(0, (gameData.playerCount || 1) - 1);
-      transaction.update(gameDocRef, {
-        playerCount: newCount,
-        updatedAt: new Date().toISOString(),
-      });
+      // Decrement capacity only if player was not already left (idempotency guard)
+      if (!isAlreadyLeft) {
+        const gameData = gameSnap.data();
+        const newCount = Math.max(0, (gameData.playerCount || 1) - 1);
+        transaction.update(gameDocRef, {
+          playerCount: newCount,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     });
 
     res.status(200).json({
@@ -622,5 +633,794 @@ export async function handleLockLobby(
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to update lobby lock' });
+  }
+}
+
+/**
+ * POST /api/start-game
+ * Host initiates game from lobby to question_active (question 0).
+ * Rejects if game is already active, finished, or has 0 questions.
+ */
+export async function handleStartGame(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const now = Date.now();
+    let updatedGame: any = null;
+
+    await adminDb.runTransaction(async (transaction: any) => {
+      const gameSnap = await transaction.get(gameDocRef);
+      if (!gameSnap.exists) {
+        throw new Error('GAME_NOT_FOUND');
+      }
+
+      const gameData = gameSnap.data();
+      if (gameData.hostId !== hostUid) {
+        throw new Error('FORBIDDEN_HOST');
+      }
+
+      if (gameData.status !== 'lobby') {
+        throw new Error(`INVALID_STATE_TRANSITION: Cannot start game from status '${gameData.status}'`);
+      }
+
+      if (!Array.isArray(gameData.questions) || gameData.questions.length === 0) {
+        throw new Error('CANNOT_START_EMPTY_QUIZ: Quiz must contain at least one question');
+      }
+
+      const timeLimit = gameData.questions[0]?.timeLimit || gameData.timeLimit || 20;
+
+      transaction.update(gameDocRef, {
+        status: 'question_active',
+        currentQuestionIndex: 0,
+        timeLimit,
+        questionStartTime: FieldValue.serverTimestamp(),
+        questionStartTimeMs: now,
+        isPaused: false,
+        pauseRemainingMs: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      updatedGame = {
+        ...gameData,
+        status: 'question_active',
+        currentQuestionIndex: 0,
+        timeLimit,
+        questionStartTimeMs: now,
+        isPaused: false,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      status: 'question_active',
+      currentQuestionIndex: 0,
+      questionStartTimeMs: now,
+      game: updatedGame,
+    });
+  } catch (err: any) {
+    const code = err.message || '';
+    if (code === 'GAME_NOT_FOUND') {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+    if (code === 'FORBIDDEN_HOST') {
+      res.status(403).json({ error: 'Forbidden: Only the game host can start the game' });
+      return;
+    }
+    if (code.startsWith('INVALID_STATE_TRANSITION') || code.startsWith('CANNOT_START_EMPTY_QUIZ')) {
+      res.status(400).json({ error: code });
+      return;
+    }
+
+    console.error('Error starting game:', err);
+    res.status(500).json({ error: err.message || 'Internal error starting game' });
+  }
+}
+
+/**
+ * POST /api/advance-question
+ * Idempotent, race-condition protected question advancement.
+ * Validates sequence, bounds, and host ownership.
+ */
+export async function handleAdvanceQuestion(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId, questionIndex, targetQuestionIndex, timeLimit } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const now = Date.now();
+    let resultPayload: any = null;
+
+    await adminDb.runTransaction(async (transaction: any) => {
+      const gameSnap = await transaction.get(gameDocRef);
+      if (!gameSnap.exists) {
+        throw new Error('GAME_NOT_FOUND');
+      }
+
+      const gameData = gameSnap.data();
+      if (gameData.hostId !== hostUid) {
+        throw new Error('FORBIDDEN_HOST');
+      }
+
+      if (gameData.status === 'finished' || gameData.status === 'cancelled') {
+        throw new Error(`INVALID_STATE_TRANSITION: Cannot advance questions in a ${gameData.status} game`);
+      }
+
+      const totalQuestions = Array.isArray(gameData.questions) ? gameData.questions.length : 0;
+      const requestedIndex = targetQuestionIndex !== undefined ? targetQuestionIndex : questionIndex;
+      const targetIndex = requestedIndex !== undefined ? Number(requestedIndex) : (gameData.currentQuestionIndex || 0) + 1;
+
+      // Idempotency guard: If question is already active at requested index, return success without jumping or resetting
+      if (
+        gameData.status === 'question_active' &&
+        gameData.currentQuestionIndex === targetIndex
+      ) {
+        resultPayload = {
+          success: true,
+          status: 'question_active',
+          currentQuestionIndex: targetIndex,
+          questionStartTimeMs: gameData.questionStartTimeMs || now,
+          idempotentRepeat: true,
+        };
+        return;
+      }
+
+      // Bound checking
+      if (targetIndex >= totalQuestions) {
+        throw new Error(`QUESTION_INDEX_OUT_OF_BOUNDS: Requested index ${targetIndex} exceeds total questions (${totalQuestions})`);
+      }
+      if (targetIndex < 0) {
+        throw new Error('QUESTION_INDEX_OUT_OF_BOUNDS: Negative index not allowed');
+      }
+
+      // Sequence check: cannot skip questions ahead by more than 1
+      const currentIndex = gameData.currentQuestionIndex || 0;
+      if (targetIndex > currentIndex + 1) {
+        throw new Error(`INVALID_SEQUENCE: Cannot skip from question ${currentIndex} to question ${targetIndex}`);
+      }
+
+      const duration = timeLimit || gameData.questions?.[targetIndex]?.timeLimit || gameData.timeLimit || 20;
+
+      transaction.update(gameDocRef, {
+        status: 'question_active',
+        currentQuestionIndex: targetIndex,
+        timeLimit: duration,
+        questionStartTime: FieldValue.serverTimestamp(),
+        questionStartTimeMs: now,
+        isPaused: false,
+        pauseRemainingMs: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      resultPayload = {
+        success: true,
+        status: 'question_active',
+        currentQuestionIndex: targetIndex,
+        questionStartTimeMs: now,
+        timeLimit: duration,
+      };
+    });
+
+    res.status(200).json(resultPayload);
+  } catch (err: any) {
+    const code = err.message || '';
+    if (code === 'GAME_NOT_FOUND') {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+    if (code === 'FORBIDDEN_HOST') {
+      res.status(403).json({ error: 'Forbidden: Only the game host can advance questions' });
+      return;
+    }
+    if (code.startsWith('INVALID_STATE_TRANSITION') || code.startsWith('QUESTION_INDEX_OUT_OF_BOUNDS') || code.startsWith('INVALID_SEQUENCE')) {
+      res.status(400).json({ error: code });
+      return;
+    }
+
+    console.error('Error advancing question:', err);
+    res.status(500).json({ error: err.message || 'Internal error advancing question' });
+  }
+}
+
+/**
+ * POST /api/reveal-answer
+ * Transitions state from question_active to reveal.
+ */
+export async function handleRevealAnswer(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can reveal answers' });
+      return;
+    }
+
+    if (data?.status !== 'question_active' && data?.status !== 'paused' && data?.status !== 'reveal') {
+      res.status(400).json({ error: `Cannot reveal answers from status '${data?.status}'` });
+      return;
+    }
+
+    await gameDocRef.update({
+      status: 'reveal',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({ success: true, status: 'reveal' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to reveal answer' });
+  }
+}
+
+/**
+ * POST /api/show-leaderboard
+ * Transitions state to leaderboard.
+ */
+export async function handleShowLeaderboard(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can display leaderboard' });
+      return;
+    }
+
+    await gameDocRef.update({
+      status: 'leaderboard',
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({ success: true, status: 'leaderboard' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to show leaderboard' });
+  }
+}
+
+/**
+ * POST /api/pause-game
+ * Pauses active question and records remaining time in milliseconds.
+ */
+export async function handlePauseGame(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can pause the game' });
+      return;
+    }
+
+    if (data?.status !== 'question_active' || data?.isPaused) {
+      res.status(400).json({ error: 'Game can only be paused during an active, non-paused question' });
+      return;
+    }
+
+    const now = Date.now();
+    const startMs = data?.questionStartTimeMs || now;
+    const totalMs = (data?.timeLimit || 20) * 1000;
+    const elapsedMs = now - startMs;
+    const remainingMs = Math.max(0, totalMs - elapsedMs);
+
+    await gameDocRef.update({
+      isPaused: true,
+      pauseRemainingMs: remainingMs,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({
+      success: true,
+      isPaused: true,
+      pauseRemainingMs: remainingMs,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to pause game' });
+  }
+}
+
+/**
+ * POST /api/resume-game
+ * Resumes paused question and adjusts questionStartTimeMs so timer resumes smoothly.
+ */
+export async function handleResumeGame(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can resume the game' });
+      return;
+    }
+
+    if (!data?.isPaused) {
+      res.status(400).json({ error: 'Game is not currently paused' });
+      return;
+    }
+
+    const totalMs = (data?.timeLimit || 20) * 1000;
+    const remainingMs = data?.pauseRemainingMs ?? totalMs;
+    const simulatedStart = Date.now() - (totalMs - remainingMs);
+
+    await gameDocRef.update({
+      isPaused: false,
+      pauseRemainingMs: null,
+      questionStartTimeMs: simulatedStart,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({
+      success: true,
+      isPaused: false,
+      questionStartTimeMs: simulatedStart,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to resume game' });
+  }
+}
+
+/**
+ * POST /api/end-game
+ * Host completes game session.
+ */
+export async function handleEndGame(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can finish the game' });
+      return;
+    }
+
+    // Idempotent end
+    await gameDocRef.update({
+      status: 'finished',
+      isPaused: false,
+      finishedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({
+      success: true,
+      status: 'finished',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to end game' });
+  }
+}
+
+/**
+ * POST /api/cancel-game
+ * Host cancels an active or lobby session.
+ */
+export async function handleCancelGame(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can cancel the game' });
+      return;
+    }
+
+    await gameDocRef.update({
+      status: 'cancelled',
+      isLocked: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({
+      success: true,
+      status: 'cancelled',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to cancel game' });
+  }
+}
+
+/**
+ * POST /api/session-recovery
+ * Recovers game session and verified player state after page reload or disconnect.
+ * Rejects kicked or terminated players authoritatively.
+ */
+export async function handleSessionRecovery(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const { gameId } = req.body || {};
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const gameSnap = await gameDocRef.get();
+    if (!gameSnap.exists) {
+      res.status(404).json({ error: 'GAME_NOT_FOUND', message: 'Game session does not exist' });
+      return;
+    }
+
+    const gameData = gameSnap.data();
+
+    // Check if requester is the game host
+    if (gameData?.hostId === authUser.uid) {
+      res.status(200).json({
+        success: true,
+        role: 'host',
+        game: gameData,
+      });
+      return;
+    }
+
+    // Check if requester is kicked
+    const kickedDocRef = adminDb.doc(`games/${gameId}/kickedPlayers/${authUser.uid}`);
+    const kickedSnap = await kickedDocRef.get();
+    if (kickedSnap.exists) {
+      res.status(403).json({ error: 'PLAYER_KICKED', message: 'You have been removed from this game' });
+      return;
+    }
+
+    // Check player document
+    const playerDocRef = adminDb.doc(`games/${gameId}/players/${authUser.uid}`);
+    const playerSnap = await playerDocRef.get();
+    if (!playerSnap.exists) {
+      res.status(404).json({ error: 'NOT_A_MEMBER', message: 'Player is not registered in this game' });
+      return;
+    }
+
+    const playerData = playerSnap.data() as Player;
+    if (playerData.status === 'kicked' || playerData.isKicked) {
+      res.status(403).json({ error: 'PLAYER_KICKED', message: 'You have been removed from this game' });
+      return;
+    }
+
+    if (
+      playerData.isTerminated ||
+      playerData.status === 'terminated_integrity' ||
+      (playerData.strikes || 0) >= 6
+    ) {
+      res.status(403).json({ error: 'PLAYER_TERMINATED', message: 'Your session was terminated for integrity policy violations' });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      role: 'player',
+      game: gameData,
+      player: playerData,
+    });
+  } catch (err: any) {
+    console.error('Session recovery error:', err);
+    res.status(500).json({ error: err.message || 'Failed to recover session' });
+  }
+}
+
+/**
+ * POST /api/reconcile-player-count
+ * Host-only tool to recalculate active players and heal any diverging counts.
+ */
+export async function handleReconcilePlayerCount(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const hostUid = authUser.uid;
+  const { gameId } = req.body || {};
+
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const gameSnap = await gameDocRef.get();
+    if (!gameSnap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    if (gameSnap.data()?.hostId !== hostUid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can reconcile player count' });
+      return;
+    }
+
+    // Get all player docs
+    const playersCollectionRef = adminDb.collection(`games/${gameId}/players`);
+    const pSnap = await playersCollectionRef.get();
+    let activeCount = 0;
+
+    pSnap.forEach((doc: any) => {
+      const data = doc.data();
+      if (data.status !== 'kicked' && data.status !== 'left' && !data.isKicked) {
+        activeCount++;
+      }
+    });
+
+    await gameDocRef.update({
+      playerCount: activeCount,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({
+      success: true,
+      reconciledCount: activeCount,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to reconcile player count' });
   }
 }

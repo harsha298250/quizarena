@@ -268,7 +268,7 @@ export const EmailOutbox: React.FC = () => {
             <span>ℹ️ Cloud Host SMTP Setup (Render / Free Tier):</span>
           </div>
           <p className="text-[var(--text-muted)]">
-            Cloud platforms like Render block outbound port 587. For Gmail, set <code className="px-1 py-0.5 rounded bg-[var(--surface)] text-[var(--accent)] font-bold">SMTP_PORT=465</code>, <code className="px-1 py-0.5 rounded bg-[var(--surface)] text-[var(--accent)] font-bold">SMTP_SECURE=true</code>, and use a 16-character Google App Password in your Render Environment Variables.
+            Render Free tier blocks outbound SMTP ports 25, 465, and 587. To send emails reliably on Render Free tier, add <code className="px-1 py-0.5 rounded bg-[var(--surface)] text-[var(--accent)] font-bold">RESEND_API_KEY</code> or <code className="px-1 py-0.5 rounded bg-[var(--surface)] text-[var(--accent)] font-bold">BREVO_API_KEY</code> in Render Environment Variables (sends over HTTPS port 443 with 3,000 free emails/mo). Gmail SMTP (<code className="px-1 py-0.5 rounded bg-[var(--surface)] font-bold">smtp.gmail.com:465</code>) works when running locally or on Render Starter.
           </p>
         </div>
       )}
