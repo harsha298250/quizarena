@@ -74,17 +74,17 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
       role="alert"
       className={`pointer-events-auto paper-card p-3.5 flex items-start justify-between gap-3 shadow-[4px_4px_0px_var(--shadow)] border-2 ${typeConfig.border} ${typeConfig.bg} animate-slideUp transition-all`}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-2.5 min-w-0">
         <span className="text-base select-none shrink-0" aria-hidden="true">
           {typeConfig.icon}
         </span>
-        <div className="space-y-0.5">
+        <div className="space-y-0.5 min-w-0">
           {toast.title && (
-            <div className="font-['Bricolage_Grotesque'] font-black text-xs uppercase tracking-wide">
+            <div className="font-['Bricolage_Grotesque'] font-black text-xs uppercase tracking-wide truncate">
               {toast.title}
             </div>
           )}
-          <p className="text-xs font-semibold leading-snug">{toast.message}</p>
+          <p className="text-xs font-semibold leading-snug break-words">{toast.message}</p>
         </div>
       </div>
       <button

@@ -120,7 +120,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
             sound.playClick();
             setActiveTab('base');
           }}
-          className={`flex-1 py-1.5 text-xs font-bold font-['Bricolage_Grotesque'] border-b-2 transition-all ${
+          className={`flex-1 py-1.5 px-1 text-[10.5px] sm:text-xs font-bold font-['Bricolage_Grotesque'] border-b-2 transition-all truncate text-center ${
             activeTab === 'base'
               ? 'border-[var(--accent)] text-[var(--accent)] font-black'
               : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -137,7 +137,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
             sound.playClick();
             setActiveTab('face');
           }}
-          className={`flex-1 py-1.5 text-xs font-bold font-['Bricolage_Grotesque'] border-b-2 transition-all ${
+          className={`flex-1 py-1.5 px-1 text-[10.5px] sm:text-xs font-bold font-['Bricolage_Grotesque'] border-b-2 transition-all truncate text-center ${
             activeTab === 'face'
               ? 'border-[var(--accent)] text-[var(--accent)] font-black'
               : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -154,7 +154,7 @@ export const AvatarBuilder: React.FC<AvatarBuilderProps> = ({
             sound.playClick();
             setActiveTab('style');
           }}
-          className={`flex-1 py-1.5 text-xs font-bold font-['Bricolage_Grotesque'] border-b-2 transition-all ${
+          className={`flex-1 py-1.5 px-1 text-[10.5px] sm:text-xs font-bold font-['Bricolage_Grotesque'] border-b-2 transition-all truncate text-center ${
             activeTab === 'style'
               ? 'border-[var(--accent)] text-[var(--accent)] font-black'
               : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'

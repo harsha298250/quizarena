@@ -178,23 +178,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
-      <div className="relative w-full max-w-md paper-modal p-6 shadow-[8px_8px_0px_var(--shadow)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 animate-fade-in">
+      <div className="relative w-full max-w-md paper-modal p-4 sm:p-6 shadow-[8px_8px_0px_var(--shadow)]">
         {/* Close button */}
         <button
           onClick={onClose}
           aria-label="Close authentication modal"
-          className="absolute top-4 right-4 h-8 w-8 rounded-full border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] font-bold flex items-center justify-center hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]"
+          className="absolute top-3 right-3 sm:top-4 sm:right-4 h-8 w-8 rounded-full border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] font-bold flex items-center justify-center hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]"
         >
           ✕
         </button>
 
-        <div className="text-center mb-5">
-          <div className="flex items-center justify-center gap-1.5 p-1 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] mb-3">
+        <div className="text-center mb-4 sm:mb-5">
+          <div className="flex items-center justify-center gap-1 sm:gap-1.5 p-1 bg-[var(--surface-2)] rounded-xl border border-[var(--border)] mb-3">
             <button
               type="button"
               onClick={() => handleRoleSelect('host')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+              className={`flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-[11px] sm:text-xs font-bold transition-all truncate ${
                 selectedRole === 'host'
                   ? 'bg-[var(--accent)] text-white shadow-xs'
                   : 'text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -205,7 +205,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
             <button
               type="button"
               onClick={() => handleRoleSelect('student')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
+              className={`flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-[11px] sm:text-xs font-bold transition-all truncate ${
                 selectedRole === 'student'
                   ? 'bg-[var(--accent)] text-white shadow-xs'
                   : 'text-[var(--text-muted)] hover:text-[var(--text)]'
@@ -215,7 +215,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
             </button>
           </div>
 
-          <h2 className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--text)] mt-1">
+          <h2 className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--text)] mt-1">
             {isRegister
               ? selectedRole === 'host'
                 ? 'Create Host Account'
@@ -224,7 +224,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
               ? 'Sign In as Host'
               : 'Sign In as Student'}
           </h2>
-          <p className="text-xs text-[var(--text-muted)] mt-1">
+          <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
             {selectedRole === 'host'
               ? 'Manage quizzes, launch live competitions, and view cohort analytics.'
               : 'View your assessment results, track progress, and download verified certificates.'}
@@ -233,12 +233,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
 
         {/* Feedback messages */}
         {errorMsg && (
-          <div role="alert" className="mb-4 rounded-xl border border-red-500 bg-red-50 dark:bg-red-950/40 p-2.5 text-xs font-bold text-red-700 dark:text-red-300">
+          <div role="alert" className="mb-4 rounded-xl border border-red-500 bg-red-50 dark:bg-red-950/40 p-2.5 text-xs font-bold text-red-700 dark:text-red-300 break-words">
             ⚠️ {errorMsg}
           </div>
         )}
         {infoMsg && (
-          <div role="status" className="mb-4 rounded-xl border border-[var(--ok)] bg-emerald-50 dark:bg-emerald-950/40 p-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
+          <div role="status" className="mb-4 rounded-xl border border-[var(--ok)] bg-emerald-50 dark:bg-emerald-950/40 p-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-300 break-words">
             {infoMsg}
           </div>
         )}

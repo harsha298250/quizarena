@@ -181,7 +181,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
       } else {
         const msg = err instanceof Error ? err.message : String(err);
         if (/404|not[_\s-]?found|unavailable/i.test(msg)) {
-          setGenerationError('AI model unavailable, contact admin');
+          setGenerationError('Quiz generation is temporarily unavailable. Please try again shortly.');
         } else {
           setGenerationError(msg || 'Question generation failed. Check server connection and retry.');
         }
@@ -834,7 +834,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                   id="btnAddToStudioNew"
                   onClick={handleAddToStudioNew}
                   disabled={acceptedQuestionIds.size === 0 || isSavingToStudio}
-                  className="paper-btn paper-btn-sm paper-btn-primary text-xs font-black flex items-center gap-1 shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="paper-btn paper-btn-sm paper-btn-primary text-xs font-black flex items-center justify-center gap-1 shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed whitespace-normal text-center min-h-[36px]"
                   title={acceptedQuestionIds.size === 0 ? 'Select at least one question to add to Studio' : undefined}
                 >
                   {isSavingToStudio
@@ -844,7 +844,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
 
                 {/* 2. Add to an Existing Quiz */}
                 {existingQuizzes.length > 0 && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <select
                       id="selectTargetQuiz"
                       value={selectedTargetQuizId}
@@ -863,7 +863,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                       id="btnAppendToExistingQuiz"
                       onClick={handleAddToExistingQuiz}
                       disabled={acceptedQuestionIds.size === 0 || !selectedTargetQuizId || isSavingToStudio}
-                      className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-black shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="paper-btn paper-btn-sm bg-[var(--accent-2-bg)] text-[var(--text)] text-xs font-black shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed whitespace-normal text-center min-h-[36px]"
                       title={acceptedQuestionIds.size === 0 ? 'Select at least one question to append' : undefined}
                     >
                       {isSavingToStudio
@@ -878,7 +878,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                   id="btnHostLiveNow"
                   onClick={handleHostLiveNow}
                   disabled={acceptedQuestionIds.size === 0 || isSavingToStudio}
-                  className="paper-btn paper-btn-sm bg-[var(--ok)] text-white text-xs font-black shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="paper-btn paper-btn-sm bg-[var(--ok)] text-white text-xs font-black shadow-[2px_2px_0px_var(--shadow)] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap min-h-[36px]"
                 >
                   🚀 Host Now ({acceptedQuestionIds.size})
                 </button>

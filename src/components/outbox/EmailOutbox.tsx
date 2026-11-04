@@ -36,6 +36,7 @@ export const EmailOutbox: React.FC = () => {
     'Great job {{name}}! You scored {{score}} points and secured Rank #{{rank}} in the arena!'
   );
   const [testEmailTo, setTestEmailTo] = useState<string>(auth.currentUser?.email || '');
+  const [queueFilter, setQueueFilter] = useState<'all' | 'sent' | 'failed'>('all');
 
   const dispatchTimeoutRef = useRef<any>(null);
 
@@ -46,6 +47,18 @@ export const EmailOutbox: React.FC = () => {
       setTestEmailTo(auth.currentUser.email);
     }
   }, []);
+
+  const handleClearFailedQueue = () => {
+    sound.playClick();
+    const remaining = emails.filter(e => e.status !== 'failed');
+    try {
+      localStorage.setItem('quizarena_local_mail_outbox', JSON.stringify(remaining));
+    } catch {}
+    setEmails(remaining);
+    if (selectedEmail && selectedEmail.status === 'failed') {
+      setSelectedEmail(remaining[0] || null);
+    }
+  };
 
   const runSmtpHealthCheck = async () => {
     setEmailStatus(prev => ({ ...prev, checking: true }));
@@ -190,6 +203,25 @@ export const EmailOutbox: React.FC = () => {
       return;
     }
 
+    // Client-side recipient pre-validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(destination)) {
+      setTestErrorMessage('Please enter a valid email address (e.g. host@school.edu).');
+      return;
+    }
+
+    // Resend restricted testing-mode pre-validation
+    if (emailStatus.provider === 'resend') {
+      const isAllowedSink = destination.toLowerCase() === 'delivered@resend.dev';
+      const isHostAddress = hostUser?.email && destination.toLowerCase() === hostUser.email.toLowerCase();
+      if (!isAllowedSink && !isHostAddress) {
+        setTestErrorMessage(
+          `Resend Restricted Testing Mode: Free accounts can only dispatch to your verified host email (${hostUser?.email || 'signed-in email'}) or to delivered@resend.dev. To send to ${destination}, a custom domain must be verified in your Resend dashboard at resend.com/domains.`
+        );
+        return;
+      }
+    }
+
     setIsSendingTest(true);
 
     // 20s safety timeout to strictly prevent stuck "Dispatching..." state
@@ -258,11 +290,11 @@ export const EmailOutbox: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
+    <div className="mx-auto max-w-7xl p-3 sm:p-6 space-y-6 min-w-0">
       {/* Header Banner */}
-      <div className="paper-card p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="paper-card p-4 sm:p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="sticker-badge bg-[var(--ok)] text-white text-xs">
               Communication Layer
             </span>
@@ -357,6 +389,21 @@ export const EmailOutbox: React.FC = () => {
         </div>
       )}
 
+      {/* Resend Testing Mode Guidance Card */}
+      {emailStatus.provider === 'resend' && (
+        <div className="p-4 bg-sky-50 dark:bg-sky-950/40 border-2 border-sky-400 dark:border-sky-700 rounded-xl space-y-2 text-xs">
+          <div className="flex items-center gap-2 font-black text-sky-900 dark:text-sky-200">
+            <span>ℹ️ Resend Restricted Testing Mode Active</span>
+            <span className="sticker-badge bg-sky-200 dark:bg-sky-900 text-sky-900 dark:text-sky-100 text-[10px]">
+              Sandboxed Testing
+            </span>
+          </div>
+          <p className="text-sky-800 dark:text-sky-300 leading-relaxed">
+            While using the free Resend test tier, messages can only be dispatched to the verified account owner ({auth.currentUser?.email || 'your registered host email'}) or to Resend's delivery test sink (<code className="px-1.5 py-0.5 rounded bg-white dark:bg-black font-bold">delivered@resend.dev</code>). Dispatches to unverified student addresses will be rejected by Resend with HTTP 403 until a custom domain is verified at <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="underline font-bold">resend.com/domains</a>.
+          </p>
+        </div>
+      )}
+
       {/* Resend Domain Verification Guidance */}
       {((testErrorMessage && /403|domain|verified/i.test(testErrorMessage)) ||
         (emailStatus.error && /403|domain|verified/i.test(emailStatus.error))) && (
@@ -389,8 +436,47 @@ export const EmailOutbox: React.FC = () => {
             <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
               Outgoing Queue ({emails.length})
             </h2>
-            <button id="btnRefreshOutbox" onClick={loadEmails} className="text-xs text-[var(--ok)] font-bold hover:underline">
-              Refresh
+            <div className="flex items-center gap-2">
+              {emails.some(e => e.status === 'failed') && (
+                <button
+                  onClick={handleClearFailedQueue}
+                  className="text-[10px] text-red-600 dark:text-red-400 font-bold hover:underline"
+                  title="Clear failed job records from outbox"
+                >
+                  Clear Failed
+                </button>
+              )}
+              <button id="btnRefreshOutbox" onClick={loadEmails} className="text-xs text-[var(--ok)] font-bold hover:underline">
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* Queue Filter Tabs */}
+          <div className="flex items-center gap-1.5 p-1 bg-[var(--surface-2)] rounded-lg border border-[var(--border)] text-[11px] font-bold">
+            <button
+              onClick={() => setQueueFilter('all')}
+              className={`flex-1 py-1 rounded transition-colors ${
+                queueFilter === 'all' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              All ({emails.length})
+            </button>
+            <button
+              onClick={() => setQueueFilter('sent')}
+              className={`flex-1 py-1 rounded transition-colors ${
+                queueFilter === 'sent' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              Sent ({emails.filter(e => e.status === 'sent').length})
+            </button>
+            <button
+              onClick={() => setQueueFilter('failed')}
+              className={`flex-1 py-1 rounded transition-colors ${
+                queueFilter === 'failed' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              Failed ({emails.filter(e => e.status === 'failed').length})
             </button>
           </div>
 
@@ -400,44 +486,46 @@ export const EmailOutbox: React.FC = () => {
             </div>
           ) : (
             <div id="outboxItemList" className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-              {emails.map(m => {
-                const isSelected = selectedEmail?.id === m.id;
-                return (
-                  <div
-                    key={m.id}
-                    data-testid={`outbox-item-${m.id}`}
-                    onClick={() => {
-                      sound.playClick();
-                      setSelectedEmail(m);
-                    }}
-                    className={`p-3 rounded-xl border-2 border-[var(--border)] cursor-pointer transition-all ${
-                      isSelected ? 'bg-[var(--surface-2)] ring-2 ring-[var(--accent)]' : 'bg-[var(--surface)]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-xs font-bold mb-1">
-                      <span className="truncate max-w-[140px] text-[var(--accent)]">{m.to}</span>
-                      <span
-                        className={`sticker-badge text-[9px] py-0 px-1.5 ${
-                          m.status === 'sent'
-                            ? 'sticker-badge-ok'
-                            : m.status === 'failed'
-                            ? 'sticker-badge-tomato'
-                            : 'sticker-badge-sunshine'
-                        }`}
-                      >
-                        {m.status.toUpperCase()}
-                      </span>
+              {emails
+                .filter(m => (queueFilter === 'all' ? true : m.status === queueFilter))
+                .map(m => {
+                  const isSelected = selectedEmail?.id === m.id;
+                  return (
+                    <div
+                      key={m.id}
+                      data-testid={`outbox-item-${m.id}`}
+                      onClick={() => {
+                        sound.playClick();
+                        setSelectedEmail(m);
+                      }}
+                      className={`p-3 rounded-xl border-2 border-[var(--border)] cursor-pointer transition-all ${
+                        isSelected ? 'bg-[var(--surface-2)] ring-2 ring-[var(--accent)]' : 'bg-[var(--surface)]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs font-bold mb-1">
+                        <span className="truncate max-w-[140px] text-[var(--accent)]">{m.to}</span>
+                        <span
+                          className={`sticker-badge text-[9px] py-0 px-1.5 ${
+                            m.status === 'sent'
+                              ? 'sticker-badge-ok'
+                              : m.status === 'failed'
+                              ? 'sticker-badge-tomato'
+                              : 'sticker-badge-sunshine'
+                          }`}
+                        >
+                          {m.status === 'sent' ? 'SENT VIA API' : m.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="text-xs font-bold text-[var(--text)] truncate">
+                        {m.subject}
+                      </div>
+                      <div className="text-[10px] text-[var(--text-muted)] mt-1 font-mono-code flex items-center justify-between">
+                        <span>Rank #{m.metadata?.rank} • {m.metadata?.score?.toLocaleString()} pts</span>
+                        {m.errorMessage && <span className="text-red-500 font-bold truncate max-w-[120px]">{m.errorMessage}</span>}
+                      </div>
                     </div>
-                    <div className="text-xs font-bold text-[var(--text)] truncate">
-                      {m.subject}
-                    </div>
-                    <div className="text-[10px] text-[var(--text-muted)] mt-1 font-mono-code flex items-center justify-between">
-                      <span>Rank #{m.metadata?.rank} • {m.metadata?.score?.toLocaleString()} pts</span>
-                      {m.errorMessage && <span className="text-red-500 font-bold truncate max-w-[120px]">{m.errorMessage}</span>}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -466,7 +554,7 @@ export const EmailOutbox: React.FC = () => {
                 To: <strong className="text-[var(--text)]">{selectedEmail.to}</strong> ({selectedEmail.recipientName})<br />
                 Subject: <strong className="text-[var(--text)]">{selectedEmail.subject}</strong><br />
                 Status: <strong className={selectedEmail.status === 'sent' ? 'text-green-600' : selectedEmail.status === 'failed' ? 'text-red-600' : 'text-yellow-600'}>
-                  {selectedEmail.status.toUpperCase()}
+                  {selectedEmail.status === 'sent' ? 'SENT VIA API (Dispatch Confirmed)' : selectedEmail.status.toUpperCase()}
                 </strong>
                 {selectedEmail.errorMessage && (
                   <div className="mt-1 p-2 rounded bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 text-xs font-mono">

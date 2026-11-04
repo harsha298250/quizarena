@@ -104,33 +104,33 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems = userRole === 'student' ? studentNavItems : hostNavItems;
 
   return (
-    <header className="sticky top-0 z-40 border-b-3 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] transition-colors">
+    <header className="sticky top-0 z-40 border-b-3 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] transition-colors overflow-x-clip">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2.5 sm:px-6">
         {/* Brand Wordmark */}
         <div
           onClick={() => handleNavClick('arena')}
-          className="flex items-center gap-2.5 cursor-pointer group select-none"
+          className="flex items-center gap-2 sm:gap-2.5 cursor-pointer group select-none min-w-0"
         >
-          <div className="relative">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-[var(--border)] bg-[var(--accent)] shadow-[2.5px_2.5px_0px_var(--shadow)] group-hover:rotate-6 transition-transform">
-              <span className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text-on-accent)]">Q</span>
+          <div className="relative shrink-0">
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl border-2 border-[var(--border)] bg-[var(--accent)] shadow-[2.5px_2.5px_0px_var(--shadow)] group-hover:rotate-6 transition-transform">
+              <span className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text-on-accent)]">Q</span>
             </div>
             <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--accent-2-bg)] border border-[var(--border)] text-[10px] font-bold text-[var(--text-on-accent-2)]">
               ⚡
             </span>
           </div>
-          <div className="flex flex-col">
-            <span className="font-['Bricolage_Grotesque'] text-2xl font-black tracking-tight text-[var(--text)] leading-none">
+          <div className="flex flex-col min-w-0">
+            <span className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black tracking-tight text-[var(--text)] leading-none truncate">
               Quiz<span className="text-[var(--accent)]">Arena</span>
             </span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--ok)] dark:text-[var(--accent-2)]">
+            <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-[var(--ok)] dark:text-[var(--accent-2)] truncate">
               Real-Time Play
             </span>
           </div>
         </div>
 
-        {/* Desktop Navigation Links (Collapses to Drawer below 1200px) */}
-        <nav className="hidden min-[1200px]:flex items-center gap-1 min-[1300px]:gap-1.5" aria-label="Main Navigation">
+        {/* Desktop Navigation Links (Collapses to Drawer below 1400px) */}
+        <nav className="hidden min-[1400px]:flex items-center gap-1 min-[1500px]:gap-1.5" aria-label="Main Navigation">
           {navItems.map(item => {
             const active = currentTab === item.id;
             return (
@@ -170,10 +170,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             </select>
           </div>
 
-          {/* Sound Mute Button */}
+          {/* Sound Mute Button (Desktop/Tablet) */}
           <button
             onClick={handleMuteToggle}
-            className={`p-1.5 rounded-lg border-2 border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)] transition-transform active:translate-y-0.5 ${
+            className={`hidden sm:inline-flex p-1.5 rounded-lg border-2 border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)] transition-transform active:translate-y-0.5 ${
               isMuted ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)]'
             }`}
             title={isMuted ? 'Unmute Sound FX' : 'Mute Sound FX'}
@@ -191,14 +191,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
-          {/* Accessible Three-State Theme Toggle */}
-          <ThemeToggle theme={currentThemeMode} setTheme={handleThemeChange} />
+          {/* Accessible Three-State Theme Toggle (Desktop/Tablet) */}
+          <div className="hidden sm:inline-flex">
+            <ThemeToggle theme={currentThemeMode} setTheme={handleThemeChange} />
+          </div>
 
-          {/* In-App PWA Install */}
-          <PWAInstallButton />
+          {/* In-App PWA Install (Desktop/Tablet) */}
+          <div className="hidden sm:inline-flex">
+            <PWAInstallButton />
+          </div>
 
-          {/* Settings & Privacy Menu Toggle */}
-          <div className="relative">
+          {/* Settings & Privacy Menu Toggle (Desktop/Tablet) */}
+          <div className="hidden sm:inline-flex relative">
             <button
               onClick={() => {
                 sound.playClick();
@@ -288,18 +292,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* User Sign In / Profile */}
+          {/* User Sign In / Profile (Desktop/Tablet) */}
           {currentUser ? (
-            <div className="flex items-center gap-1.5">
-              <span className="hidden sm:inline-block text-xs font-bold text-[var(--text)] truncate max-w-[90px]">
+            <div className="hidden sm:inline-flex items-center gap-1.5 shrink-0">
+              <span
+                className="inline-block text-xs font-bold text-[var(--text)] truncate max-w-[120px] md:max-w-[160px]"
+                title={currentUser.displayName || currentUser.email || 'Host'}
+              >
                 {currentUser.displayName || 'Host'}
               </span>
               <button
                 onClick={handleLogout}
-                className="paper-btn paper-btn-sm text-xs px-2 py-1"
+                className="paper-btn paper-btn-sm text-xs px-2.5 py-1 whitespace-nowrap"
                 title="Sign Out"
               >
-                Out
+                Sign Out
               </button>
             </div>
           ) : (
@@ -308,18 +315,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 sound.playClick();
                 setAuthModalOpen(true);
               }}
-              className="paper-btn paper-btn-sm paper-btn-ok text-xs px-2.5 py-1"
+              className="hidden sm:inline-flex paper-btn paper-btn-sm paper-btn-ok text-xs px-2.5 py-1 shrink-0 whitespace-nowrap"
               title="Sign in with Email or Google"
             >
               Sign In
             </button>
           )}
 
-          {/* Mobile hamburger menu toggle (Active below 1200px) */}
+          {/* Hamburger menu toggle (Active below 1400px) */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle mobile navigation menu"
-            className="min-[1200px]:hidden p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] shadow-[2px_2px_0px_var(--shadow)]"
+            className="min-[1400px]:hidden p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)] shadow-[2px_2px_0px_var(--shadow)]"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6h16M4 12h16m-7 6h7" />
@@ -328,9 +335,46 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Drawer (Collapses below 1200px) */}
+      {/* Mobile / Responsive Drawer (Collapses below 1400px) */}
       {mobileMenuOpen && (
-        <div className="min-[1200px]:hidden border-t-2 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] px-4 py-3 space-y-1.5 animate-fadeIn">
+        <div className="min-[1400px]:hidden border-t-2 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] px-4 py-3 space-y-1.5 animate-fadeIn">
+          {/* Mobile User Profile / Sign In Banner */}
+          <div className="sm:hidden pb-2 mb-1 border-b border-[var(--border)]/20">
+            {currentUser ? (
+              <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-[var(--text)] truncate">
+                    {currentUser.displayName || 'Host'}
+                  </div>
+                  <div className="text-[10px] text-[var(--text-muted)] truncate">
+                    {currentUser.email || ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="paper-btn paper-btn-sm text-xs px-2.5 py-1 whitespace-nowrap shrink-0"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  sound.playClick();
+                  setMobileMenuOpen(false);
+                  setAuthModalOpen(true);
+                }}
+                className="w-full paper-btn paper-btn-ok py-2 text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <span>🔑</span>
+                <span>Sign In / Register</span>
+              </button>
+            )}
+          </div>
+
           {navItems.map(item => (
             <button
               key={item.id}
@@ -347,6 +391,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           ))}
 
+          {/* Mobile Drawer Quick Controls: Theme & Sound */}
+          <div className="pt-2 sm:hidden border-t border-[var(--border)]/20 space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-bold text-[var(--text-muted)]">Theme Appearance</span>
+              <ThemeToggle theme={currentThemeMode} setTheme={handleThemeChange} />
+            </div>
+            <div className="flex items-center justify-between px-1">
+              <span className="text-xs font-bold text-[var(--text-muted)]">Sound Effects</span>
+              <button
+                onClick={handleMuteToggle}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg border-2 border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)] flex items-center gap-1.5 ${
+                  isMuted ? 'bg-[var(--accent)] text-[var(--text-on-accent)]' : 'bg-[var(--accent-2-bg)] text-[var(--text-on-accent-2)]'
+                }`}
+              >
+                <span>{isMuted ? '🔇' : '🔊'}</span>
+                <span>{isMuted ? 'Muted' : 'Sound On'}</span>
+              </button>
+            </div>
+          </div>
+
           <div className="pt-2 border-t border-[var(--border)]/20">
             <button
               onClick={() => {
@@ -356,7 +420,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="w-full text-left px-3 py-2 text-sm font-bold rounded-lg border-2 border-[var(--border)] bg-red-600 text-white shadow-[2px_2px_0px_var(--shadow)] flex items-center gap-2"
             >
               <span aria-hidden="true">🗑️</span>
-              <span>Settings & Delete My Data (GDPR)</span>
+              <span>Privacy: Delete Stored Data</span>
             </button>
           </div>
         </div>

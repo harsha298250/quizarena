@@ -95,17 +95,17 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <span className="text-xs uppercase font-black tracking-widest text-[var(--text)]">
                 JOIN AT <span className="underline decoration-[var(--accent)] decoration-4 font-black text-[var(--accent)]">QUIZARENA</span> WITH PIN:
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 max-w-full">
                 <div
                   onClick={handleCopyPin}
-                  className="font-mono-code text-5xl sm:text-6xl font-black tracking-widest bg-[var(--surface)] text-[var(--accent)] px-5 py-2 rounded-2xl border-3 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)] cursor-pointer hover:scale-105 active:scale-95 transition-transform select-all"
+                  className="font-mono-code text-3xl sm:text-5xl md:text-6xl font-black tracking-widest bg-[var(--surface)] text-[var(--accent)] px-3 sm:px-5 py-2 rounded-2xl border-3 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)] cursor-pointer hover:scale-105 active:scale-95 transition-transform select-all max-w-full text-center truncate"
                   title="Click to copy PIN"
                 >
                   {game.pin}
                 </div>
                 <button
                   onClick={handleCopyPin}
-                  className="paper-btn paper-btn-secondary p-3 sm:p-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-[2px_2px_0px_var(--shadow)]"
+                  className="paper-btn paper-btn-secondary p-2.5 sm:p-3.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-[2px_2px_0px_var(--shadow)] shrink-0"
                   title={copiedLink ? 'Copied PIN' : 'Copy PIN'}
                   aria-label={copiedLink ? 'Copied' : 'Copy PIN'}
                 >

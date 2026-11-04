@@ -282,8 +282,8 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
       </div>
 
       {/* Main Question Display Screen (Projector Landscape) */}
-      <div className="paper-card p-8 sm:p-12 bg-[var(--surface)] text-center space-y-6">
-        <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-4xl lg:text-5xl font-black text-[var(--text)] leading-tight">
+      <div className="paper-card p-6 sm:p-8 md:p-12 bg-[var(--surface)] text-center space-y-6 min-w-0 overflow-hidden">
+        <h1 className="font-['Bricolage_Grotesque'] text-xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-[var(--text)] leading-tight break-words">
           {currentQuestion.text}
         </h1>
 
@@ -327,12 +327,12 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                 />
               )}
 
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                 <div className={`p-2.5 rounded-xl border-2 border-[var(--border)] ${style.bg} shrink-0`}>
                   {style.shape}
                 </div>
-                <div className="flex-1 text-left">
-                  <span className="font-['Bricolage_Grotesque'] font-bold text-lg sm:text-xl text-[var(--text)] block">
+                <div className="flex-1 text-left min-w-0">
+                  <span className="font-['Bricolage_Grotesque'] font-bold text-base sm:text-xl text-[var(--text)] block break-words">
                     {opt}
                   </span>
                 </div>
@@ -505,13 +505,13 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                     return (
                       <div
                         key={p.id}
-                        className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex items-center justify-between gap-2"
+                        className="p-2.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={30} />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-xs text-[var(--text)] truncate">
+                              <span className="font-bold text-xs text-[var(--text)] truncate max-w-[140px] sm:max-w-none">
                                 {p.nickname}
                               </span>
                               {p.accessibleApproved ? (
@@ -524,13 +524,13 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                                 </span>
                               ) : null}
                             </div>
-                            <span className="font-mono-code text-[10px] text-[var(--text-muted)] block">
+                            <span className="font-mono-code text-[10px] text-[var(--text-muted)] block truncate">
                               {p.score.toLocaleString()} pts • {playerFlags.length} flags • Integrity {integrityScore}%
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap shrink-0 self-end sm:self-center">
                           <button
                             type="button"
                             onClick={async () => {

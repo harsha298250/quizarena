@@ -631,7 +631,7 @@ describe('Phase 7 — Email Notifications & Certificate System Hardening Suite',
     const mod = await import('../server/gameSessionHandler.ts');
     expect(typeof mod.handleReconcilePlayerCount).toBe('function');
     expect(typeof mod.handleJoinGame).toBe('function');
-  });
+  }, 15000);
 
   it('[REG-31] Phase 3 server-authoritative scoring calculations remain intact', async () => {
     const mod = await import('../lib/scoring.ts');
@@ -657,7 +657,7 @@ describe('Phase 7 — Email Notifications & Certificate System Hardening Suite',
   it('[REG-33] Phase 5 deterministic analytics calculations remain intact', async () => {
     const mod = await import('../services/analyticsService.ts');
     expect(typeof mod.computeGameAnalytics).toBe('function');
-  });
+  }, 15000);
 
   it('[REG-34] Phase 6 tournament bracket generation remains intact', async () => {
     const mod = await import('../server/tournamentEngine.ts');

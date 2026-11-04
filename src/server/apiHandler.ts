@@ -295,7 +295,7 @@ INSTRUCTIONS:
     res.statusCode = is404 ? 503 : 500;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({
-      error: is404 ? 'AI model unavailable, contact admin' : (error instanceof Error ? error.message : 'Generation failed'),
+      error: is404 ? 'Quiz generation is temporarily unavailable. Please try again shortly.' : (error instanceof Error ? error.message : 'Generation failed'),
     }));
   }
 }

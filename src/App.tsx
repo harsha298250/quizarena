@@ -440,7 +440,7 @@ export default function App() {
       />
 
       {/* Main App Switcher with Page Transition */}
-      <main key={currentTab} className="flex-1 py-4 sm:py-6 animate-fadeIn transition-all">
+      <main key={currentTab} className="flex-1 py-4 sm:py-6 animate-fadeIn transition-all overflow-x-clip min-w-0">
         {/* Tab 0A: Host Dashboard */}
         {currentTab === 'host_dashboard' && (
           <HostDashboard
@@ -589,16 +589,18 @@ export default function App() {
       </main>
 
       {/* Footer & Self-Test Verifier Badge */}
-      <footer className="border-t border-[var(--border)] bg-[var(--surface)] text-[var(--text)] py-4 px-6 text-center text-xs font-bold transition-colors">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[var(--accent)]">
+      <footer className="border-t border-[var(--border)] bg-[var(--surface)] text-[var(--text)] py-4 px-4 sm:px-6 text-center text-xs font-bold transition-colors overflow-hidden">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center sm:justify-start text-center sm:text-left min-w-0">
+            <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[var(--accent)] shrink-0">
               QuizArena
             </span>
-            <span className="text-[var(--text-muted)]">• Modern Real-Time EdTech SaaS Platform</span>
+            <span className="text-[var(--text-muted)] text-[11px] sm:text-xs">
+              • Modern Real-Time EdTech SaaS Platform
+            </span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 flex-wrap justify-center">
             <button
               onClick={() => setTestModalOpen(true)}
               className="text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline flex items-center gap-1 font-mono-code font-bold"

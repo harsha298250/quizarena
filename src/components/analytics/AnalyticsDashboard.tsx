@@ -263,11 +263,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   }, [analytics]);
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6 space-y-6">
+    <div className="mx-auto max-w-7xl p-3 sm:p-6 space-y-6 min-w-0">
       {/* Top Header Banner */}
-      <div className="paper-card p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="paper-card p-4 sm:p-6 bg-[var(--bg-page)] border-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="sticker-badge bg-[var(--ok)] text-white text-xs">
               Curriculum Analytics
             </span>
@@ -277,7 +277,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               </span>
             )}
           </div>
-          <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[var(--text)]">
+          <h1 className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black text-[var(--text)] break-words">
             Performance & Course Outcome (CO) Attainment
           </h1>
           <p className="text-xs font-semibold text-[var(--text-muted)] mt-1">
@@ -433,8 +433,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="overflow-x-auto -mx-2 px-2">
+              <table className="w-full text-left text-xs border-collapse min-w-[620px]">
                 <thead>
                   <tr className="border-b-2 border-[var(--border)] text-[var(--text-muted)] uppercase">
                     <th className="py-2 px-3">#</th>

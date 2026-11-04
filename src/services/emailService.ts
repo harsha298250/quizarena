@@ -266,7 +266,13 @@ export async function sendResultsViaApi(payload: SendResultsPayload): Promise<{
 
   if (!resp.ok) {
     const errorText = await resp.text();
-    throw new Error(`Failed to send emails via server (${resp.status}): ${errorText}`);
+    if (resp.status === 403) {
+      throw new Error(`Email delivery restricted (403): Sender domain is unverified or recipient is restricted in testing mode.`);
+    }
+    if (resp.status === 408 || resp.status === 504) {
+      throw new Error('Email service temporarily unavailable. Please try again later.');
+    }
+    throw new Error(`Email dispatch could not be completed (${resp.status}): ${errorText}`);
   }
 
   return await resp.json();

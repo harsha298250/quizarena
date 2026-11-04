@@ -97,39 +97,39 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
       </section>
 
       {/* 2. Executive KPI Cards */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4" aria-label="Host Operational Metrics">
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Total Quizzes</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--accent)]">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Host Operational Metrics">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Total Quizzes</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--accent)] truncate">
             {quizzes.length}
           </div>
-          <div className="text-[11px] text-[var(--text-muted)] font-medium">Published in bank</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] font-medium truncate">Published in bank</div>
         </div>
 
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Completed Sessions</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--ok)]">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Completed Sessions</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--ok)] truncate">
             {finishedGames.length}
           </div>
-          <div className="text-[11px] text-[var(--ok)] font-medium">Authoritative results</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--ok)] font-medium truncate">Authoritative results</div>
         </div>
 
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Outbox Queue</div>
-          <div className={`font-['Bricolage_Grotesque'] text-2xl font-black ${outboxPendingCount > 0 ? 'text-amber-500' : 'text-[var(--text)]'}`}>
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Outbox Queue</div>
+          <div className={`font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black truncate ${outboxPendingCount > 0 ? 'text-amber-500' : 'text-[var(--text)]'}`}>
             {outboxPendingCount}
           </div>
-          <div className="text-[11px] text-[var(--text-muted)] font-medium">
+          <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] font-medium truncate">
             {outboxPendingCount === 0 ? 'All delivered' : 'Pending dispatch'}
           </div>
         </div>
 
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Tournament Platform</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--info)]">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Tournament Platform</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--info)] truncate">
             Active
           </div>
-          <div className="text-[11px] text-[var(--info)] font-medium">Elo rating enabled</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--info)] font-medium truncate">Elo rating enabled</div>
         </div>
       </section>
 

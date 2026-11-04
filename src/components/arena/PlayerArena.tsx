@@ -352,16 +352,20 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
 
       {/* Confirmation of Active Accommodations */}
       {(player.accommodations.dyslexiaFont || player.accommodations.readAloud || player.accommodations.fewerOptions || player.accommodations.largeText || (player.accommodations.extraTimeMultiplier && player.accommodations.extraTimeMultiplier > 1)) && (
-        <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--surface-2)] border-2 border-[var(--border)] rounded-full text-[11px] font-bold text-[var(--text)]">
-          <span className="text-[var(--ok)] dark:text-[var(--accent-2)]">♿ Active:</span>
-          <span className="truncate">
+        <div className="flex flex-wrap items-center gap-1.5 px-3 py-1 bg-[var(--surface-2)] border-2 border-[var(--border)] rounded-xl text-[11px] font-bold text-[var(--text)]">
+          <span className="text-[var(--ok)] dark:text-[var(--accent-2)] shrink-0">♿ Active:</span>
+          <span className="flex flex-wrap gap-1">
             {[
               player.accommodations.dyslexiaFont && 'Dyslexia Font',
               player.accommodations.readAloud && 'Read-Aloud',
               player.accommodations.fewerOptions && 'Fewer Options',
               player.accommodations.largeText && 'Large Text',
               player.accommodations.extraTimeMultiplier > 1 && `${player.accommodations.extraTimeMultiplier}x Time`,
-            ].filter(Boolean).join(' • ')}
+            ].filter(Boolean).map((acc, i, arr) => (
+              <span key={i} className="whitespace-nowrap">
+                {acc}{i < arr.length - 1 ? ' •' : ''}
+              </span>
+            ))}
           </span>
         </div>
       )}

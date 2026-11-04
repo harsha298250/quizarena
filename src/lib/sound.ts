@@ -11,9 +11,15 @@ class SoundManager {
 
   constructor() {
     // Check localStorage for user preference
-    const savedMute = localStorage.getItem('quizarena_mute');
-    if (savedMute !== null) {
-      this.isMuted = savedMute === 'true';
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        const savedMute = localStorage.getItem('quizarena_mute');
+        if (savedMute !== null) {
+          this.isMuted = savedMute === 'true';
+        }
+      } catch {
+        // Safe fallback in restricted environments
+      }
     }
   }
 
@@ -35,7 +41,13 @@ class SoundManager {
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
-    localStorage.setItem('quizarena_mute', String(muted));
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('quizarena_mute', String(muted));
+      } catch {
+        // Safe fallback in restricted environments
+      }
+    }
   }
 
   public toggleMute(): boolean {

@@ -138,11 +138,11 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
       </div>
 
       {/* 3D-feel Asymmetric Paper Podium with Staggered Reveal & Medals */}
-      <div className="flex items-end justify-center gap-1.5 sm:gap-6 pt-10 pb-4 min-h-[340px]">
+      <div className="flex items-end justify-center gap-1 sm:gap-6 pt-10 pb-4 min-h-[340px] max-w-full overflow-hidden">
         {/* 2nd Place (Silver Medal) - Revealed at Step 2 */}
         {second && (
           <div
-            className={`flex flex-col items-center w-24 sm:w-36 transition-all duration-700 ${
+            className={`flex flex-col items-center w-20 sm:w-36 transition-all duration-700 min-w-0 ${
               revealStep >= 2
                 ? 'opacity-100 translate-y-0 animate-pop-in'
                 : 'opacity-0 translate-y-12 pointer-events-none'
@@ -157,12 +157,12 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
             <span className="font-black text-xs sm:text-sm text-[var(--text)] truncate max-w-full">
               {second.nickname}
             </span>
-            <span className="font-mono-code text-[11px] sm:text-xs font-bold text-[var(--text-muted)] mb-2">
+            <span className="font-mono-code text-[10px] sm:text-xs font-bold text-[var(--text-muted)] mb-2 truncate">
               {second.score.toLocaleString()} pts
             </span>
             <div className="w-full h-32 sm:h-40 bg-[var(--info)] border-3 border-[var(--border)] rounded-t-2xl shadow-[4px_4px_0px_var(--shadow)] flex flex-col items-center justify-center text-[var(--text-on-accent)]">
-              <span className="font-['Bricolage_Grotesque'] text-3xl sm:text-4xl font-black">2</span>
-              <span className="text-[10px] sm:text-xs uppercase font-bold tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
+              <span className="font-['Bricolage_Grotesque'] text-2xl sm:text-4xl font-black">2</span>
+              <span className="text-[9px] sm:text-xs uppercase font-bold tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
                 🥈 Silver
               </span>
             </div>
@@ -172,7 +172,7 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
         {/* 1st Place Champion (Gold Medal) - Revealed at Step 3 */}
         {first && (
           <div
-            className={`flex flex-col items-center w-28 sm:w-48 -translate-y-4 transition-all duration-700 ${
+            className={`flex flex-col items-center w-24 sm:w-48 -translate-y-4 transition-all duration-700 min-w-0 ${
               revealStep >= 3
                 ? 'opacity-100 translate-y-0 animate-pop-in'
                 : 'opacity-0 translate-y-16 pointer-events-none'
@@ -187,15 +187,15 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
                 🥇
               </div>
             </div>
-            <span className="font-black text-sm sm:text-base text-[var(--text)] truncate max-w-full">
+            <span className="font-black text-xs sm:text-base text-[var(--text)] truncate max-w-full">
               {first.nickname}
             </span>
-            <span className="font-mono-code text-xs sm:text-sm font-black text-[var(--accent)] mb-2">
+            <span className="font-mono-code text-[11px] sm:text-sm font-black text-[var(--accent)] mb-2 truncate">
               {first.score.toLocaleString()} pts
             </span>
             <div className="w-full h-44 sm:h-52 bg-[var(--accent-2-bg)] border-3 border-[var(--border)] rounded-t-2xl shadow-[6px_6px_0px_var(--shadow)] flex flex-col items-center justify-center text-[var(--text-on-accent-2)]">
-              <span className="font-['Bricolage_Grotesque'] text-4xl sm:text-5xl font-black">1</span>
-              <span className="text-[10px] sm:text-xs uppercase font-black tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
+              <span className="font-['Bricolage_Grotesque'] text-3xl sm:text-5xl font-black">1</span>
+              <span className="text-[9px] sm:text-xs uppercase font-black tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
                 🥇 Champion
               </span>
             </div>
@@ -205,7 +205,7 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
         {/* 3rd Place (Bronze Medal) - Revealed at Step 1 */}
         {third && (
           <div
-            className={`flex flex-col items-center w-24 sm:w-36 transition-all duration-700 ${
+            className={`flex flex-col items-center w-20 sm:w-36 transition-all duration-700 min-w-0 ${
               revealStep >= 1
                 ? 'opacity-100 translate-y-0 animate-pop-in'
                 : 'opacity-0 translate-y-10 pointer-events-none'
@@ -220,12 +220,12 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
             <span className="font-black text-xs sm:text-sm text-[var(--text)] truncate max-w-full">
               {third.nickname}
             </span>
-            <span className="font-mono-code text-[11px] sm:text-xs font-bold text-[var(--text-muted)] mb-2">
+            <span className="font-mono-code text-[10px] sm:text-xs font-bold text-[var(--text-muted)] mb-2 truncate">
               {third.score.toLocaleString()} pts
             </span>
             <div className="w-full h-24 sm:h-32 bg-[var(--ok)] border-3 border-[var(--border)] rounded-t-2xl shadow-[4px_4px_0px_var(--shadow)] flex flex-col items-center justify-center text-[var(--text-on-accent)]">
-              <span className="font-['Bricolage_Grotesque'] text-2xl sm:text-3xl font-black">3</span>
-              <span className="text-[10px] sm:text-xs uppercase font-bold tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
+              <span className="font-['Bricolage_Grotesque'] text-xl sm:text-3xl font-black">3</span>
+              <span className="text-[9px] sm:text-xs uppercase font-bold tracking-wider sm:tracking-widest flex items-center gap-0.5 sm:gap-1">
                 🥉 Bronze
               </span>
             </div>
@@ -269,8 +269,8 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
                   Host
                 </span>
               </div>
-              <span className="text-xs font-bold text-[var(--text-muted)]">
-                Host UID: {game.hostId} • Total Contenders: {players.length}
+              <span className="text-xs font-bold text-[var(--text-muted)] block truncate max-w-xs sm:max-w-md">
+                Host ID: {game.hostId} • Total Contenders: {players.length}
               </span>
             </div>
           </div>

@@ -346,16 +346,16 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
       )}
 
       {/* Studio Header */}
-      <div className="paper-card p-5 sm:p-6 bg-[var(--bg-page)] border-3 shadow-[4px_4px_0px_var(--shadow)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
+      <div className="paper-card p-5 sm:p-6 bg-[var(--bg-page)] border-3 shadow-[4px_4px_0px_var(--shadow)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="sticker-badge sticker-badge-sunshine text-xs">Authoring Studio</span>
             <span className="text-xs font-bold text-[var(--ok)]">7 Question Types Supported</span>
             <span data-testid="autosave-indicator" className="sticker-badge text-[11px] bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300">
               ✓ Autosaved: {lastSavedAt}
             </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)]">
+          <h1 className="text-2xl sm:text-3xl font-black font-['Bricolage_Grotesque'] text-[var(--text)] break-words">
             Quiz Studio & Assessment Builder
           </h1>
           <p className="text-xs font-semibold text-[var(--text-muted)] mt-1">
@@ -377,7 +377,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
               setSelectedQuiz(q);
               setActiveQuestionIndex(0);
             }}
-            className="rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0px_var(--shadow)] cursor-pointer"
+            className="rounded-xl border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-3 py-1.5 font-bold text-sm shadow-[2px_2px_0px_var(--shadow)] cursor-pointer max-w-[220px] sm:max-w-xs truncate"
           >
             {quizzes.map(q => (
               <option key={q.id} value={q.id}>
@@ -717,7 +717,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                         handleUpdateQuestion('type', newType);
                       }
                     }}
-                    className="paper-select text-xs font-bold rounded-lg border-2 border-[var(--border)] px-2 py-1"
+                    className="paper-select text-xs font-bold rounded-lg border-2 border-[var(--border)] px-2 py-1 max-w-[180px] sm:max-w-xs truncate"
                   >
                     <option value="multiple_choice">Multiple Choice (Single)</option>
                     <option value="multi_select">Multi-Select (Multiple Correct)</option>
@@ -802,7 +802,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                               opts[optIdx] = e.target.value;
                               handleUpdateQuestion('options', opts);
                             }}
-                            className="flex-1 text-sm font-bold bg-transparent border-none focus:outline-none text-[var(--text)]"
+                            className="flex-1 min-w-0 text-sm font-bold bg-transparent border-none focus:outline-none text-[var(--text)]"
                           />
                           <button
                             id={`btnToggleCorrect_${optIdx}`}
@@ -819,7 +819,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                                 handleUpdateQuestion('correctAnswers', [optIdx]);
                               }
                             }}
-                            className={`h-7 w-7 rounded-lg border-2 border-[var(--border)] flex items-center justify-center font-bold text-xs ${
+                            className={`h-7 w-7 rounded-lg border-2 border-[var(--border)] flex items-center justify-center font-bold text-xs shrink-0 ${
                               isCorrect ? 'paper-btn-ok' : 'bg-[var(--surface-2)] text-[var(--text)]'
                             }`}
                             title="Toggle Correct Answer"
@@ -841,7 +841,7 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
                                   correctAnswers: correct.length > 0 ? correct : [0],
                                 });
                               }}
-                              className="h-7 w-7 rounded-lg border-2 border-[var(--border)] bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-200 flex items-center justify-center font-bold text-xs hover:bg-red-200"
+                              className="h-7 w-7 rounded-lg border-2 border-[var(--border)] bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-200 flex items-center justify-center font-bold text-xs hover:bg-red-200 shrink-0"
                               title="Remove Option"
                             >
                               ✕

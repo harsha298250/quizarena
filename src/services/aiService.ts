@@ -108,7 +108,7 @@ class AIService {
             const errJson = await res.json().catch(() => ({}));
             const rawErr = errJson.error || `Server responded with ${res.status}`;
             if (res.status === 404 || res.status === 503 || /not[_\s-]?found|404|model unavailable/i.test(rawErr)) {
-              throw new Error('AI model unavailable, contact admin');
+              throw new Error('Quiz generation is temporarily unavailable. Please try again shortly.');
             }
             throw new Error(rawErr);
           }

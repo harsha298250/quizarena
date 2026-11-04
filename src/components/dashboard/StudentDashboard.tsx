@@ -119,37 +119,37 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       </section>
 
       {/* 2. Key Metrics Row */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4" aria-label="Student Key Metrics">
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Certificates</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--accent)]">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4" aria-label="Student Key Metrics">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Certificates</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--accent)] truncate">
             {certificates.length}
           </div>
-          <div className="text-[11px] text-[var(--ok)] font-medium">Verified credentials</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--ok)] font-medium truncate">Verified credentials</div>
         </div>
 
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Active Competitions</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--info)]">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Active Competitions</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--info)] truncate">
             1
           </div>
-          <div className="text-[11px] text-[var(--text-muted)] font-medium">Collegiate Championship</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] font-medium truncate">Collegiate Championship</div>
         </div>
 
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Spaced Mastery</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--accent-2)]">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Spaced Mastery</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--accent-2)] truncate">
             {quizzes.length} Quizzes
           </div>
-          <div className="text-[11px] text-[var(--text-muted)] font-medium">Ready for practice</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] font-medium truncate">Ready for practice</div>
         </div>
 
-        <div className="paper-card p-4 sm:p-5 border border-[var(--border)] space-y-1">
-          <div className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">Integrity Standing</div>
-          <div className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--ok)]">
+        <div className="paper-card p-3 sm:p-5 border border-[var(--border)] space-y-1 min-w-0">
+          <div className="text-[11px] sm:text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider truncate">Integrity Standing</div>
+          <div className="font-['Bricolage_Grotesque'] text-xl sm:text-2xl font-black text-[var(--ok)] truncate">
             100%
           </div>
-          <div className="text-[11px] text-[var(--ok)] font-medium">Clean audit record</div>
+          <div className="text-[10px] sm:text-[11px] text-[var(--ok)] font-medium truncate">Clean audit record</div>
         </div>
       </section>
 

@@ -406,8 +406,8 @@ export const CompetitionManager: React.FC<CompetitionManagerProps> = ({ quizzes,
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-bold">
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full text-left text-xs font-bold min-w-[550px]">
               <thead>
                 <tr className="border-b-2 border-[var(--border)] text-[var(--text-muted)] uppercase tracking-wider">
                   <th className="py-2">Rank</th>

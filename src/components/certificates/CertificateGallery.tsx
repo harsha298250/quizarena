@@ -95,19 +95,19 @@ export const CertificateGallery: React.FC = () => {
             <div className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
               🔍 Verify Any Certificate
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
               <input
                 type="text"
                 value={verificationQuery}
                 onChange={e => setVerificationQuery(e.target.value)}
                 placeholder="QA-V-XXXX-XXXX"
-                className="w-40 font-mono-code text-xs py-1.5 px-2.5 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--text)]"
+                className="w-full sm:w-44 font-mono-code text-xs py-1.5 px-2.5 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--text)]"
                 aria-label="Enter Verification ID"
               />
               <button
                 type="submit"
                 disabled={!verificationQuery.trim() || isVerifying}
-                className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold px-3"
+                className="paper-btn paper-btn-sm paper-btn-secondary text-xs font-bold px-3 shrink-0"
               >
                 {isVerifying ? 'Checking...' : 'Verify'}
               </button>

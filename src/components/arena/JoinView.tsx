@@ -159,9 +159,9 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
   };
 
   return (
-    <div className="mx-auto max-w-lg p-4 sm:p-6 space-y-6">
+    <div className="mx-auto max-w-lg p-3 sm:p-6 space-y-5 sm:space-y-6">
       {/* Join Card */}
-      <div className="paper-card p-6 sm:p-8 space-y-5 shadow-[6px_6px_0px_var(--shadow)]">
+      <div className="paper-card p-4 sm:p-8 space-y-4 sm:space-y-5 shadow-[6px_6px_0px_var(--shadow)]">
         <div className="text-center space-y-1">
           <span className="sticker-badge sticker-badge-sunshine text-xs">
             Multiplayer Arena
