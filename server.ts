@@ -61,6 +61,7 @@ import {
   handleSessionRecovery,
   handleReconcilePlayerCount,
 } from './src/server/gameSessionHandler.ts';
+import { handlePurgeUserData } from './src/server/userDataPurgeHandler.ts';
 
 dotenv.config();
 
@@ -1004,6 +1005,11 @@ app.post('/api/outbox/process', async (req: Request, res: Response): Promise<voi
 // POST /api/outbox/webhook - Provider delivery/bounce webhook
 app.post('/api/outbox/webhook', async (req: Request, res: Response): Promise<void> => {
   await handleOutboxWebhook(req, res);
+});
+
+// POST /api/purge-user-data - Server-authoritative GDPR/CCPA data purge
+app.post('/api/purge-user-data', async (req: Request, res: Response): Promise<void> => {
+  await handlePurgeUserData(req, res, { adminAuth, adminDb, adminStorage: undefined });
 });
 
 // Serve frontend build in production

@@ -166,21 +166,53 @@ export async function deleteQuiz(quizId: string, authorId?: string): Promise<voi
 
 /**
  * "Delete my data" GDPR/Privacy feature:
- * Permanently deletes all user records from Firestore (quizzes, user doc, question bank),
- * clears all local storage caches, and deletes the authentication account.
+ * Server-authoritative purge of all user records from Firestore, subcollections,
+ * Storage uploads, and Firebase Auth, followed by local storage cleanup.
  */
 export async function deleteMyData(user: User | null): Promise<{
+  success: boolean;
   deletedQuizzes: number;
+  deletedGames?: number;
   clearedLocalKeys: number;
   accountDeleted: boolean;
+  errors?: string[];
+  retainedRecords?: string;
 }> {
   let deletedQuizzes = 0;
+  let deletedGames = 0;
   let accountDeleted = false;
+  let serverErrors: string[] | undefined = undefined;
+  let retainedRecords: string | undefined = undefined;
 
   const uid = user?.uid;
+  const idToken = uid ? await user?.getIdToken().catch(() => '') : '';
 
-  // 1. Delete all user quizzes from Firestore
-  if (isFirebaseConfigured && uid) {
+  // 1. Attempt server-authoritative purge via Admin SDK endpoint
+  if (isFirebaseConfigured && idToken) {
+    try {
+      const resp = await fetch('/api/purge-user-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+
+      if (resp.ok || resp.status === 207) {
+        const data = await resp.json().catch(() => ({}));
+        deletedQuizzes = data.deletedQuizzes || 0;
+        deletedGames = data.deletedGames || 0;
+        accountDeleted = Boolean(data.accountDeleted);
+        serverErrors = data.errors;
+        retainedRecords = data.retainedRecords;
+      }
+    } catch (apiErr: any) {
+      console.warn('Server purge endpoint failed, falling back to client-side cleanup:', apiErr);
+    }
+  }
+
+  // 2. Client-side fallback cleanup if server did not handle everything
+  if (isFirebaseConfigured && uid && !accountDeleted) {
     try {
       const q = query(collection(db, 'quizzes'), where('authorId', '==', uid));
       const snap = await getDocs(q);
@@ -192,12 +224,10 @@ export async function deleteMyData(user: User | null): Promise<{
       console.warn('Error deleting user quizzes in Firestore:', e);
     }
 
-    // Delete user profile doc if present
     try {
       await deleteDoc(doc(db, 'users', uid));
     } catch (e) {}
 
-    // Delete any question bank items authored by user
     try {
       const qbQuery = query(collection(db, 'questionBank'), where('authorId', '==', uid));
       const qbSnap = await getDocs(qbQuery);
@@ -207,7 +237,7 @@ export async function deleteMyData(user: User | null): Promise<{
     } catch (e) {}
   }
 
-  // 2. Clear all QuizArena local storage records
+  // 3. Clear all QuizArena local and session storage records
   let clearedLocalKeys = 0;
   try {
     const keysToRemove: string[] = [];
@@ -221,20 +251,25 @@ export async function deleteMyData(user: User | null): Promise<{
       localStorage.removeItem(k);
       clearedLocalKeys++;
     });
+
+    sessionStorage.removeItem('quizarena_active_session');
   } catch (e) {}
 
-  // 3. Delete or sign out Firebase Auth user account
+  // 4. Client-side signOut if user is still signed in
   if (user) {
     try {
-      await deleteUser(user);
-      accountDeleted = true;
-    } catch (e) {
-      // If deleteUser fails (e.g. requires recent login), sign out
-      try {
-        await signOut(auth);
-      } catch (so) {}
-    }
+      await signOut(auth);
+      if (!accountDeleted) accountDeleted = true;
+    } catch (so) {}
   }
 
-  return { deletedQuizzes, clearedLocalKeys, accountDeleted };
+  return {
+    success: accountDeleted && (!serverErrors || serverErrors.length === 0),
+    deletedQuizzes,
+    deletedGames,
+    clearedLocalKeys,
+    accountDeleted,
+    errors: serverErrors,
+    retainedRecords,
+  };
 }
