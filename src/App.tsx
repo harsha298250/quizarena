@@ -6,7 +6,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Quiz, GameSession, Player } from './types/quiz';
 import { SAMPLE_QUIZZES } from './data/sampleQuizzes';
-import { Navbar } from './components/common/Navbar';
+import { PlayerShell } from './components/shell/PlayerShell';
+import { HostShell } from './components/shell/HostShell';
 import { OfflineBanner } from './components/common/OfflineBanner';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
 import { JoinView } from './components/arena/JoinView';
@@ -28,17 +29,50 @@ import { runSelfTests } from './tests/quizArena.test';
 import { sound } from './lib/sound';
 import { SupportedLanguage } from './lib/i18n';
 import { testConnection, ensureAnonymousAuth, auth, isFirebaseConfigured, getRedirectResult } from './lib/firebase';
+import { User } from 'firebase/auth';
 import { saveQuiz, loadUserQuizzes, deleteQuiz, deleteMyData } from './services/quizService';
 import { autoSendGameResults } from './services/emailService';
 import { useTheme } from './hooks/useTheme';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<string>('arena');
-  const [userRole, setUserRole] = useState<'host' | 'student'>('host');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
+
+  const [currentTab, setCurrentTabState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const param = new URLSearchParams(window.location.search).get('tab');
+      if (param) return param;
+    }
+    return 'arena';
+  });
+
+  const [userRole, setUserRole] = useState<'host' | 'student'>('student');
   const [lang, setLang] = useState<SupportedLanguage>('en');
   const { theme, setTheme, resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === 'dark';
   const setIsDarkMode = (val: boolean) => setTheme(val ? 'dark' : 'light');
+
+  // Synchronize browser history and query parameters
+  const setCurrentTab = (tab: string) => {
+    setCurrentTabState(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('tab') !== tab) {
+        url.searchParams.set('tab', tab);
+        window.history.pushState({ tab }, '', url.toString());
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const tab = e.state?.tab || new URLSearchParams(window.location.search).get('tab') || 'arena';
+      setCurrentTabState(tab);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Quizzes repository: cached locally, loaded from Firestore
   const [quizzes, setQuizzes] = useState<Quiz[]>(() => {
@@ -145,7 +179,10 @@ export default function App() {
 
     // Load teacher's quizzes from Firestore after login
     const unsubAuth = auth.onAuthStateChanged(async user => {
-      if (user) {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      if (user && !user.isAnonymous) {
+        setUserRole('host');
         try {
           const userQuizzes = await loadUserQuizzes(user.uid);
           if (userQuizzes && userQuizzes.length > 0) {
@@ -415,41 +452,30 @@ export default function App() {
     setGameRole(null);
   };
 
-  return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg-page)] text-[var(--text)]">
-      {/* Top Navbar */}
-      <Navbar
-        currentTab={currentTab}
-        setCurrentTab={tab => {
-          if (activeGame && tab !== 'arena') {
-            const leave = window.confirm('Leave active game session?');
-            if (!leave) return;
-            handleLeaveGame();
-          }
-          setCurrentTab(tab);
-        }}
-        lang={lang}
-        setLang={setLang}
-        theme={theme}
-        setTheme={setTheme}
-        isDarkMode={isDarkMode}
-        setIsDarkMode={setIsDarkMode}
-        onDeleteMyData={handleDeleteMyData}
-        userRole={userRole}
-        setUserRole={setUserRole}
-      />
+  const handleTabChange = (tab: string) => {
+    if (activeGame && tab !== 'arena') {
+      const leave = window.confirm('Leave active game session?');
+      if (!leave) return;
+      handleLeaveGame();
+    }
+    setCurrentTab(tab);
+  };
 
-      {/* Main App Switcher with Page Transition */}
-      <main key={currentTab} className="flex-1 py-4 sm:py-6 animate-fadeIn transition-all overflow-x-clip min-w-0">
+  const inActivePlayerGame = Boolean(activeGame && gameRole === 'player');
+  const showPlayerShell = inActivePlayerGame || !isAuthenticated || userRole === 'student';
+
+  const mainTabsContent = (
+    <>
+      <div key={currentTab} className="animate-fadeIn transition-all overflow-x-clip min-w-0">
         {/* Tab 0A: Host Dashboard */}
         {currentTab === 'host_dashboard' && (
           <HostDashboard
             quizzes={quizzes}
-            onNavigateTab={setCurrentTab}
+            onNavigateTab={handleTabChange}
             onHostQuiz={handleHostQuiz}
             onEditQuiz={quizId => {
               setBuilderSelectedQuizId(quizId);
-              setCurrentTab('builder');
+              handleTabChange('builder');
             }}
           />
         )}
@@ -458,10 +484,10 @@ export default function App() {
         {currentTab === 'student_dashboard' && (
           <StudentDashboard
             quizzes={quizzes}
-            onJoinArenaPin={() => setCurrentTab('arena')}
-            onStartPractice={() => setCurrentTab('practice')}
-            onViewTournaments={() => setCurrentTab('competitions')}
-            onViewCertificates={() => setCurrentTab('certificates')}
+            onJoinArenaPin={() => handleTabChange('arena')}
+            onStartPractice={() => handleTabChange('practice')}
+            onViewTournaments={() => handleTabChange('competitions')}
+            onViewCertificates={() => handleTabChange('certificates')}
           />
         )}
 
@@ -495,9 +521,10 @@ export default function App() {
                   const updated = {
                     ...activeGame,
                     settings: { ...activeGame.settings, ...settings },
+                    timeLimit: (settings as any).timeLimit !== undefined ? (settings as any).timeLimit : activeGame.timeLimit,
                   };
                   setActiveGame(updated);
-                  GameEngine.updateGameStatus(updated, updated.status).catch(err => {
+                  GameEngine.updateGameSettings(activeGame.id, settings).catch(err => {
                     console.warn('Failed to persist settings update:', err);
                   });
                 }}
@@ -511,7 +538,7 @@ export default function App() {
                 onPlayAgain={handleLeaveGame}
                 onReviewAnalytics={() => {
                   handleLeaveGame();
-                  setCurrentTab('analytics');
+                  handleTabChange('analytics');
                 }}
               />
             ) : gameRole === 'host' ? (
@@ -586,10 +613,10 @@ export default function App() {
 
         {/* Tab 8: Verified Digital Certificates */}
         {currentTab === 'certificates' && <CertificateGallery />}
-      </main>
+      </div>
 
       {/* Footer & Self-Test Verifier Badge */}
-      <footer className="border-t border-[var(--border)] bg-[var(--surface)] text-[var(--text)] py-4 px-4 sm:px-6 text-center text-xs font-bold transition-colors overflow-hidden">
+      <footer className="mt-8 border-t border-[var(--border)] bg-[var(--surface)] text-[var(--text)] py-4 px-4 sm:px-6 text-center text-xs font-bold transition-colors overflow-hidden">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 min-w-0">
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center sm:justify-start text-center sm:text-left min-w-0">
             <span className="font-['Bricolage_Grotesque'] text-sm font-black text-[var(--accent)] shrink-0">
@@ -611,6 +638,46 @@ export default function App() {
           </div>
         </div>
       </footer>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen bg-[var(--bg-page)] text-[var(--text)]">
+      {showPlayerShell ? (
+        <PlayerShell
+          lang={lang}
+          setLang={setLang}
+          theme={theme}
+          setTheme={setTheme}
+          currentUser={currentUser}
+          onSwitchToHost={
+            isAuthenticated && userRole === 'student'
+              ? () => {
+                  setUserRole('host');
+                  handleTabChange('host_dashboard');
+                }
+              : undefined
+          }
+          onDeleteMyData={handleDeleteMyData}
+        >
+          {mainTabsContent}
+        </PlayerShell>
+      ) : (
+        <HostShell
+          currentTab={currentTab}
+          setCurrentTab={handleTabChange}
+          lang={lang}
+          setLang={setLang}
+          theme={theme}
+          setTheme={setTheme}
+          currentUser={currentUser}
+          userRole={userRole}
+          setUserRole={setUserRole}
+          onDeleteMyData={handleDeleteMyData}
+        >
+          {mainTabsContent}
+        </HostShell>
+      )}
 
       {/* Self-Tests Verification Modal */}
       {testModalOpen && testResults && (
@@ -651,7 +718,7 @@ export default function App() {
       <OfflineBanner
         isDemoMode={!isFirebaseConfigured}
         isFirebaseOnline={isFirebaseOnline}
-        isSignedIn={Boolean(auth.currentUser && !auth.currentUser.isAnonymous)}
+        isSignedIn={isAuthenticated}
       />
 
       {/* Global Toast Notifications */}

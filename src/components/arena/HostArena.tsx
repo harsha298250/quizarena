@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GameSession, Player, AnswerSubmission, Question, IntegrityFlag } from '../../types/quiz';
 import { GameEngine } from '../../services/gameEngine';
 import { sound } from '../../lib/sound';
 import { ShapeTriangle, ShapeDiamond, ShapeCircle, ShapeSquare, ShieldIcon } from '../common/CustomIcons';
 import { TimerRing } from '../common/TimerRing';
 import { Avatar } from '../common/Avatar';
+import { extractQuestionStartTimeMs } from '../../server/scoringHardening';
 
 interface HostArenaProps {
   game: GameSession;
@@ -19,12 +20,15 @@ interface HostArenaProps {
 
 export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGame }) => {
   const currentQuestion: Question | undefined = game.questions[game.currentQuestionIndex];
-  const [timeLeft, setTimeLeft] = useState<number>(game.timeLimit || 20);
+  const questionTimeLimit = currentQuestion?.timeLimit || game.timeLimit || 20;
+  const [timeLeft, setTimeLeft] = useState<number>(questionTimeLimit);
   const [answers, setAnswers] = useState<AnswerSubmission[]>([]);
+  const [allAnswers, setAllAnswers] = useState<AnswerSubmission[]>([]);
   const [flags, setFlags] = useState<IntegrityFlag[]>([]);
   const [showIntegrityModal, setShowIntegrityModal] = useState<boolean>(false);
   const [selectedPlayerForInspect, setSelectedPlayerForInspect] = useState<Player | null>(null);
   const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
+  const advancingRef = useRef<boolean>(false);
 
   // Subscribe to live submitted answers for active question
   useEffect(() => {
@@ -32,11 +36,22 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
     return () => unsub();
   }, [game.id, game.currentQuestionIndex]);
 
+  // Subscribe to all submitted answers across questions for inspection and finalization
+  useEffect(() => {
+    const unsub = GameEngine.subscribeToAllAnswers(game.id, setAllAnswers);
+    return () => unsub();
+  }, [game.id]);
+
   // Subscribe to live anti-cheat flags
   useEffect(() => {
     const unsub = GameEngine.subscribeToFlags(game.id, setFlags);
     return () => unsub();
   }, [game.id]);
+
+  // Reset advancing guard on question index change
+  useEffect(() => {
+    advancingRef.current = false;
+  }, [game.currentQuestionIndex]);
 
   // Automatic progression: countdown during reveal state
   useEffect(() => {
@@ -73,29 +88,35 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
     }
   }, [answers.length, players.length, game.status, game.isPaused, game.settings?.progressionMode]);
 
-  // Timer countdown
+  // Authoritative server-synced countdown timer
   useEffect(() => {
-    if (game.status !== 'question_active' || game.isPaused) return;
+    if (game.status !== 'question_active') return;
 
-    setTimeLeft(game.timeLimit || 20);
-    const interval = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          handleReveal();
-          return 0;
-        }
-        if (prev <= 5) {
-          sound.playTick(true); // Urgent tick
-        } else {
-          sound.playTick(false);
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    if (game.isPaused) {
+      const remainingMs = (game as any).pauseRemainingMs ?? (questionTimeLimit * 1000);
+      setTimeLeft(Math.max(0, Math.round(remainingMs / 1000)));
+      return;
+    }
 
+    const startMs = extractQuestionStartTimeMs(game.questionStartTime) || Date.now();
+    const updateCountdown = () => {
+      const elapsed = Math.floor((Date.now() - startMs) / 1000);
+      const remaining = Math.max(0, questionTimeLimit - elapsed);
+      setTimeLeft(remaining);
+
+      if (remaining <= 0) {
+        handleReveal();
+      } else if (remaining <= 5) {
+        sound.playTick(true); // Urgent tick
+      } else {
+        sound.playTick(false);
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 500);
     return () => clearInterval(interval);
-  }, [game.status, game.currentQuestionIndex, game.isPaused]);
+  }, [game.status, game.currentQuestionIndex, game.isPaused, game.questionStartTime, (game as any).pauseRemainingMs, questionTimeLimit]);
 
   // Host keyboard shortcuts (Space=Next, R=Reveal, P=Pause)
   useEffect(() => {
@@ -135,6 +156,8 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
   };
 
   const handleNextQuestion = () => {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
     sound.playClick();
     const nextIdx = game.currentQuestionIndex + 1;
     if (nextIdx >= game.questions.length) {
@@ -143,10 +166,14 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
       }).catch(err => {
         console.warn('Failed to end game:', err);
         onFinishGame();
+      }).finally(() => {
+        setTimeout(() => { advancingRef.current = false; }, 1000);
       });
     } else {
       GameEngine.updateGameStatus(game, 'question_active', nextIdx).catch(err => {
         console.warn('Failed to advance question:', err);
+      }).finally(() => {
+        setTimeout(() => { advancingRef.current = false; }, 1000);
       });
     }
   };
@@ -736,9 +763,13 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                 </h4>
                 <div className="space-y-2">
                   {game.questions.map((q, qIdx) => {
-                    const isClosed = qIdx < game.currentQuestionIndex || (qIdx === game.currentQuestionIndex && (game.status === 'reveal' || game.status === 'leaderboard'));
-                    const isCurrent = qIdx === game.currentQuestionIndex;
-                    const sub = answers.find(a => a.playerId === selectedPlayerForInspect.id && a.questionIndex === qIdx);
+                    const isClosed = game.status === 'finished' || qIdx < game.currentQuestionIndex || (qIdx === game.currentQuestionIndex && (game.status === 'reveal' || game.status === 'leaderboard'));
+                    const isCurrent = qIdx === game.currentQuestionIndex && game.status === 'question_active';
+                    const sub = allAnswers.find(a => a.playerId === selectedPlayerForInspect.id && a.questionIndex === qIdx);
+
+                    const correctStr = q.type === 'type_answer'
+                      ? (q.acceptedTextAnswers || []).join(' / ') || 'N/A'
+                      : (q.correctAnswers || []).map((idx: number) => q.options[idx] || `Option ${idx + 1}`).join(', ');
 
                     return (
                       <div
@@ -747,7 +778,7 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                           isCurrent
                             ? 'border-[var(--accent)] bg-[var(--surface-2)]'
                             : 'border-[var(--border)] bg-[var(--surface)]'
-                        } text-xs space-y-1`}
+                        } text-xs space-y-1.5`}
                       >
                         <div className="flex items-center justify-between font-bold">
                           <span className="text-[var(--text)] font-black truncate max-w-[70%]">
@@ -759,17 +790,31 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
                             ) : sub ? (
                               <span className="text-red-500 font-black">✕ Incorrect (0 pts)</span>
                             ) : (
-                              <span className="text-[var(--text-muted)] font-bold">No Answer Submitted</span>
+                              <span className="text-[var(--text-muted)] font-bold">No Answer Submitted (0 pts)</span>
                             )
-                          ) : (
+                          ) : isCurrent ? (
                             <span className="text-amber-500 font-bold">{sub ? 'Answer Locked In' : 'Waiting for Submission'}</span>
+                          ) : (
+                            <span className="text-[var(--text-muted)] font-medium">Upcoming Round</span>
                           )}
                         </div>
 
                         {sub && (
                           <div className="text-[11px] text-[var(--text-muted)] flex flex-wrap items-center gap-3 font-semibold">
-                            <span>Selected: {sub.selectedIndices?.map(i => `Option ${i + 1}`).join(', ') || sub.textAnswer || '—'}</span>
-                            {sub.responseTimeMs !== undefined && <span>Response Time: {sub.responseTimeMs}ms</span>}
+                            <span>
+                              Submitted:{' '}
+                              <strong className="text-[var(--text)]">
+                                {sub.selectedIndices?.map(i => q.options[i] || `Option ${i + 1}`).join(', ') || sub.textAnswer || '—'}
+                              </strong>
+                            </span>
+                            {sub.responseTimeMs !== undefined && <span>Time: {sub.responseTimeMs}ms</span>}
+                          </div>
+                        )}
+
+                        {/* Host-Authorized Review of Correct Key */}
+                        {isClosed && (
+                          <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 p-1.5 rounded-lg border border-emerald-500/20">
+                            Key: {correctStr}
                           </div>
                         )}
                       </div>

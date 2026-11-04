@@ -448,6 +448,45 @@ export class GameEngine {
     }
   }
 
+  // Host updates game settings (e.g. progressionMode, timeLimit) without changing game status or starting match
+  public static async updateGameSettings(
+    gameId: string,
+    settings: Partial<GameSettings>
+  ): Promise<void> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        await updateDoc(doc(db, 'games', gameId), {
+          ...Object.entries(settings).reduce((acc: any, [k, v]) => {
+            acc[`settings.${k}`] = v;
+            return acc;
+          }, {}),
+          updatedAt: serverTimestamp(),
+        });
+      } catch (err: any) {
+        console.warn('Failed to update game settings in Firestore:', err);
+      }
+    }
+
+    // Update local storage and broadcast
+    try {
+      const localKey = `quizarena_game_${gameId}`;
+      const saved = localStorage.getItem(localKey);
+      if (saved) {
+        const game = JSON.parse(saved);
+        const updated = {
+          ...game,
+          settings: { ...game.settings, ...settings },
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(localKey, JSON.stringify(updated));
+        broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
+      }
+    } catch {}
+  }
+
   // Host updates game status via authoritative server endpoints
   public static async updateGameStatus(
     game: GameSession,
@@ -459,7 +498,7 @@ export class GameEngine {
 
     if (isFirebaseConfigured && idToken) {
       try {
-        let endpoint = '/api/advance-question';
+        let endpoint = '';
         let body: any = { gameId: game.id };
 
         if (newStatus === 'question_active') {
@@ -478,6 +517,9 @@ export class GameEngine {
           endpoint = '/api/end-game';
         } else if (newStatus === 'cancelled') {
           endpoint = '/api/cancel-game';
+        } else {
+          // If status did not change or unrecognized status (e.g. 'lobby'), do not hit advance-question!
+          return;
         }
 
         const resp = await fetch(endpoint, {
@@ -774,6 +816,22 @@ export class GameEngine {
       } catch (e) {}
     }
 
+    // Cache submission in all-answers list for participant audits
+    if (submission) {
+      try {
+        const allKey = `quizarena_all_answers_${gameId}`;
+        const allAns: AnswerSubmission[] = JSON.parse(localStorage.getItem(allKey) || '[]');
+        const filtered = allAns.filter(a => !(a.playerId === player.id && a.questionIndex === questionIndex));
+        filtered.push(submission);
+        localStorage.setItem(allKey, JSON.stringify(filtered));
+        broadcastChannel?.postMessage({
+          type: 'ALL_ANSWERS_UPDATED',
+          gameId,
+          answers: filtered,
+        });
+      } catch (e) {}
+    }
+
     return submission!;
   }
 
@@ -798,6 +856,41 @@ export class GameEngine {
     } catch (e) {}
 
     return () => unsubFirestore();
+  }
+
+  // Subscribe to all answers submitted throughout the game session
+  public static subscribeToAllAnswers(
+    gameId: string,
+    onUpdate: (answers: AnswerSubmission[]) => void
+  ): () => void {
+    let unsubFirestore = () => {};
+    try {
+      unsubFirestore = onSnapshot(collection(db, 'games', gameId, 'answers'), snap => {
+        const answers: AnswerSubmission[] = [];
+        snap.forEach(d => {
+          answers.push(d.data() as AnswerSubmission);
+        });
+        onUpdate(answers);
+      });
+    } catch (e) {}
+
+    // Local storage & BroadcastChannel fallback for demo / test environments
+    const handleBroadcast = (evt: MessageEvent) => {
+      if (evt.data?.type === 'ALL_ANSWERS_UPDATED' && evt.data?.gameId === gameId) {
+        onUpdate(evt.data.answers);
+      }
+    };
+    broadcastChannel?.addEventListener('message', handleBroadcast);
+
+    try {
+      const cached = localStorage.getItem(`quizarena_all_answers_${gameId}`);
+      if (cached) onUpdate(JSON.parse(cached));
+    } catch {}
+
+    return () => {
+      unsubFirestore();
+      broadcastChannel?.removeEventListener('message', handleBroadcast);
+    };
   }
 
   // Simulate players tool (Host-only developer tool: 20-200 players)

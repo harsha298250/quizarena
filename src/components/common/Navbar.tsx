@@ -48,6 +48,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const t = translations[lang];
 
+  const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
+
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(user => {
       setCurrentUser(user);
@@ -293,13 +295,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* User Sign In / Profile (Desktop/Tablet) */}
-          {currentUser ? (
+          {isAuthenticated ? (
             <div className="hidden sm:inline-flex items-center gap-1.5 shrink-0">
               <span
                 className="inline-block text-xs font-bold text-[var(--text)] truncate max-w-[120px] md:max-w-[160px]"
-                title={currentUser.displayName || currentUser.email || 'Host'}
+                title={currentUser?.displayName || currentUser?.email || 'Host'}
               >
-                {currentUser.displayName || 'Host'}
+                {currentUser?.displayName || 'Host'}
               </span>
               <button
                 onClick={handleLogout}
@@ -340,14 +342,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="min-[1400px]:hidden border-t-2 border-[var(--border)] bg-[var(--bg-page)] text-[var(--text)] px-4 py-3 space-y-1.5 animate-fadeIn">
           {/* Mobile User Profile / Sign In Banner */}
           <div className="sm:hidden pb-2 mb-1 border-b border-[var(--border)]/20">
-            {currentUser ? (
+            {isAuthenticated ? (
               <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-[var(--surface-2)] border border-[var(--border)]">
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-[var(--text)] truncate">
-                    {currentUser.displayName || 'Host'}
+                    {currentUser?.displayName || 'Host'}
                   </div>
                   <div className="text-[10px] text-[var(--text-muted)] truncate">
-                    {currentUser.email || ''}
+                    {currentUser?.email || ''}
                   </div>
                 </div>
                 <button

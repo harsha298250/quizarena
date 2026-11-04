@@ -16,7 +16,7 @@ interface LobbyViewProps {
   onStartGame: () => void;
   onKickPlayer?: (playerId: string) => void;
   onSimulatePlayers?: (count: number) => void;
-  onUpdateSettings?: (settings: Partial<GameSession['settings']>) => void;
+  onUpdateSettings?: (settings: Partial<GameSession['settings']> & { timeLimit?: number }) => void;
 }
 
 export const LobbyView: React.FC<LobbyViewProps> = ({
@@ -281,6 +281,48 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               >
                 ⚡ Automatic (Timer sync)
               </button>
+            </div>
+          </div>
+
+          {/* Consistent Default Question Timer Selector */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs font-bold text-[var(--text)]">
+            <div className="flex items-center gap-2">
+              <span className="text-base">⏳</span>
+              <div>
+                <span className="block font-black">Default Time per Question:</span>
+                <span className="text-[11px] font-semibold text-[var(--text-muted)]">
+                  {(() => {
+                    const defaultTime = game.timeLimit || 20;
+                    const overrideCount = game.questions.filter(q => q.timeLimit && q.timeLimit !== defaultTime).length;
+                    if (overrideCount > 0) {
+                      return `Standard default is ${defaultTime}s (${overrideCount} question(s) have custom time overrides)`;
+                    }
+                    return `All ${game.questions.length} questions will use consistent ${defaultTime}s countdown`;
+                  })()}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[10, 15, 20, 30, 45, 60].map(seconds => {
+                const isSelected = (game.timeLimit || 20) === seconds;
+                return (
+                  <button
+                    key={seconds}
+                    type="button"
+                    onClick={() => {
+                      sound.playClick();
+                      onUpdateSettings?.({ timeLimit: seconds });
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-code transition-all border ${
+                      isSelected
+                        ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)]'
+                        : 'bg-[var(--surface)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface-2)]'
+                    }`}
+                  >
+                    {seconds}s
+                  </button>
+                );
+              })}
             </div>
           </div>
 

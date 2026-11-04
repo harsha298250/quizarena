@@ -259,7 +259,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
 
   // Answer submission
   const handleSubmitOption = async (optIdx: number) => {
-    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active') return;
+    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
     sound.playClick();
 
     if (currentQuestion.type === 'multi_select') {
@@ -292,7 +292,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
   };
 
   const handleConfirmMultiSelectOrText = async () => {
-    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active') return;
+    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
     sound.playClick();
     const rawTimeMs = Date.now() - questionStartTime;
     stopSpeech();
