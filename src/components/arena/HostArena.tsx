@@ -29,6 +29,8 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
   const [selectedPlayerForInspect, setSelectedPlayerForInspect] = useState<Player | null>(null);
   const [autoAdvanceCountdown, setAutoAdvanceCountdown] = useState<number | null>(null);
   const advancingRef = useRef<boolean>(false);
+  const hasRevealedRef = useRef<boolean>(false);
+  const lastTickedSecRef = useRef<number>(-1);
 
   // Subscribe to live submitted answers for active question
   useEffect(() => {
@@ -48,9 +50,11 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
     return () => unsub();
   }, [game.id]);
 
-  // Reset advancing guard on question index change
+  // Reset advancing and reveal guards on question index change
   useEffect(() => {
     advancingRef.current = false;
+    hasRevealedRef.current = false;
+    lastTickedSecRef.current = -1;
   }, [game.currentQuestionIndex]);
 
   // Automatic progression: countdown during reveal state
@@ -83,7 +87,10 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
   useEffect(() => {
     if (game.settings?.progressionMode === 'automatic' && game.status === 'question_active' && !game.isPaused) {
       if (players.length > 0 && answers.length >= players.length) {
-        handleReveal();
+        if (!hasRevealedRef.current) {
+          hasRevealedRef.current = true;
+          handleReveal();
+        }
       }
     }
   }, [answers.length, players.length, game.status, game.isPaused, game.settings?.progressionMode]);
@@ -94,29 +101,62 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
 
     if (game.isPaused) {
       const remainingMs = (game as any).pauseRemainingMs ?? (questionTimeLimit * 1000);
-      setTimeLeft(Math.max(0, Math.round(remainingMs / 1000)));
+      setTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
       return;
     }
 
-    const startMs = extractQuestionStartTimeMs(game.questionStartTime) || Date.now();
+    const startMs =
+      (typeof (game as any).questionStartTimeMs === 'number' && (game as any).questionStartTimeMs > 0)
+        ? (game as any).questionStartTimeMs
+        : extractQuestionStartTimeMs(game.questionStartTime);
+
+    const deadlineMs =
+      (typeof (game as any).deadlineTimestampMs === 'number' && (game as any).deadlineTimestampMs > 0)
+        ? (game as any).deadlineTimestampMs
+        : (startMs > 0 ? startMs + (questionTimeLimit * 1000) : 0);
+
     const updateCountdown = () => {
-      const elapsed = Math.floor((Date.now() - startMs) / 1000);
-      const remaining = Math.max(0, questionTimeLimit - elapsed);
+      const now = Date.now();
+      let remaining = 0;
+      if (deadlineMs > 0) {
+        remaining = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+      } else if (startMs > 0) {
+        const elapsed = Math.floor((now - startMs) / 1000);
+        remaining = Math.max(0, questionTimeLimit - elapsed);
+      } else {
+        remaining = questionTimeLimit;
+      }
+
       setTimeLeft(remaining);
 
       if (remaining <= 0) {
-        handleReveal();
-      } else if (remaining <= 5) {
-        sound.playTick(true); // Urgent tick
-      } else {
-        sound.playTick(false);
+        if (!hasRevealedRef.current) {
+          hasRevealedRef.current = true;
+          handleReveal();
+        }
+      } else if (remaining !== lastTickedSecRef.current) {
+        lastTickedSecRef.current = remaining;
+        if (remaining <= 5) {
+          sound.playTick(true); // Urgent tick
+        } else {
+          sound.playTick(false);
+        }
       }
     };
 
     updateCountdown();
     const interval = setInterval(updateCountdown, 500);
     return () => clearInterval(interval);
-  }, [game.status, game.currentQuestionIndex, game.isPaused, game.questionStartTime, (game as any).pauseRemainingMs, questionTimeLimit]);
+  }, [
+    game.status,
+    game.currentQuestionIndex,
+    game.isPaused,
+    game.questionStartTime,
+    (game as any).questionStartTimeMs,
+    (game as any).deadlineTimestampMs,
+    (game as any).pauseRemainingMs,
+    questionTimeLimit,
+  ]);
 
   // Host keyboard shortcuts (Space=Next, R=Reveal, P=Pause)
   useEffect(() => {

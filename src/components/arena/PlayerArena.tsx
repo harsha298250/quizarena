@@ -91,67 +91,33 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     setIsPaused(false);
   };
 
-  // Read-Aloud TTS with letter, shape, and color matching active language
+  // Read-Aloud TTS with letter, shape, and color matching English interface
   const startReadAloud = (customRate?: number) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window) || !currentQuestion) return;
     window.speechSynthesis.cancel();
+    if (sound.getMuted()) return;
 
     const rate = customRate || speechRate;
-    const lang = (game.settings as any)?.language || 'en';
-
-    let script = '';
-    if (lang === 'ta') {
-      script = `கேள்வி: ${currentQuestion.text}. `;
-      if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
-        const labels = [
-          'விருப்பம் A, சிவப்பு முக்கோணம்',
-          'விருப்பம் B, மஞ்சள் வைரம்',
-          'விருப்பம் C, பச்சை வட்டம்',
-          'விருப்பம் D, நீல சதுரம்',
-        ];
-        currentQuestion.options.forEach((opt: string, i: number) => {
-          if (!hiddenOptions.includes(i)) {
-            script += `${labels[i % 4]}: ${opt}. `;
-          }
-        });
-      }
-    } else if (lang === 'hi') {
-      script = `प्रश्न: ${currentQuestion.text}. `;
-      if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
-        const labels = [
-          'विकल्प A, लाल त्रिभुज',
-          'विकल्प B, पीला हीरा',
-          'विकल्प C, हरा वृत्त',
-          'विकल्प D, नीला वर्ग',
-        ];
-        currentQuestion.options.forEach((opt: string, i: number) => {
-          if (!hiddenOptions.includes(i)) {
-            script += `${labels[i % 4]}: ${opt}. `;
-          }
-        });
-      }
-    } else {
-      script = `Question: ${currentQuestion.text}. `;
-      if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
-        const labels = [
-          'Option A, red triangle',
-          'Option B, yellow diamond',
-          'Option C, teal circle',
-          'Option D, blue square',
-        ];
-        currentQuestion.options.forEach((opt: string, i: number) => {
-          if (!hiddenOptions.includes(i)) {
-            script += `${labels[i % 4]}: ${opt}. `;
-          }
-        });
-      }
+    let script = `Question: ${currentQuestion.text}. `;
+    if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
+      const labels = [
+        'Option A, red triangle',
+        'Option B, yellow diamond',
+        'Option C, teal circle',
+        'Option D, blue square',
+      ];
+      currentQuestion.options.forEach((opt: string, i: number) => {
+        if (!hiddenOptions.includes(i)) {
+          script += `${labels[i % 4]}: ${opt}. `;
+        }
+      });
     }
 
     const utterance = new SpeechSynthesisUtterance(script);
     utterance.rate = rate;
 
     const voices = window.speechSynthesis.getVoices();
-    const matchedVoice = voices.find(v => v.lang.startsWith(lang)) || voices.find(v => v.lang.startsWith('en'));
+    const matchedVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
     if (matchedVoice) utterance.voice = matchedVoice;
 
     utterance.onstart = () => {
@@ -188,17 +154,50 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       return;
     }
 
-    const startMs = extractQuestionStartTimeMs(game.questionStartTime) || questionStartTime;
+    if (game.isPaused) {
+      const remainingMs = (game as any).pauseRemainingMs ?? (totalTimeLimit * 1000);
+      setPlayerTimeLeft(Math.max(0, Math.ceil(remainingMs / 1000)));
+      return;
+    }
+
+    const startMs =
+      (typeof (game as any).questionStartTimeMs === 'number' && (game as any).questionStartTimeMs > 0)
+        ? (game as any).questionStartTimeMs
+        : (extractQuestionStartTimeMs(game.questionStartTime) || questionStartTime);
+
+    const deadlineMs =
+      (typeof (game as any).deadlineTimestampMs === 'number' && (game as any).deadlineTimestampMs > 0)
+        ? (game as any).deadlineTimestampMs
+        : (startMs > 0 ? startMs + (totalTimeLimit * 1000) : 0);
+
     const updateCountdown = () => {
-      const elapsedSec = Math.floor((Date.now() - startMs) / 1000);
-      const remaining = Math.max(0, totalTimeLimit - elapsedSec);
+      const now = Date.now();
+      let remaining = 0;
+      if (deadlineMs > 0) {
+        remaining = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+      } else if (startMs > 0) {
+        const elapsedSec = Math.floor((now - startMs) / 1000);
+        remaining = Math.max(0, totalTimeLimit - elapsedSec);
+      } else {
+        remaining = totalTimeLimit;
+      }
       setPlayerTimeLeft(remaining);
     };
 
     updateCountdown();
     const interval = setInterval(updateCountdown, 500);
     return () => clearInterval(interval);
-  }, [game.status, game.currentQuestionIndex, game.questionStartTime, questionStartTime, totalTimeLimit]);
+  }, [
+    game.status,
+    game.isPaused,
+    (game as any).pauseRemainingMs,
+    game.currentQuestionIndex,
+    game.questionStartTime,
+    (game as any).questionStartTimeMs,
+    (game as any).deadlineTimestampMs,
+    questionStartTime,
+    totalTimeLimit,
+  ]);
 
   // Reset state when new question begins
   useEffect(() => {
@@ -313,6 +312,29 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     if (result.isCorrect) sound.playCorrect();
     else sound.playWrong();
   };
+
+  // Player keyboard shortcuts (1, 2, 3, 4 for answer choices, Enter for multi-select confirmation)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
+
+      const num = parseInt(e.key, 10);
+      if (num >= 1 && num <= 4) {
+        const optIdx = num - 1;
+        if (currentQuestion?.options && optIdx < currentQuestion.options.length) {
+          e.preventDefault();
+          handleSubmitOption(optIdx);
+        }
+      } else if (e.key === 'Enter' && currentQuestion?.type === 'multi_select' && selectedIndices.length > 0) {
+        e.preventDefault();
+        handleConfirmMultiSelectOrText();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hasSubmitted, isQuestionLocked, game.status, playerTimeLeft, currentQuestion, selectedIndices]);
 
   const optionButtons = [
     { bg: 'bg-[var(--accent)] text-[var(--text-on-accent)]', icon: <ShapeTriangle className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" />, label: 'Triangle' },

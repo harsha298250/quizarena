@@ -68,8 +68,16 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
 
     ctx.scale(dpr, dpr);
 
+    const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+    const canvasBg = isDark ? '#1C1917' : '#FFFDF8';
+    const promptColor = isDark ? '#F5F5F4' : '#16120E';
+    const cardBg = isDark ? '#292524' : '#FFFFFF';
+    const cardBorder = isDark ? '#44403C' : '#16120E';
+    const textColor = isDark ? '#F5F5F4' : '#16120E';
+    const watermarkColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.07)';
+
     // 1. Clear background
-    ctx.fillStyle = '#FFFDF8'; // Soft paper page background
+    ctx.fillStyle = canvasBg; // Dynamic page background
     ctx.fillRect(0, 0, width, height);
 
     // If no question text or ended, canvas stays cleared
@@ -93,7 +101,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     ctx.save();
     ctx.rotate((-25 * Math.PI) / 180);
     ctx.font = '700 13px "Space Mono", monospace';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.07)';
+    ctx.fillStyle = watermarkColor;
     const watermarkText = `${playerNickname} • ${playerId.slice(0, 8)} • QUIZARENA INTEGRITY SHIELD`;
 
     for (let x = -width; x < width * 2; x += 220) {
@@ -109,7 +117,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
     ctx.fillText(`QUESTION ${questionIndex + 1} OF ${totalQuestions}`, 28, 40);
 
     // 4. Render Question Prompt (Word Wrapped) with dyslexia/large text accommodation
-    ctx.fillStyle = '#16120E';
+    ctx.fillStyle = promptColor;
     ctx.font = `800 ${promptSize}px ${headingFont}`;
 
     const words = questionText.split(' ');
@@ -153,12 +161,12 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       ctx.roundRect(bx, by, boxW, boxH, 12);
       ctx.clip(); // Ensure all fills/highlights stay strictly within bounds
 
-      ctx.fillStyle = isSelected ? '#F5F3FF' : '#FFFFFF';
+      ctx.fillStyle = isSelected ? (isDark ? '#3B1F6E' : '#F5F3FF') : cardBg;
       ctx.fillRect(bx, by, boxW, boxH);
 
       // Selected subtle inner wash
       if (isSelected) {
-        ctx.fillStyle = 'rgba(124, 58, 237, 0.08)';
+        ctx.fillStyle = 'rgba(124, 58, 237, 0.12)';
         ctx.fillRect(bx, by, boxW, boxH);
       }
 
@@ -167,7 +175,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       // Card Border
       ctx.beginPath();
       ctx.roundRect(bx, by, boxW, boxH, 12);
-      ctx.strokeStyle = isSelected ? '#7C3AED' : '#16120E';
+      ctx.strokeStyle = isSelected ? '#A855F7' : cardBorder;
       ctx.lineWidth = isSelected ? 3 : 2;
       ctx.stroke();
 
@@ -179,9 +187,9 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       // Selected Checkmark & "Locked in" badge DRAWN INSIDE CARD without clipping
       if (isSelected) {
         ctx.save();
-        ctx.fillStyle = '#7C3AED';
+        ctx.fillStyle = '#A855F7';
         ctx.font = '900 12px "Space Mono", monospace';
-        const lockText = '✓ Locked in';
+        const lockText = '✓ Selected';
         const metrics = ctx.measureText(lockText);
         // Draw cleanly in top-right corner inside card
         ctx.fillText(lockText, bx + boxW - metrics.width - 14, by + 25);
@@ -189,7 +197,7 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
       }
 
       // Option text wrapped inside card with dyslexia/largeText inside canvas
-      ctx.fillStyle = '#16120E';
+      ctx.fillStyle = textColor;
       ctx.font = `700 ${optionSize}px ${bodyFont}`;
       const optWords = optText.split(' ');
       let oLine = '';
@@ -302,14 +310,18 @@ export const WatermarkedQuestionCanvas: React.FC<WatermarkedQuestionCanvasProps>
               type="button"
               onClick={() => onSelectOption(idx)}
               disabled={hasSubmitted || isLocked}
-              aria-label={shape.label}
-              className={`w-full h-full rounded-xl transition-all cursor-pointer border-2 border-transparent ${
+              aria-label={`${shape.label}${isSelected ? ' (Selected)' : ''}`}
+              className={`w-full h-full rounded-xl transition-all cursor-pointer flex items-end justify-end p-2 ${
                 isSelected
-                  ? 'bg-purple-600/5'
-                  : 'hover:bg-black/5 active:bg-black/10'
-              } disabled:cursor-not-allowed`}
+                  ? 'border-2 border-[var(--accent)] bg-[var(--accent)]/10 shadow-[2px_2px_0px_var(--shadow)]'
+                  : 'border-2 border-transparent hover:bg-black/5 dark:hover:bg-white/5 active:scale-[0.99]'
+              } disabled:cursor-not-allowed focus:outline-none focus:ring-4 focus:ring-[var(--accent)]`}
             >
-              {/* Screen reader only label - generic only without prompt text */}
+              {isSelected && (
+                <span className="sticker-badge sticker-badge-sunshine text-[10px] font-black uppercase px-1.5 py-0.5">
+                  ✓ Selected
+                </span>
+              )}
               <span className="sr-only">{shape.label}</span>
             </button>
           );
