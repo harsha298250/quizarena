@@ -35,6 +35,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
 
   const commands: CommandItem[] = [
     {
@@ -133,9 +134,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      previousActiveElementRef.current = document.activeElement as HTMLElement | null;
       setQuery('');
       setSelectedIndex(0);
       setTimeout(() => inputRef.current?.focus(), 50);
+    } else if (previousActiveElementRef.current) {
+      previousActiveElementRef.current.focus?.();
     }
   }, [isOpen]);
 
@@ -145,6 +149,18 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   // Keyboard navigation inside palette
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      inputRef.current?.focus();
+      return;
+    }
+
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSelectedIndex(prev => (prev + 1) % Math.max(1, filtered.length));
@@ -266,3 +282,4 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     </div>
   );
 };
+

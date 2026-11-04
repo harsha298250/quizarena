@@ -40,7 +40,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleToggleSound = () => {
     const next = sound.toggleMute();
     setIsMuted(next);
-    if (!next) sound.playClick();
+    if (next) {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } else {
+      sound.playClick();
+    }
   };
 
   const handleThemeChange = (newTheme: ThemeMode) => {
@@ -96,21 +102,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Setting 1: Language */}
         <div className="space-y-1.5">
           <label htmlFor="settings-lang-select" className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-            <span>🌐</span> Language / மொழி / भाषा
+            <span>🌐</span> Interface Language
           </label>
-          <select
-            id="settings-lang-select"
-            value={lang}
-            onChange={e => {
-              sound.playClick();
-              setLang(e.target.value as SupportedLanguage);
-            }}
-            className="w-full text-xs font-bold rounded-lg border-2 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] p-2 shadow-[2px_2px_0px_var(--shadow)] focus:outline-none cursor-pointer"
-          >
-            <option value="en">English (EN)</option>
-            <option value="ta">தமிழ் (Tamil)</option>
-            <option value="hi">हिन्दी (Hindi)</option>
-          </select>
+          <div className="flex items-center justify-between p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+            <span className="text-xs font-semibold text-[var(--text)]">English</span>
+            <span className="sticker-badge sticker-badge-sunshine text-[10px] px-2 py-0.5">Default (EN)</span>
+          </div>
         </div>
 
         {/* Setting 2: Theme */}
@@ -223,3 +220,4 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     </div>
   );
 };
+

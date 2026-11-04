@@ -14,24 +14,26 @@ import { User } from 'firebase/auth';
 
 interface PlayerShellProps {
   children?: React.ReactNode;
-  lang: SupportedLanguage;
-  setLang: (lang: SupportedLanguage) => void;
+  lang?: SupportedLanguage;
+  setLang?: (lang: SupportedLanguage) => void;
   theme?: ThemeMode;
   setTheme?: (theme: ThemeMode) => void;
   currentUser: User | null;
   onSwitchToHost?: () => void;
   onDeleteMyData?: () => void;
+  isLiveGame?: boolean;
 }
 
 export const PlayerShell: React.FC<PlayerShellProps> = ({
   children,
-  lang,
-  setLang,
+  lang = 'en',
+  setLang = () => {},
   theme = 'light',
   setTheme,
   currentUser,
   onSwitchToHost,
   onDeleteMyData,
+  isLiveGame = false,
 }) => {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -43,7 +45,13 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
   const handleMuteToggle = () => {
     const next = sound.toggleMute();
     setIsMuted(next);
-    if (!next) sound.playClick();
+    if (next) {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    } else {
+      sound.playClick();
+    }
   };
 
   return (
@@ -81,8 +89,8 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
 
           {/* Right Controls: Quick items on desktop/tablet, concise on mobile */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Host Return Pill if authenticated host in player shell */}
-            {onSwitchToHost && (
+            {/* Host Return Pill if authenticated host in player shell (hidden during live quiz) */}
+            {onSwitchToHost && !isLiveGame && (
               <button
                 type="button"
                 onClick={() => {
@@ -96,23 +104,6 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
                 <span className="hidden sm:inline">Host View</span>
               </button>
             )}
-
-            {/* Language Select (Hidden on < 640px, available in Settings ⚙️) */}
-            <div className="hidden sm:block">
-              <select
-                aria-label="Select Language"
-                value={lang}
-                onChange={e => {
-                  sound.playClick();
-                  setLang(e.target.value as SupportedLanguage);
-                }}
-                className="text-xs font-bold rounded-lg border-2 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] px-2 py-1 shadow-xs focus:outline-none cursor-pointer"
-              >
-                <option value="en">EN</option>
-                <option value="ta">தமிழ்</option>
-                <option value="hi">हिन्दी</option>
-              </select>
-            </div>
 
             {/* Sound FX Toggle (Hidden on < 640px, available in Settings ⚙️) */}
             <div className="hidden sm:block">
@@ -159,8 +150,8 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
               <span aria-hidden="true">⚙️</span>
             </button>
 
-            {/* Sign In button for unauthenticated visitors - NEVER show Sign Out to guests */}
-            {!isAuthenticated && (
+            {/* Sign In button for unauthenticated visitors - NEVER show Sign Out to guests, hide during live match */}
+            {!isAuthenticated && !isLiveGame && (
               <button
                 type="button"
                 onClick={() => {

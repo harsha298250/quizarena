@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Controls: Language, Sound, Theme, PWA, Settings, Auth */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Language Selector */}
+          {/* Language Selector (English Only) */}
           <div className="relative">
             <select
               aria-label="Select Language"
@@ -167,8 +167,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="text-xs font-bold rounded-lg border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-2 py-1 shadow-[2px_2px_0px_var(--shadow)] focus:outline-none cursor-pointer"
             >
               <option value="en">EN</option>
-              <option value="ta">தமிழ்</option>
-              <option value="hi">हिन्दी</option>
             </select>
           </div>
 

@@ -41,6 +41,11 @@ class SoundManager {
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
+    if (muted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
     if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
       try {
         localStorage.setItem('quizarena_mute', String(muted));

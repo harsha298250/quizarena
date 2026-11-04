@@ -241,16 +241,6 @@ export default function App() {
 
   // Delete My Data (GDPR / Privacy compliance)
   const handleDeleteMyData = async () => {
-    const confirmed = window.confirm(
-      '⚠️ Permanently delete all your data?\n\n' +
-      'This will delete:\n' +
-      '• All your saved quizzes from Firestore\n' +
-      '• Your user records and question bank items\n' +
-      '• All locally cached offline data\n\n' +
-      'This action cannot be undone. Do you wish to continue?'
-    );
-    if (!confirmed) return;
-
     sound.playClick();
     try {
       const result = await deleteMyData(auth.currentUser);
@@ -258,12 +248,24 @@ export default function App() {
       setActiveGame(null);
       setActivePlayer(null);
       setGameRole(null);
-      alert(
-        `✓ All your data has been permanently deleted.\n` +
-        `• ${result.deletedQuizzes} quizzes deleted from Firestore\n` +
-        `• ${result.clearedLocalKeys} local cached items cleared\n` +
-        `• Account session reset.`
-      );
+      
+      if (result.success) {
+        alert(
+          `✓ All your data has been permanently deleted.\n` +
+          `• ${result.deletedQuizzes} quizzes deleted from Firestore\n` +
+          (result.deletedGames ? `• ${result.deletedGames} hosted game sessions purged\n` : '') +
+          `• ${result.clearedLocalKeys} local cached items cleared\n` +
+          `• Account session terminated.` +
+          (result.retainedRecords ? `\n\nNotice: ${result.retainedRecords}` : '')
+        );
+      } else {
+        alert(
+          `⚠️ Data deletion completed with notices:\n` +
+          `• ${result.deletedQuizzes} quizzes deleted\n` +
+          `• ${result.clearedLocalKeys} local cached items cleared\n` +
+          (result.errors && result.errors.length > 0 ? `\nNotices:\n${result.errors.join('\n')}` : '')
+        );
+      }
     } catch (err) {
       alert('Error deleting data: ' + (err instanceof Error ? err.message : String(err)));
     }
@@ -650,8 +652,9 @@ export default function App() {
           theme={theme}
           setTheme={setTheme}
           currentUser={currentUser}
+          isLiveGame={inActivePlayerGame}
           onSwitchToHost={
-            isAuthenticated && userRole === 'student'
+            isAuthenticated && userRole === 'student' && !inActivePlayerGame
               ? () => {
                   setUserRole('host');
                   handleTabChange('host_dashboard');
