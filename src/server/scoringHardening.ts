@@ -57,6 +57,95 @@ export function extractQuestionStartTimeMs(questionStartTime: unknown): number {
 }
 
 /**
+ * Extracts and normalizes secret answer key for a given question index.
+ * Robust against schema variation:
+ * - Array schema: `[ { questionIndex: 0, ... } ]`
+ * - Object / Map schema: `{ "0": { correctAnswers: [...] }, ... }`
+ * - Merges with public question metadata (options, type) when available.
+ */
+export function extractSecretAnswerForQuestion(
+  secretData: any,
+  questionIndex: number,
+  fallbackQuestion?: any
+): {
+  type: string;
+  options: string[];
+  correctAnswers: number[];
+  acceptedTextAnswers: string[];
+  questionIndex: number;
+  timeLimit?: number;
+  points?: number;
+  [key: string]: any;
+} | null {
+  if (!secretData && !fallbackQuestion) return null;
+
+  let rawSecret: any = null;
+  const rawAnswers = secretData?.answers;
+
+  if (Array.isArray(rawAnswers)) {
+    rawSecret = rawAnswers.find(
+      (a: any, idx: number) =>
+        a && (a.questionIndex === questionIndex || (a.questionIndex === undefined && idx === questionIndex))
+    );
+  } else if (rawAnswers && typeof rawAnswers === 'object') {
+    rawSecret =
+      rawAnswers[questionIndex] !== undefined
+        ? rawAnswers[questionIndex]
+        : rawAnswers[String(questionIndex)];
+  }
+
+  const questionType = rawSecret?.type || fallbackQuestion?.type || 'multiple_choice';
+  const options = Array.isArray(rawSecret?.options)
+    ? rawSecret.options
+    : Array.isArray(fallbackQuestion?.options)
+    ? fallbackQuestion.options
+    : [];
+
+  const correctAnswers = Array.isArray(rawSecret?.correctAnswers)
+    ? rawSecret.correctAnswers
+    : Array.isArray(fallbackQuestion?.correctAnswers)
+    ? fallbackQuestion.correctAnswers
+    : [];
+
+  const acceptedTextAnswers = Array.isArray(rawSecret?.acceptedTextAnswers)
+    ? rawSecret.acceptedTextAnswers
+    : Array.isArray(fallbackQuestion?.acceptedTextAnswers)
+    ? fallbackQuestion.acceptedTextAnswers
+    : [];
+
+  // If no answer information exists at all
+  if (
+    !rawSecret &&
+    !fallbackQuestion?.correctAnswers &&
+    !fallbackQuestion?.acceptedTextAnswers
+  ) {
+    return null;
+  }
+
+  const timeLimit = typeof rawSecret?.timeLimit === 'number'
+    ? rawSecret.timeLimit
+    : typeof fallbackQuestion?.timeLimit === 'number'
+    ? fallbackQuestion.timeLimit
+    : undefined;
+
+  const points = typeof rawSecret?.points === 'number'
+    ? rawSecret.points
+    : typeof fallbackQuestion?.points === 'number'
+    ? fallbackQuestion.points
+    : undefined;
+
+  return {
+    questionIndex,
+    type: questionType,
+    options,
+    correctAnswers,
+    acceptedTextAnswers,
+    timeLimit,
+    points,
+  };
+}
+
+/**
  * Validates player eligibility to answer:
  * Player document must exist and player must not be kicked/removed.
  */

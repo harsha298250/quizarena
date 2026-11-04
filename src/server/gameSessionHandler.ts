@@ -4,7 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { sanitizeNickname } from '../lib/profanity.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
 
@@ -150,6 +150,9 @@ export async function handleCreateGame(
     // Write protected answer key to host-only secrets subcollection
     const answerKeyMap = quiz.questions.reduce((acc: any, q: any, idx: number) => {
       acc[idx] = {
+        questionIndex: idx,
+        type: q.type || 'multiple_choice',
+        options: q.options || [],
         correctAnswers: q.correctAnswers || [],
         acceptedTextAnswers: q.acceptedTextAnswers || [],
       };
@@ -695,6 +698,7 @@ export async function handleStartGame(
       }
 
       const timeLimit = gameData.questions[0]?.timeLimit || gameData.timeLimit || 20;
+      const deadlineTimestampMs = now + (timeLimit * 1000);
 
       transaction.update(gameDocRef, {
         status: 'question_active',
@@ -702,6 +706,7 @@ export async function handleStartGame(
         timeLimit,
         questionStartTime: FieldValue.serverTimestamp(),
         questionStartTimeMs: now,
+        deadlineTimestampMs,
         isPaused: false,
         pauseRemainingMs: null,
         updatedAt: FieldValue.serverTimestamp(),
@@ -831,6 +836,7 @@ export async function handleAdvanceQuestion(
       }
 
       const duration = timeLimit || gameData.questions?.[targetIndex]?.timeLimit || gameData.timeLimit || 20;
+      const deadlineTimestampMs = now + (duration * 1000);
 
       transaction.update(gameDocRef, {
         status: 'question_active',
@@ -838,6 +844,7 @@ export async function handleAdvanceQuestion(
         timeLimit: duration,
         questionStartTime: FieldValue.serverTimestamp(),
         questionStartTimeMs: now,
+        deadlineTimestampMs,
         isPaused: false,
         pauseRemainingMs: null,
         updatedAt: FieldValue.serverTimestamp(),
@@ -1116,14 +1123,18 @@ export async function handleResumeGame(
       return;
     }
 
+    const now = Date.now();
     const totalMs = (data?.timeLimit || 20) * 1000;
     const remainingMs = data?.pauseRemainingMs ?? totalMs;
-    const simulatedStart = Date.now() - (totalMs - remainingMs);
+    const simulatedStart = now - (totalMs - remainingMs);
+    const newDeadlineMs = now + remainingMs;
 
     await gameDocRef.update({
       isPaused: false,
       pauseRemainingMs: null,
+      questionStartTime: Timestamp.fromMillis(simulatedStart),
       questionStartTimeMs: simulatedStart,
+      deadlineTimestampMs: newDeadlineMs,
       updatedAt: FieldValue.serverTimestamp(),
     });
 

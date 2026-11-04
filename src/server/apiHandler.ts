@@ -16,6 +16,7 @@ import {
   clampLatency,
   globalRateLimiter,
   extractQuestionStartTimeMs,
+  extractSecretAnswerForQuestion,
   validatePlayerEligibility,
   validateAndTrackPowerUp,
   globalTimingAnomalyDetector,
@@ -475,15 +476,14 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
 
     const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
     const secretDoc = await secretDocRef.get();
-    let secretQuestion: any = null;
-    if (secretDoc.exists) {
-      const secretData = secretDoc.data() || {};
-      const answersList = secretData.answers || [];
-      secretQuestion = answersList.find((a: any) => a.questionIndex === questionIndex);
-    }
-    if (!secretQuestion && gameData.questions?.[questionIndex]) {
-      secretQuestion = gameData.questions[questionIndex];
-    }
+    const secretData = secretDoc.exists ? secretDoc.data() : null;
+
+    const secretQuestion = extractSecretAnswerForQuestion(
+      secretData,
+      questionIndex,
+      gameData.questions?.[questionIndex]
+    );
+
     if (!secretQuestion) {
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json');

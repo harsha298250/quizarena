@@ -9,6 +9,7 @@ import { calculateFairScore, evaluateAnswer } from '../lib/scoring.ts';
 import {
   clampLatency,
   extractQuestionStartTimeMs,
+  extractSecretAnswerForQuestion,
   validatePlayerEligibility,
   validateAndTrackPowerUp,
   globalTimingAnomalyDetector,
@@ -188,22 +189,20 @@ export async function handleAnswerSubmission(
     // 6. Fetch secret answer key from host-only subcollection games/{id}/secrets/answerKey
     const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
     const secretDoc = await secretDocRef.get();
+    const secretData = secretDoc.exists ? secretDoc.data() : null;
 
-    let secretQuestion: any = null;
-    if (secretDoc.exists) {
-      const secretData = secretDoc.data() || {};
-      const answersList = secretData.answers || [];
-      secretQuestion = answersList.find((a: any) => a.questionIndex === questionIndex);
-    }
-    if (!secretQuestion && gameData.questions?.[questionIndex]) {
-      secretQuestion = gameData.questions[questionIndex];
-    }
+    const secretQuestion = extractSecretAnswerForQuestion(
+      secretData,
+      questionIndex,
+      gameData.questions?.[questionIndex]
+    );
+
     if (!secretQuestion) {
       res.status(500).json({ error: 'Answer key not found for this question on server' });
       return;
     }
 
-    const questionType = secretQuestion.type || 'multiple_choice';
+    const questionType = secretQuestion.type;
     const numOptions = Array.isArray(secretQuestion.options) ? secretQuestion.options.length : 0;
 
     // 6. Validate submitted payload structure against question type
@@ -527,15 +526,12 @@ export async function handleUsePowerUp(
         // Look up secret correct answers to eliminate exactly 2 WRONG options
         const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
         const secretSnap = await transaction.get(secretDocRef);
-        let secretQuestion: any = null;
-        if (secretSnap.exists) {
-          const secretData = secretSnap.data() || {};
-          const answersList = secretData.answers || [];
-          secretQuestion = answersList.find((a: any) => a.questionIndex === questionIndex);
-        }
-        if (!secretQuestion && gameData.questions?.[questionIndex]) {
-          secretQuestion = gameData.questions[questionIndex];
-        }
+        const secretData = secretSnap.exists ? secretSnap.data() : null;
+        const secretQuestion = extractSecretAnswerForQuestion(
+          secretData,
+          questionIndex,
+          gameData.questions?.[questionIndex]
+        );
 
         const correctIndices: number[] = secretQuestion?.correctAnswers || [0];
         const totalOptions = Array.isArray(secretQuestion?.options) ? secretQuestion.options.length : 4;
