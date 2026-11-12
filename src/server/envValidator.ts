@@ -18,6 +18,7 @@ export interface EnvValidationResult {
     hasBrevoKey: boolean;
     corsOrigins: string[];
     hasWorkerSecret: boolean;
+    hasWebhookSecret: boolean;
   };
 }
 
@@ -78,13 +79,22 @@ export function validateServerEnvironment(): EnvValidationResult {
     .filter(Boolean);
 
   if (nodeEnv === 'production' && corsOrigins.length === 0) {
-    warnings.push('CORS_ALLOWED_ORIGINS is empty in production. Standardizing on same-origin only.');
+    warnings.push('CORS_ALLOWED_ORIGINS is empty in production. Cross-origin browser requests will be rejected (same-origin only).');
+  }
+  if (nodeEnv === 'production' && corsOrigins.includes('*')) {
+    warnings.push('CORS_ALLOWED_ORIGINS contains wildcard "*" in production, which is disallowed with credentialed CORS.');
   }
 
   // Check Worker Secret
-  const hasWorkerSecret = Boolean(process.env.OUTBOX_WORKER_SECRET);
+  const hasWorkerSecret = Boolean(process.env.OUTBOX_WORKER_SECRET?.trim());
   if (!hasWorkerSecret && nodeEnv === 'production') {
     warnings.push('OUTBOX_WORKER_SECRET is not set. /api/outbox/process endpoint requires admin token authentication only.');
+  }
+
+  // Check Webhook Secret
+  const hasWebhookSecret = Boolean(process.env.WEBHOOK_SECRET?.trim());
+  if (!hasWebhookSecret && nodeEnv === 'production') {
+    warnings.push('WEBHOOK_SECRET is not set. /api/outbox/webhook will reject all webhook requests in fail-closed mode.');
   }
 
   return {
@@ -102,6 +112,7 @@ export function validateServerEnvironment(): EnvValidationResult {
       hasBrevoKey,
       corsOrigins,
       hasWorkerSecret,
+      hasWebhookSecret,
     },
   };
 }

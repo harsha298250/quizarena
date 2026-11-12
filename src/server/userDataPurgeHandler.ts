@@ -175,3 +175,4 @@ export async function handlePurgeUserData(
       'Archived cohort certificates and tournament leaderboards remain in an anonymized state for academic integrity.',
   });
 }
+

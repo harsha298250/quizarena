@@ -229,6 +229,84 @@ const configuredCorsOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
   .map(o => o.trim())
   .filter(Boolean);
 
+// Configure trusted single-hop proxy only when running on Render or explicitly opted in
+const trustProxySetting = process.env.TRUST_PROXY
+  ? (process.env.TRUST_PROXY === 'true' ? 1 : Number(process.env.TRUST_PROXY) || false)
+  : (process.env.RENDER === 'true' ? 1 : false);
+app.set('trust proxy', trustProxySetting);
+
+/**
+ * Derives the server's own trusted origin for same-origin comparison.
+ * Prefers explicit PUBLIC_ORIGIN / RENDER_EXTERNAL_URL, falling back to validated Host header.
+ * Never blindly trusts arbitrary X-Forwarded-Host headers when trust proxy is disabled.
+ */
+export function resolveTrustedSameOrigin(req: Pick<Request, 'protocol' | 'headers'>): string | null {
+  const configuredPublic = (process.env.PUBLIC_ORIGIN || process.env.RENDER_EXTERNAL_URL || '').trim();
+  if (configuredPublic) {
+    try {
+      return new URL(configuredPublic).origin;
+    } catch {
+      // Ignore malformed env URL and fall back to request host
+    }
+  }
+
+  const rawHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+  if (!rawHost || typeof rawHost !== 'string') return null;
+  const trimmedHost = rawHost.trim();
+  // Reject invalid characters or multiple hosts in Host header
+  if (!/^[a-zA-Z0-9.-]+(:\d{1,5})?$/.test(trimmedHost)) {
+    return null;
+  }
+
+  const proto = req.protocol === 'https' ? 'https' : 'http';
+  try {
+    return new URL(`${proto}://${trimmedHost}`).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Evaluates whether an incoming Origin is permitted under credentialed CORS rules.
+ * - Same-origin requests (matching trusted server origin or missing Origin header) are allowed.
+ * - In production, empty allowlists reject cross-origin requests and wildcard "*" is rejected.
+ */
+export function evaluateCorsRequest(
+  origin: string | undefined,
+  allowedOrigins: string[],
+  isDev: boolean,
+  trustedSameOrigin?: string | null
+): { allowOrigin: string | null; allowRequest: boolean; isSameOrigin: boolean } {
+  if (!origin) {
+    return { allowOrigin: null, allowRequest: true, isSameOrigin: true };
+  }
+
+  let normalizedOrigin: string | null = null;
+  try {
+    normalizedOrigin = new URL(origin).origin;
+  } catch {
+    return { allowOrigin: null, allowRequest: false, isSameOrigin: false };
+  }
+
+  if (trustedSameOrigin && normalizedOrigin === trustedSameOrigin) {
+    return { allowOrigin: normalizedOrigin, allowRequest: true, isSameOrigin: true };
+  }
+
+  if (isDev) {
+    return { allowOrigin: normalizedOrigin, allowRequest: true, isSameOrigin: false };
+  }
+
+  if (allowedOrigins.length === 0 || allowedOrigins.includes('*')) {
+    return { allowOrigin: null, allowRequest: false, isSameOrigin: false };
+  }
+
+  if (isAllowedCorsOrigin(normalizedOrigin, allowedOrigins)) {
+    return { allowOrigin: normalizedOrigin, allowRequest: true, isSameOrigin: false };
+  }
+
+  return { allowOrigin: null, allowRequest: false, isSameOrigin: false };
+}
+
 // Request Correlation ID & Structured Logging Middleware
 app.use((req: Request, res: Response, next) => {
   const reqId = (req.headers['x-request-id'] as string) || (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15));
@@ -258,17 +336,13 @@ app.use((req: Request, res: Response, next) => {
 app.use((req: Request, res: Response, next) => {
   const origin = req.headers.origin;
   const isDev = process.env.NODE_ENV !== 'production';
-
-  let allowOrigin: string | null = null;
-  if (!origin) {
-    // Non-browser or same-origin request
-    allowOrigin = null;
-  } else if (isDev || configuredCorsOrigins.length === 0 || configuredCorsOrigins.includes('*')) {
-    // In dev or when wildcard is explicitly allowed
-    allowOrigin = origin;
-  } else if (isAllowedCorsOrigin(origin, configuredCorsOrigins)) {
-    allowOrigin = origin;
-  }
+  const trustedSameOrigin = resolveTrustedSameOrigin(req);
+  const { allowOrigin, allowRequest } = evaluateCorsRequest(
+    origin,
+    configuredCorsOrigins,
+    isDev,
+    trustedSameOrigin
+  );
 
   if (allowOrigin) {
     res.setHeader('Access-Control-Allow-Origin', allowOrigin);
@@ -280,7 +354,11 @@ app.use((req: Request, res: Response, next) => {
   res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Request-Id');
 
   if (req.method === 'OPTIONS') {
-    res.sendStatus(allowOrigin || isDev ? 204 : 403);
+    res.sendStatus(allowRequest ? 204 : 403);
+    return;
+  }
+  if (!allowRequest) {
+    res.status(403).json({ error: 'Forbidden: Origin not allowed by CORS policy.' });
     return;
   }
   next();
@@ -315,7 +393,12 @@ const handleHealthCheck = (_req: Request, res: Response) => {
 app.get('/health', handleHealthCheck);
 app.get('/api/health', handleHealthCheck);
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf;
+  },
+}));
 
 // Server-side Gemini initialization per guidelines (fastest suitable Gemini model)
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';

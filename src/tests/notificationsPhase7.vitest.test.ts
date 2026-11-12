@@ -586,7 +586,7 @@ describe('Phase 7 — Email Notifications & Certificate System Hardening Suite',
   });
 
   it('[CERT-27] user cannot issue certificate for another user via API endpoint (403)', async () => {
-    const { req, res, getStatus, adminAuth, adminDb } = createMockReqRes({
+    const { req, res, getStatus, adminAuth } = createMockReqRes({
       headers: { authorization: 'Bearer valid_student_token' }, // Alice (student_1)
       body: {
         ownerId: 'student_other_user', // Forged owner
@@ -594,8 +594,15 @@ describe('Phase 7 — Email Notifications & Certificate System Hardening Suite',
         assessmentId: 'game_1',
       },
     });
+    const mockDb: any = {
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({ exists: true, data: () => ({ hostId: 'host_1', quizTitle: 'Quiz 1' }) }),
+        }),
+      }),
+    };
 
-    await handleIssueCertificate(req, res, { adminAuth, adminDb });
+    await handleIssueCertificate(req, res, { adminAuth, adminDb: mockDb });
     expect(getStatus()).toBe(403);
   });
 

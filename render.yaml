@@ -23,6 +23,8 @@ services:
         sync: false
       - key: OUTBOX_WORKER_SECRET
         sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: BREVO_API_KEY

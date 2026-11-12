@@ -3,20 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import type { Auth } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
+import type { CertificateType } from '../types/certificate';
 import {
   issueCertificate,
   verifyCertificatePublic,
   revokeCertificate,
-  certificateStore,
 } from './certificateEngine';
 import {
-  enqueueOutboxJob,
   processOutboxBatch,
   handleProviderWebhook,
-  isValidEmailAddress,
 } from './emailOutboxWorker';
 import {
   getSmtpTransporter,
@@ -28,6 +27,105 @@ import {
 export interface NotificationRouteDependencies {
   adminAuth: Auth;
   adminDb: Firestore;
+}
+
+const SVIX_TOLERANCE_SEC = 300; // 5 minutes replay window
+
+function timingSafeEqualStrings(a: string, b: string): boolean {
+  const hashA = crypto.createHash('sha256').update(a).digest();
+  const hashB = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+
+/**
+ * Verifies official Resend / Svix webhook signatures using:
+ * - Headers: svix-id, svix-timestamp, svix-signature
+ * - Secret: whsec_<base64> (or raw UTF-8 fallback if non-prefixed)
+ * - Original raw request body bytes (req.rawBody) — never JSON.stringify(req.body)
+ */
+export function verifyResendSvixSignature(
+  req: Request & { rawBody?: Buffer | string },
+  secret: string,
+  nowSec: number = Math.floor(Date.now() / 1000)
+): { valid: boolean; reason?: string } {
+  const getHeader = (name: string): string | null => {
+    const raw = req.headers[name];
+    const val = Array.isArray(raw) ? raw[0] : raw;
+    return typeof val === 'string' && val.trim() ? val.trim() : null;
+  };
+
+  const svixId = getHeader('svix-id');
+  const svixTimestamp = getHeader('svix-timestamp');
+  const svixSignature = getHeader('svix-signature');
+
+  if (!svixId || !svixTimestamp || !svixSignature) {
+    return { valid: false, reason: 'Missing required Svix signature headers (svix-id, svix-timestamp, svix-signature).' };
+  }
+
+  if (!/^\d+$/.test(svixTimestamp)) {
+    return { valid: false, reason: 'Invalid svix-timestamp format.' };
+  }
+
+  const tsSec = Number(svixTimestamp);
+  if (Math.abs(nowSec - tsSec) > SVIX_TOLERANCE_SEC) {
+    return { valid: false, reason: 'Webhook timestamp outside replay tolerance window.' };
+  }
+
+  const rawBodyStr = Buffer.isBuffer(req.rawBody)
+    ? req.rawBody.toString('utf8')
+    : typeof req.rawBody === 'string'
+      ? req.rawBody
+      : null;
+
+  if (rawBodyStr === null) {
+    return { valid: false, reason: 'Missing original raw request body for signature verification.' };
+  }
+
+  const keyBytes = secret.startsWith('whsec_')
+    ? Buffer.from(secret.slice(6), 'base64')
+    : Buffer.from(secret, 'utf8');
+
+  if (keyBytes.length === 0) {
+    return { valid: false, reason: 'Invalid webhook signing secret.' };
+  }
+
+  const signedContent = `${svixId}.${svixTimestamp}.${rawBodyStr}`;
+  const expectedSigBytes = crypto.createHmac('sha256', keyBytes).update(signedContent).digest();
+
+  const candidateSignatures = svixSignature.split(/\s+/).filter(Boolean);
+  for (const entry of candidateSignatures) {
+    const parts = entry.split(',');
+    if (parts.length !== 2 || parts[0] !== 'v1' || !parts[1]) continue;
+    try {
+      const providedBytes = Buffer.from(parts[1], 'base64');
+      if (
+        providedBytes.length === expectedSigBytes.length &&
+        crypto.timingSafeEqual(providedBytes, expectedSigBytes)
+      ) {
+        return { valid: true };
+      }
+    } catch {
+      // Ignore malformed base64 entry and continue checking others
+    }
+  }
+
+  return { valid: false, reason: 'Invalid Svix webhook signature.' };
+}
+
+function deriveAuthoritativeCertificateType(
+  assessmentType: 'quiz' | 'tournament',
+  rank: number,
+  accuracy: number
+): CertificateType {
+  if (assessmentType === 'tournament') {
+    if (rank === 1) return 'tournament_champion';
+    if (rank <= 3) return 'tournament_placement';
+    return 'quiz_completion';
+  }
+  if (rank === 1 || accuracy >= 0.85) {
+    return 'quiz_excellence';
+  }
+  return 'quiz_completion';
 }
 
 async function authenticate(req: Request, adminAuth: Auth) {
@@ -46,6 +144,8 @@ async function authenticate(req: Request, adminAuth: Auth) {
 /**
  * POST /api/certificates/issue
  * Server-authoritative certificate issuance.
+ * Never trusts client-supplied issuerId, type, score, rank, totalParticipants, or accuracy.
+ * Restricts reissue=true strictly to the assessment host or an administrator.
  */
 export async function handleIssueCertificate(
   req: Request,
@@ -60,38 +160,147 @@ export async function handleIssueCertificate(
 
   const {
     ownerId,
-    recipientName,
-    assessmentType,
+    assessmentType = 'quiz',
     assessmentId,
-    assessmentTitle,
-    type,
-    score,
-    rank,
-    totalParticipants,
-    accuracy,
     reissue = false,
-  } = req.body;
+  } = req.body || {};
 
-  // Validation: Only the owner or host can request issuance
-  if (user.uid !== ownerId && user.uid !== req.body.issuerId) {
-    res.status(403).json({ error: 'Forbidden: You cannot issue certificates for other users.' });
+  if (!ownerId || typeof ownerId !== 'string' || !assessmentId || typeof assessmentId !== 'string') {
+    res.status(400).json({ error: 'Bad Request: ownerId and assessmentId are required.' });
     return;
   }
+
+  if (!deps.adminDb || typeof deps.adminDb.collection !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative database is not configured.' });
+    return;
+  }
+
+  const isAdmin = Boolean(
+    user.firebase?.sign_in_provider !== 'anonymous' &&
+    (user.admin === true || user.role === 'admin')
+  );
+  const normalizedAssessmentType: 'quiz' | 'tournament' =
+    assessmentType === 'tournament' ? 'tournament' : 'quiz';
+
+  let authoritativeTitle = 'QuizArena Assessment';
+  let authoritativeIssuerId = '';
+  let authoritativeIssuerName = 'Quiz Master';
+  let authoritativeRecipientName = 'Participant';
+  let authoritativeScore = 0;
+  let authoritativeRank = 1;
+  let authoritativeTotalParticipants = 1;
+  let authoritativeAccuracy = 0;
+  let isHost = false;
+
+  if (normalizedAssessmentType === 'tournament') {
+    const tourneySnap = await deps.adminDb.collection('tournaments').doc(assessmentId).get();
+    if (!tourneySnap.exists) {
+      res.status(404).json({ error: 'Tournament assessment not found.' });
+      return;
+    }
+    const tourneyData = tourneySnap.data() || {};
+    isHost = tourneyData.hostId === user.uid;
+    if (!isHost && !isAdmin && user.uid !== ownerId) {
+      res.status(403).json({ error: 'Forbidden: You cannot issue certificates for other users.' });
+      return;
+    }
+
+    const regSnap = await deps.adminDb
+      .collection('tournaments')
+      .doc(assessmentId)
+      .collection('registrations')
+      .doc(ownerId)
+      .get();
+
+    if (!regSnap.exists) {
+      res.status(403).json({ error: 'Forbidden: User is not a verified participant in this tournament.' });
+      return;
+    }
+
+    const regData = regSnap.data() || {};
+    authoritativeTitle = tourneyData.title || 'Tournament Assessment';
+    authoritativeIssuerId = tourneyData.hostId || '';
+    authoritativeIssuerName = tourneyData.hostName || 'Tournament Host';
+    authoritativeRecipientName = regData.nickname || regData.name || 'Participant';
+    authoritativeScore = Math.max(0, Number(regData.score) || 0);
+    authoritativeRank = Math.max(1, Number(regData.rank) || 1);
+    authoritativeTotalParticipants = Math.max(1, Number(tourneyData.participantCount) || 1);
+    authoritativeAccuracy = Math.min(1, Math.max(0, Number(regData.accuracy) || 0));
+  } else {
+    const gameSnap = await deps.adminDb.collection('games').doc(assessmentId).get();
+    if (!gameSnap.exists) {
+      res.status(404).json({ error: 'Quiz game session not found.' });
+      return;
+    }
+    const gameData = gameSnap.data() || {};
+    isHost = gameData.hostId === user.uid;
+
+    if (!isHost && !isAdmin && user.uid !== ownerId) {
+      res.status(403).json({ error: 'Forbidden: You cannot issue certificates for other users.' });
+      return;
+    }
+
+    const playersCol = deps.adminDb.collection('games').doc(assessmentId).collection('players');
+    const playerSnap = await playersCol.doc(ownerId).get();
+    if (!playerSnap.exists) {
+      res.status(403).json({ error: 'Forbidden: User is not a verified participant in this game.' });
+      return;
+    }
+
+    const playerData = playerSnap.data() || {};
+    const allPlayersSnap = await playersCol.get();
+    const sortedPlayers = (allPlayersSnap?.docs || [])
+      .map(d => ({ id: d.id, score: Number(d.data()?.score) || 0 }))
+      .sort((a, b) => b.score - a.score);
+
+    const computedRank = sortedPlayers.findIndex(p => p.id === ownerId);
+    const totalQuestions = Array.isArray(gameData.questions) ? gameData.questions.length : 0;
+
+    authoritativeTitle = gameData.quizTitle || 'QuizArena Assessment';
+    authoritativeIssuerId = gameData.hostId || '';
+    authoritativeIssuerName = gameData.hostName || 'Quiz Master';
+    authoritativeRecipientName = playerData.nickname || playerData.name || 'Participant';
+    authoritativeScore = Math.max(0, Number(playerData.score) || 0);
+    authoritativeTotalParticipants = Math.max(1, sortedPlayers.length || 1);
+    authoritativeRank = computedRank >= 0 ? computedRank + 1 : 1;
+
+    if (typeof playerData.accuracy === 'number') {
+      authoritativeAccuracy = Math.min(1, Math.max(0, playerData.accuracy));
+    } else if (typeof playerData.correctCount === 'number' && totalQuestions > 0) {
+      authoritativeAccuracy = Math.min(1, Math.max(0, playerData.correctCount / totalQuestions));
+    }
+  }
+
+  if (!authoritativeIssuerId) {
+    res.status(403).json({ error: 'Forbidden: Assessment has no authoritative host/issuer.' });
+    return;
+  }
+
+  if (Boolean(reissue) && !isHost && !isAdmin) {
+    res.status(403).json({ error: 'Forbidden: Only the assessment host or an administrator can reissue certificates.' });
+    return;
+  }
+
+  const authoritativeType = deriveAuthoritativeCertificateType(
+    normalizedAssessmentType,
+    authoritativeRank,
+    authoritativeAccuracy
+  );
 
   const result = issueCertificate(
     {
       ownerId,
-      recipientName,
-      assessmentType: assessmentType || 'quiz',
+      recipientName: authoritativeRecipientName,
+      assessmentType: normalizedAssessmentType,
       assessmentId,
-      assessmentTitle,
-      type: type || 'quiz_completion',
-      score: Number(score) || 0,
-      rank: Number(rank) || 1,
-      totalParticipants: Number(totalParticipants) || 1,
-      accuracy: Number(accuracy) || 1,
-      issuerId: user.uid,
-      issuerName: user.name || user.email || 'Quiz Master',
+      assessmentTitle: authoritativeTitle,
+      type: authoritativeType,
+      score: authoritativeScore,
+      rank: authoritativeRank,
+      totalParticipants: authoritativeTotalParticipants,
+      accuracy: authoritativeAccuracy,
+      issuerId: authoritativeIssuerId,
+      issuerName: authoritativeIssuerName,
     },
     Boolean(reissue)
   );
@@ -162,21 +371,31 @@ export async function handleRevokeCertificate(
 /**
  * POST /api/outbox/process
  * Protected queue worker dispatch endpoint.
+ * Fails closed when OUTBOX_WORKER_SECRET is unset unless caller has genuine admin claims.
  */
 export async function handleProcessOutbox(
   req: Request,
   res: Response,
   deps: NotificationRouteDependencies
 ): Promise<void> {
-  // Protect worker: Must have internal secret header or admin token
-  const internalSecret = req.headers['x-worker-secret'];
-  const expectedSecret = process.env.WORKER_SECRET || 'quizarena_internal_worker_secret';
+  const rawSecret = req.headers['x-worker-secret'];
+  const internalSecret = Array.isArray(rawSecret) ? rawSecret[0] : rawSecret;
+  const expectedSecret = process.env.OUTBOX_WORKER_SECRET?.trim();
 
-  let isAuthorized = internalSecret === expectedSecret;
+  let isAuthorized = false;
+  if (expectedSecret && typeof internalSecret === 'string' && internalSecret.length > 0) {
+    isAuthorized = timingSafeEqualStrings(internalSecret, expectedSecret);
+  }
+
   if (!isAuthorized) {
     const user = await authenticate(req, deps.adminAuth);
-    if (user && !user.firebase?.sign_in_provider) {
-      isAuthorized = true; // Authorized authenticated host/admin
+    const isAdminClaim = Boolean(
+      user &&
+      user.firebase?.sign_in_provider !== 'anonymous' &&
+      (user.admin === true || user.role === 'admin')
+    );
+    if (isAdminClaim) {
+      isAuthorized = true;
     }
   }
 
@@ -185,9 +404,8 @@ export async function handleProcessOutbox(
     return;
   }
 
-  const batchSize = Number(req.query.batchSize) || 10;
+  const batchSize = Number((req.query && req.query.batchSize) || 10);
 
-  // Use resolved HTTPS API provider (Resend/Brevo) or SMTP transporter
   const sender = async (job: any) => {
     const provider = getResolvedEmailProvider();
     const fromAddress = getResolvedFromAddress(provider);
@@ -207,8 +425,11 @@ export async function handleProcessOutbox(
         return { success: true, providerMessageId: dispatchResult.messageId || `msg_${job.id}` };
       }
 
-      // If skipped (no HTTPS keys or SMTP configured), use mock provider for test/offline environment
-      return { success: true, providerMessageId: `mock_${job.id}` };
+      return {
+        success: false,
+        error: 'Email delivery provider is not configured or skipped dispatch.',
+        isPermanent: false,
+      };
     } catch (err: any) {
       const isPermanent = Boolean(
         err?.isPermanent ||
@@ -227,14 +448,52 @@ export async function handleProcessOutbox(
 /**
  * POST /api/outbox/webhook
  * Provider delivery webhook endpoint.
+ * - Supports Resend official Svix signature verification over rawBody.
+ * - Fails closed for providers without supported webhook verification (Brevo, SMTP) or missing WEBHOOK_SECRET.
  */
-export async function handleOutboxWebhook(req: Request, res: Response): Promise<void> {
-  const signature = req.headers['x-provider-signature'];
-  const expectedKey = process.env.WEBHOOK_SECRET || 'test_webhook_secret';
-  const isSignatureValid = signature === expectedKey;
+export async function handleOutboxWebhook(
+  req: Request & { rawBody?: Buffer | string },
+  res: Response
+): Promise<void> {
+  const provider = getResolvedEmailProvider();
+  if (provider === 'brevo' || provider === 'smtp') {
+    res.status(501).json({
+      error: `Webhook verification is not implemented for email provider "${provider}". Failing closed.`,
+    });
+    return;
+  }
 
-  const { messageId, event } = req.body;
-  const result = handleProviderWebhook(messageId, event, isSignatureValid);
+  const expectedKey = process.env.WEBHOOK_SECRET?.trim();
+  if (!expectedKey) {
+    res.status(503).json({ error: 'Service Unavailable: WEBHOOK_SECRET is not configured.' });
+    return;
+  }
+
+  const verification = verifyResendSvixSignature(req, expectedKey);
+  if (!verification.valid) {
+    res.status(401).json({ error: `Unauthorized: ${verification.reason || 'Invalid webhook signature.'}` });
+    return;
+  }
+
+  // Normalize Resend webhook payload or direct { messageId, event }
+  const body = req.body || {};
+  const messageId = body.data?.email_id || body.messageId;
+  const rawEvent = body.type || body.event;
+  let normalizedEvent: 'delivered' | 'bounced' | 'rejected' | undefined;
+  if (rawEvent === 'email.delivered' || rawEvent === 'delivered') {
+    normalizedEvent = 'delivered';
+  } else if (rawEvent === 'email.bounced' || rawEvent === 'bounced') {
+    normalizedEvent = 'bounced';
+  } else if (rawEvent === 'email.complained' || rawEvent === 'email.failed' || rawEvent === 'rejected') {
+    normalizedEvent = 'rejected';
+  }
+
+  if (!normalizedEvent) {
+    res.status(400).json({ error: 'Unsupported or missing webhook event type.' });
+    return;
+  }
+
+  const result = handleProviderWebhook(messageId, normalizedEvent, true);
 
   if (!result.success) {
     res.status(400).json({ error: result.error });
