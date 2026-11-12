@@ -199,6 +199,10 @@ export async function handleIssueCertificate(
       return;
     }
     const tourneyData = tourneySnap.data() || {};
+    if (tourneyData.status !== 'completed') {
+      res.status(400).json({ error: 'Bad Request: Tournament must be completed before issuing certificates.' });
+      return;
+    }
     isHost = tourneyData.hostId === user.uid;
     if (!isHost && !isAdmin && user.uid !== ownerId) {
       res.status(403).json({ error: 'Forbidden: You cannot issue certificates for other users.' });
@@ -221,7 +225,7 @@ export async function handleIssueCertificate(
     authoritativeTitle = tourneyData.title || 'Tournament Assessment';
     authoritativeIssuerId = tourneyData.hostId || '';
     authoritativeIssuerName = tourneyData.hostName || 'Tournament Host';
-    authoritativeRecipientName = regData.nickname || regData.name || 'Participant';
+    authoritativeRecipientName = regData.participantNickname || regData.nickname || regData.name || 'Participant';
     authoritativeScore = Math.max(0, Number(regData.score) || 0);
     authoritativeRank = Math.max(1, Number(regData.rank) || 1);
     authoritativeTotalParticipants = Math.max(1, Number(tourneyData.participantCount) || 1);

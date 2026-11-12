@@ -232,6 +232,7 @@ describe('Phase 1 & 1.1 — Critical Security Hardening Suite', () => {
             hostId: 'host_1',
             hostName: 'Prof. Turing',
             title: 'Spring Championship',
+            status: 'completed',
             participantCount: 16,
           },
           registrations: {

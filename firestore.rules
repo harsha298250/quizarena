@@ -190,11 +190,23 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 6. Tournaments & Brackets (Phase 6 Hardened)
+    // 6. Tournaments & Brackets (Phase 3 Persistent & Server-Authoritative)
     // ==========================================
+    function isTournamentReadable(tournamentId, tournamentData) {
+      return isNonAnonymous() && (
+        tournamentData.visibility != 'private' ||
+        tournamentData.hostId == request.auth.uid ||
+        (
+          exists(/databases/$(database)/documents/tournaments/$(tournamentId)/registrations/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/tournaments/$(tournamentId)/registrations/$(request.auth.uid)).data.status == 'registered'
+        )
+      );
+    }
+
     match /tournaments/{tournamentId} {
-      // Any authenticated user can view tournament listings and live brackets
-      allow read: if isSignedIn();
+      // Public tournaments are readable by authenticated non-anonymous users;
+      // private tournaments only by host or actively registered participants.
+      allow read: if isTournamentReadable(tournamentId, resource.data);
 
       // Creation, rounds, and match progression are strictly server-authoritative
       // via POST /api/tournaments/* with verified host tokens and atomic transactions.
@@ -203,16 +215,29 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'description', 'bannerUrl', 'theme']);
 
       match /matches/{matchId} {
-        allow read: if isSignedIn();
+        allow read: if exists(/databases/$(database)/documents/tournaments/$(tournamentId)) &&
+          isTournamentReadable(
+            tournamentId,
+            get(/databases/$(database)/documents/tournaments/$(tournamentId)).data
+          );
         allow write: if false; // Server-authoritative Admin SDK only
       }
 
       match /registrations/{registrationId} {
-        allow read: if isSignedIn() && (
+        allow read: if isNonAnonymous() && (
           request.auth.uid == registrationId ||
           get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.hostId == request.auth.uid
         );
         allow write: if false; // Server-authoritative Admin SDK with capacity checks
+      }
+
+      match /results/{resultId} {
+        allow read: if exists(/databases/$(database)/documents/tournaments/$(tournamentId)) &&
+          isTournamentReadable(
+            tournamentId,
+            get(/databases/$(database)/documents/tournaments/$(tournamentId)).data
+          );
+        allow write: if false; // Server-authoritative Admin SDK only
       }
     }
 
