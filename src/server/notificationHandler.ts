@@ -23,6 +23,11 @@ import {
   getResolvedEmailProvider,
   getResolvedFromAddress,
 } from './resultEmailsHandler';
+import {
+  assertAccountActive,
+  isAccountDeletionPending,
+  isEmailBlockedForDeletion,
+} from './accountDeletionEngine';
 
 export interface NotificationRouteDependencies {
   adminAuth: Auth;
@@ -135,7 +140,7 @@ async function authenticate(req: Request, adminAuth: Auth) {
   }
   const token = authHeader.split('Bearer ')[1].trim();
   try {
-    return await adminAuth.verifyIdToken(token);
+    return await adminAuth.verifyIdToken(token, true);
   } catch {
     return null;
   }
@@ -172,6 +177,12 @@ export async function handleIssueCertificate(
 
   if (!deps.adminDb || typeof deps.adminDb.collection !== 'function') {
     res.status(503).json({ error: 'Service Unavailable: Authoritative database is not configured.' });
+    return;
+  }
+
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -384,6 +395,12 @@ export async function handleRevokeCertificate(
     return;
   }
 
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   if (!deps.adminDb || typeof deps.adminDb.runTransaction !== 'function') {
     res.status(503).json({ error: 'Service Unavailable: Authoritative database is not configured.' });
     return;
@@ -448,6 +465,18 @@ export async function handleProcessOutbox(
   const batchSize = Number((req.query && req.query.batchSize) || 10);
 
   const sender = async (job: any) => {
+    const targetUid = job?.ownerId || job?.userId || job?.recipientUid;
+    if (
+      (targetUid && (await isAccountDeletionPending(deps.adminDb, targetUid))) ||
+      (await isEmailBlockedForDeletion(deps.adminDb, job?.recipientEmail))
+    ) {
+      return {
+        success: false,
+        isPermanent: true,
+        error: 'Recipient account is deleted or pending deletion; message cancelled.',
+      };
+    }
+
     const provider = getResolvedEmailProvider();
     const fromAddress = getResolvedFromAddress(provider);
     const transporter = provider === 'smtp' ? getSmtpTransporter() : null;

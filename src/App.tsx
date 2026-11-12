@@ -239,36 +239,17 @@ export default function App() {
     }
   };
 
-  // Delete My Data (GDPR / Privacy compliance)
+  // Delete My Data (Phase 4: Server-authoritative staged account deletion)
   const handleDeleteMyData = async () => {
     sound.playClick();
-    try {
-      const result = await deleteMyData(auth.currentUser);
+    const result = await deleteMyData(auth.currentUser);
+    if (result.success) {
       setQuizzes(SAMPLE_QUIZZES);
       setActiveGame(null);
       setActivePlayer(null);
       setGameRole(null);
-      
-      if (result.success) {
-        alert(
-          `✓ All your data has been permanently deleted.\n` +
-          `• ${result.deletedQuizzes} quizzes deleted from Firestore\n` +
-          (result.deletedGames ? `• ${result.deletedGames} hosted game sessions purged\n` : '') +
-          `• ${result.clearedLocalKeys} local cached items cleared\n` +
-          `• Account session terminated.` +
-          (result.retainedRecords ? `\n\nNotice: ${result.retainedRecords}` : '')
-        );
-      } else {
-        alert(
-          `⚠️ Data deletion completed with notices:\n` +
-          `• ${result.deletedQuizzes} quizzes deleted\n` +
-          `• ${result.clearedLocalKeys} local cached items cleared\n` +
-          (result.errors && result.errors.length > 0 ? `\nNotices:\n${result.errors.join('\n')}` : '')
-        );
-      }
-    } catch (err) {
-      alert('Error deleting data: ' + (err instanceof Error ? err.message : String(err)));
     }
+    return result;
   };
 
   // Delete individual quiz from Firestore & local cache

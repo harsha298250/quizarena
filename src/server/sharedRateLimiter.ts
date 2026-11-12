@@ -129,3 +129,11 @@ export function resetTestEmailRateLimit(hostUid?: string): void {
   }
 }
 
+export function checkAccountDeletionRateLimit(
+  uid: string,
+  now: number = Date.now()
+): RateLimitCheckResult {
+  // Max 5 account deletion / retry requests per 10 minutes per user
+  return sharedRateLimiter.check(`acct_del_${uid}`, 5, 10 * 60 * 1000, now);
+}
+

@@ -4,6 +4,7 @@
  */
 
 import type { Request, Response } from 'express';
+import { assertAccountActive } from './accountDeletionEngine.ts';
 
 export const ALLOWED_INTEGRITY_EVENT_TYPES = [
   'tab_switch',
@@ -108,10 +109,16 @@ export async function handleIntegrityEvent(
     const idToken = authHeader.split('Bearer ')[1].trim();
     let playerId = '';
     try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
+      const decoded = await adminAuth.verifyIdToken(idToken, true);
       playerId = decoded.uid;
     } catch (authError) {
       res.status(401).json({ error: 'Unauthorized: Invalid or expired Firebase ID token' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, playerId);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 
@@ -290,10 +297,16 @@ export async function handleReinstatePlayer(
     const idToken = authHeader.split('Bearer ')[1].trim();
     let hostUid = '';
     try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
+      const decoded = await adminAuth.verifyIdToken(idToken, true);
       hostUid = decoded.uid;
     } catch (authError) {
       res.status(401).json({ error: 'Unauthorized: Invalid or expired Firebase ID token' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, hostUid);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 

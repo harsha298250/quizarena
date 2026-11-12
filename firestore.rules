@@ -17,6 +17,13 @@ service cloud.firestore {
          request.auth.token.firebase.sign_in_provider != 'anonymous');
     }
 
+    // Deletion-pending accounts are blocked from protected client operations
+    // without affecting unrelated users' access to shared resources.
+    function isAccountActive() {
+      return !exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status != 'deletion_pending';
+    }
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -50,30 +57,31 @@ service cloud.firestore {
     // - Users cannot modify their own roles or administrative privileges.
     // - Immutable ownership identifiers are preserved.
     match /users/{userId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId) &&
+      allow read: if isOwner(userId) && isAccountActive();
+      allow create: if isOwner(userId) && isAccountActive() &&
         (!('role' in request.resource.data) || request.resource.data.role == 'student' || request.resource.data.role == 'user') &&
-        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false);
-      allow update: if isOwner(userId) &&
+        (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false) &&
+        (!('status' in request.resource.data) || request.resource.data.status != 'deletion_pending');
+      allow update: if isOwner(userId) && isAccountActive() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'avatarConfig', 'bio', 'themePreference', 'updatedAt']) &&
         (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
         (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == resource.data.isAdmin);
-      allow delete: if isOwner(userId);
+      allow delete: if false; // Server-authoritative staged account deletion only
     }
 
     // ==========================================
     // 2. Quizzes & Question Bank: Teacher owned
     // ==========================================
     match /quizzes/{quizId} {
-      allow read: if isSignedIn() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
-      allow create: if isNonAnonymous() && request.resource.data.authorId == request.auth.uid;
-      allow update, delete: if isNonAnonymous() && resource.data.authorId == request.auth.uid;
+      allow read: if isSignedIn() && isAccountActive() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
+      allow create: if isNonAnonymous() && isAccountActive() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isNonAnonymous() && isAccountActive() && resource.data.authorId == request.auth.uid;
     }
 
     match /questionBank/{questionId} {
-      allow read: if isNonAnonymous() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
-      allow create: if isNonAnonymous() && request.resource.data.authorId == request.auth.uid;
-      allow update, delete: if isNonAnonymous() && resource.data.authorId == request.auth.uid;
+      allow read: if isNonAnonymous() && isAccountActive() && (resource.data.authorId == request.auth.uid || resource.data.isPublic == true);
+      allow create: if isNonAnonymous() && isAccountActive() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isNonAnonymous() && isAccountActive() && resource.data.authorId == request.auth.uid;
     }
 
     // ==========================================
@@ -193,7 +201,7 @@ service cloud.firestore {
     // 6. Tournaments & Brackets (Phase 3 Persistent & Server-Authoritative)
     // ==========================================
     function isTournamentReadable(tournamentId, tournamentData) {
-      return isNonAnonymous() && (
+      return isNonAnonymous() && isAccountActive() && (
         tournamentData.visibility != 'private' ||
         tournamentData.hostId == request.auth.uid ||
         (
@@ -262,6 +270,23 @@ service cloud.firestore {
     }
 
     match /certificateIdempotency/{idempotencyKey} {
+      allow read, write: if false; // Server Admin SDK only
+    }
+
+    // ==========================================
+    // 8. Account Deletion Lifecycle (Phase 4 Server-Authoritative)
+    // ==========================================
+    match /accountDeletionJobs/{jobId} {
+      // Only the owning non-anonymous user may read their active deletion job; clients cannot write.
+      allow read: if isNonAnonymous() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /accountDeletionLocks/{uidHash} {
+      allow read, write: if false; // Server Admin SDK only
+    }
+
+    match /accountDeletionEmailBlocks/{emailHash} {
       allow read, write: if false; // Server Admin SDK only
     }
   }

@@ -172,7 +172,7 @@ export async function handleGenerateQuiz(req: IncomingMessage, res: ServerRespon
     const token = authHeader.split('Bearer ')[1].trim();
     let uid = '';
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await getAdminAuth().verifyIdToken(token, true);
       uid = decoded.uid;
     } catch {
       res.statusCode = 401;
@@ -314,7 +314,7 @@ export async function handleAdvanceQuestion(req: IncomingMessage, res: ServerRes
     const idToken = authHeader.split('Bearer ')[1].trim();
     let hostUid = '';
     try {
-      const decoded = await getAdminAuth().verifyIdToken(idToken);
+      const decoded = await getAdminAuth().verifyIdToken(idToken, true);
       hostUid = decoded.uid;
     } catch {
       res.statusCode = 401;
@@ -394,7 +394,7 @@ export async function handleAnswer(req: IncomingMessage, res: ServerResponse) {
     const idToken = authHeader.split('Bearer ')[1].trim();
     let playerId = '';
     try {
-      const decoded = await getAdminAuth().verifyIdToken(idToken);
+      const decoded = await getAdminAuth().verifyIdToken(idToken, true);
       playerId = decoded.uid;
     } catch (authError) {
       res.statusCode = 401;

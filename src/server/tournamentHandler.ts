@@ -19,6 +19,7 @@ import {
   advanceWinnersToNextRound,
   computeTournamentStandings,
 } from './tournamentEngine';
+import { assertAccountActive } from './accountDeletionEngine';
 
 export interface TournamentRouteDependencies {
   adminAuth: Auth;
@@ -56,7 +57,7 @@ async function authenticate(req: Request, adminAuth: Auth) {
   }
   const token = authHeader.split('Bearer ')[1].trim();
   try {
-    return await adminAuth.verifyIdToken(token);
+    return await adminAuth.verifyIdToken(token, true);
   } catch {
     return null;
   }
@@ -78,6 +79,12 @@ export async function handleCreateTournament(
 
   if (user.firebase?.sign_in_provider === 'anonymous') {
     res.status(403).json({ error: 'Anonymous users cannot create or host tournaments.' });
+    return;
+  }
+
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -168,6 +175,12 @@ export async function handleRegisterTournament(
   const user = await authenticate(req, deps.adminAuth);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized: Authentication required to register.' });
+    return;
+  }
+
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -329,6 +342,12 @@ export async function handleCancelRegistration(
     return;
   }
 
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const { tournamentId } = req.body || {};
   if (!tournamentId || typeof tournamentId !== 'string') {
     res.status(400).json({ error: 'tournamentId is required.' });
@@ -422,6 +441,12 @@ export async function handleStartRound(
   const user = await authenticate(req, deps.adminAuth);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized.' });
+    return;
+  }
+
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -703,6 +728,12 @@ export async function handleFinalizeMatch(
     return;
   }
 
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const { tournamentId, matchId, winnerId, score1, score2 } = req.body || {};
   if (!tournamentId || !matchId) {
     res.status(400).json({ error: 'tournamentId and matchId are required.' });
@@ -897,6 +928,11 @@ export async function handleGetTournamentStandings(
         const user = await authenticate(req, deps.adminAuth);
         if (!user) {
           res.status(401).json({ error: 'Authentication required for private tournament.' });
+          return;
+        }
+        const acct = await assertAccountActive(deps.adminDb, user.uid);
+        if (!acct.active) {
+          res.status(403).json({ error: acct.error });
           return;
         }
         const isHostOrAdmin = tournament.hostId === user.uid || isAdminUser(user);

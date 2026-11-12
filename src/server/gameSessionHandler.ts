@@ -7,6 +7,7 @@ import type { Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { sanitizeNickname } from '../lib/profanity.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
+import { assertAccountActive } from './accountDeletionEngine.ts';
 
 export const MAX_GAME_CAPACITY = 300;
 
@@ -30,7 +31,7 @@ export async function authenticateToken(
   if (!idToken) return null;
 
   try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
     if (!decoded || !decoded.uid) return null;
 
     const isAnonymous =
@@ -76,6 +77,12 @@ export async function handleCreateGame(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -201,6 +208,12 @@ export async function handleJoinGame(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required to join' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -420,6 +433,12 @@ export async function handleKickPlayer(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const hostUid = authUser.uid;
   const { gameId, playerId, reason = 'Kicked by host' } = req.body || {};
 
@@ -528,6 +547,12 @@ export async function handleLeaveGame(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const playerId = authUser.uid;
   const { gameId } = req.body || {};
 
@@ -605,6 +630,12 @@ export async function handleLockLobby(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const hostUid = authUser.uid;
   const { gameId, isLocked = true } = req.body || {};
 
@@ -661,6 +692,12 @@ export async function handleStartGame(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -770,6 +807,12 @@ export async function handleAdvanceQuestion(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -903,6 +946,12 @@ export async function handleRevealAnswer(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const hostUid = authUser.uid;
   const { gameId } = req.body || {};
 
@@ -965,6 +1014,12 @@ export async function handleShowLeaderboard(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const hostUid = authUser.uid;
   const { gameId } = req.body || {};
 
@@ -1019,6 +1074,12 @@ export async function handlePauseGame(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -1092,6 +1153,12 @@ export async function handleResumeGame(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -1171,6 +1238,12 @@ export async function handleEndGame(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const hostUid = authUser.uid;
   const { gameId } = req.body || {};
 
@@ -1234,6 +1307,12 @@ export async function handleCancelGame(
     return;
   }
 
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
   const hostUid = authUser.uid;
   const { gameId } = req.body || {};
 
@@ -1293,6 +1372,12 @@ export async function handleSessionRecovery(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -1386,6 +1471,12 @@ export async function handleReconcilePlayerCount(
   const authUser = await authenticateToken(req, adminAuth);
   if (!authUser) {
     res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const acct = await assertAccountActive(adminDb, authUser.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 

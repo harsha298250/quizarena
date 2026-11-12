@@ -16,6 +16,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { calculateFairScore, evaluateAnswer } from './src/lib/scoring.ts';
 import { createHashBlock } from './src/lib/integrity.ts';
 import {
@@ -61,7 +62,14 @@ import {
   handleSessionRecovery,
   handleReconcilePlayerCount,
 } from './src/server/gameSessionHandler.ts';
-import { handlePurgeUserData } from './src/server/userDataPurgeHandler.ts';
+import {
+  handlePurgeUserData,
+  handleRequestAccountDeletion,
+  handleGetDeletionStatus,
+  handleRetryAccountDeletion,
+  handleAdminDeleteUser,
+} from './src/server/userDataPurgeHandler.ts';
+import { assertAccountActive } from './src/server/accountDeletionEngine.ts';
 
 dotenv.config();
 
@@ -143,16 +151,27 @@ The server is operating in degraded mode; /health will report unauthenticated st
   }
 }
 
+const firebaseStorageBucket = process.env.VITE_FIREBASE_STORAGE_BUCKET || rawFirebaseConfig.storageBucket;
+
 if (!getApps().length && firebaseProjectId) {
   // Initialize Firebase Admin SDK (with cert if available, or ADC)
   initializeApp({
     ...(adminCredential ? { credential: adminCredential } : {}),
     projectId: firebaseProjectId,
+    ...(firebaseStorageBucket ? { storageBucket: firebaseStorageBucket } : {}),
   });
 }
 
 const adminDb = getFirestore(firestoreDbId);
 const adminAuth = getAuth();
+let adminStorage: any = undefined;
+if (firebaseStorageBucket && getApps().length > 0) {
+  try {
+    adminStorage = getStorage();
+  } catch {
+    adminStorage = undefined;
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : (process.env.NODE_ENV === 'production' ? 3000 : 3001);
@@ -476,7 +495,7 @@ async function authenticateUser(req: Request): Promise<{ uid: string; signInProv
   }
   const token = authHeader.split('Bearer ')[1].trim();
   try {
-    const decoded = await adminAuth.verifyIdToken(token);
+    const decoded = await adminAuth.verifyIdToken(token, true);
     return { uid: decoded.uid, signInProvider: decoded.firebase?.sign_in_provider };
   } catch (err) {
     console.warn('AI endpoint authentication failed:', err);
@@ -566,6 +585,12 @@ app.post('/api/generate-quiz', async (req: Request, res: Response): Promise<void
     const user = await authenticateUser(req);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized: Firebase ID token is required to generate quizzes.' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, user.uid);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 
@@ -727,6 +752,12 @@ app.post('/api/validate-question', async (req: Request, res: Response): Promise<
       return;
     }
 
+    const acct = await assertAccountActive(adminDb, user.uid);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
+      return;
+    }
+
     // Rate limiting: 30 requests per minute per user via sharedRateLimiter
     const rateCheck = checkValidateRateLimit(user.uid);
     if (!rateCheck.allowed) {
@@ -816,6 +847,12 @@ app.post('/api/batch-validate-questions', async (req: Request, res: Response): P
     const user = await authenticateUser(req);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized: Firebase ID token is required' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, user.uid);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 
@@ -1090,9 +1127,26 @@ app.post('/api/outbox/webhook', async (req: Request, res: Response): Promise<voi
   await handleOutboxWebhook(req, res);
 });
 
-// POST /api/purge-user-data - Server-authoritative GDPR/CCPA data purge
+// Phase 4: Secure Account Deletion & Complete Data Purge endpoints
+app.post('/api/account/delete', async (req: Request, res: Response): Promise<void> => {
+  await handleRequestAccountDeletion(req, res, { adminAuth, adminDb, adminStorage });
+});
+
+app.get('/api/account/delete/status', async (req: Request, res: Response): Promise<void> => {
+  await handleGetDeletionStatus(req, res, { adminAuth, adminDb, adminStorage });
+});
+
+app.post('/api/account/delete/retry', async (req: Request, res: Response): Promise<void> => {
+  await handleRetryAccountDeletion(req, res, { adminAuth, adminDb, adminStorage });
+});
+
+app.post('/api/admin/users/:uid/delete', async (req: Request, res: Response): Promise<void> => {
+  await handleAdminDeleteUser(req, res, { adminAuth, adminDb, adminStorage });
+});
+
+// POST /api/purge-user-data - Server-authoritative GDPR/CCPA data purge (delegates to Phase 4 engine)
 app.post('/api/purge-user-data', async (req: Request, res: Response): Promise<void> => {
-  await handlePurgeUserData(req, res, { adminAuth, adminDb, adminStorage: undefined });
+  await handlePurgeUserData(req, res, { adminAuth, adminDb, adminStorage });
 });
 
 // Serve frontend build in production

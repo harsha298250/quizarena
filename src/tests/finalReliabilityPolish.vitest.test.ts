@@ -165,6 +165,11 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
       } as any;
 
       const mockDeleteDoc = vi.fn().mockResolvedValue(undefined);
+      const mockDocRef = {
+        get: vi.fn().mockResolvedValue({ exists: false }),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: mockDeleteDoc,
+      };
       const mockQuizzesSnap = {
         docs: [
           { ref: { delete: mockDeleteDoc } },
@@ -175,17 +180,30 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
       const mockGamesSnap = {
         docs: [
           {
+            id: 'game_1',
+            data: () => ({ hostId: targetUid }),
             ref: {
               delete: mockDeleteDoc,
-              collection: vi.fn().mockReturnValue({
-                get: vi.fn().mockResolvedValue({ docs: [{ ref: { delete: mockDeleteDoc } }] }),
-              }),
+              collection: vi.fn().mockImplementation((subCol: string) => ({
+                doc: vi.fn().mockReturnValue(mockDocRef),
+                where: vi.fn().mockReturnThis(),
+                get: vi.fn().mockResolvedValue({
+                  docs: subCol === 'players' ? [] : [{ ref: { delete: mockDeleteDoc } }],
+                }),
+              })),
             },
           },
         ],
       };
 
       const mockAdminDb = {
+        runTransaction: vi.fn().mockImplementation(async (fn: any) =>
+          fn({
+            get: vi.fn().mockResolvedValue({ exists: false }),
+            set: vi.fn(),
+            delete: vi.fn(),
+          })
+        ),
         collection: vi.fn().mockImplementation((colName: string) => {
           if (colName === 'quizzes') {
             return {
@@ -200,20 +218,33 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
           if (colName === 'games') {
             return {
               where: vi.fn().mockReturnValue({ get: vi.fn().mockResolvedValue(mockGamesSnap) }),
+              get: vi.fn().mockResolvedValue(mockGamesSnap),
             };
           }
           if (colName === 'users') {
             return {
               doc: vi.fn().mockReturnValue({
-                get: vi.fn().mockResolvedValue({ exists: true }),
+                get: vi.fn().mockResolvedValue({ exists: true, data: () => ({}) }),
+                set: vi.fn().mockResolvedValue(undefined),
                 delete: mockDeleteDoc,
               }),
             };
           }
-          return { where: vi.fn().mockReturnThis(), get: vi.fn().mockResolvedValue({ docs: [] }) };
+          return {
+            doc: vi.fn().mockReturnValue(mockDocRef),
+            where: vi.fn().mockReturnThis(),
+            get: vi.fn().mockResolvedValue({ docs: [] }),
+          };
         }),
         collectionGroup: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({ get: vi.fn().mockResolvedValue({ docs: [] }) }),
+        }),
+      };
+
+      const mockAdminStorage = {
+        bucket: () => ({
+          getFiles: vi.fn().mockResolvedValue([[]]),
+          deleteFiles: vi.fn().mockResolvedValue(undefined),
         }),
       };
 
@@ -222,11 +253,15 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
         deleteUser: vi.fn().mockResolvedValue(undefined),
       };
 
-      await handlePurgeUserData(req, res, { adminAuth: mockAdminAuth as any, adminDb: mockAdminDb as any });
+      await handlePurgeUserData(req, res, {
+        adminAuth: mockAdminAuth as any,
+        adminDb: mockAdminDb as any,
+        adminStorage: mockAdminStorage as any,
+      });
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
         success: true,
-        uid: targetUid,
+        uid: '[purged]',
         deletedQuizzes: 2,
         deletedGames: 1,
         accountDeleted: true,

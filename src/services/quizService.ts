@@ -164,80 +164,22 @@ export async function deleteQuiz(quizId: string, authorId?: string): Promise<voi
   } catch (e) {}
 }
 
-/**
- * "Delete my data" GDPR/Privacy feature:
- * Server-authoritative purge of all user records from Firestore, subcollections,
- * Storage uploads, and Firebase Auth, followed by local storage cleanup.
- */
-export async function deleteMyData(user: User | null): Promise<{
+export interface AccountDeletionResult {
   success: boolean;
+  status: 'requested' | 'processing' | 'completed' | 'failed';
+  jobId?: string;
+  currentStage?: string;
+  completedStages?: string[];
+  recoveryToken?: string;
   deletedQuizzes: number;
   deletedGames?: number;
   clearedLocalKeys: number;
   accountDeleted: boolean;
   errors?: string[];
   retainedRecords?: string;
-}> {
-  let deletedQuizzes = 0;
-  let deletedGames = 0;
-  let accountDeleted = false;
-  let serverErrors: string[] | undefined = undefined;
-  let retainedRecords: string | undefined = undefined;
+}
 
-  const uid = user?.uid;
-  const idToken = uid ? await user?.getIdToken().catch(() => '') : '';
-
-  // 1. Attempt server-authoritative purge via Admin SDK endpoint
-  if (isFirebaseConfigured && idToken) {
-    try {
-      const resp = await fetch('/api/purge-user-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
-        },
-      });
-
-      if (resp.ok || resp.status === 207) {
-        const data = await resp.json().catch(() => ({}));
-        deletedQuizzes = data.deletedQuizzes || 0;
-        deletedGames = data.deletedGames || 0;
-        accountDeleted = Boolean(data.accountDeleted);
-        serverErrors = data.errors;
-        retainedRecords = data.retainedRecords;
-      }
-    } catch (apiErr: any) {
-      console.warn('Server purge endpoint failed, falling back to client-side cleanup:', apiErr);
-    }
-  }
-
-  // 2. Client-side fallback cleanup if server did not handle everything
-  if (isFirebaseConfigured && uid && !accountDeleted) {
-    try {
-      const q = query(collection(db, 'quizzes'), where('authorId', '==', uid));
-      const snap = await getDocs(q);
-      for (const d of snap.docs) {
-        await deleteDoc(d.ref);
-        deletedQuizzes++;
-      }
-    } catch (e) {
-      console.warn('Error deleting user quizzes in Firestore:', e);
-    }
-
-    try {
-      await deleteDoc(doc(db, 'users', uid));
-    } catch (e) {}
-
-    try {
-      const qbQuery = query(collection(db, 'questionBank'), where('authorId', '==', uid));
-      const qbSnap = await getDocs(qbQuery);
-      for (const d of qbSnap.docs) {
-        await deleteDoc(d.ref);
-      }
-    } catch (e) {}
-  }
-
-  // 3. Clear all QuizArena local and session storage records
+function clearLocalQuizArenaStorage(): number {
   let clearedLocalKeys = 0;
   try {
     const keysToRemove: string[] = [];
@@ -251,25 +193,143 @@ export async function deleteMyData(user: User | null): Promise<{
       localStorage.removeItem(k);
       clearedLocalKeys++;
     });
-
     sessionStorage.removeItem('quizarena_active_session');
-  } catch (e) {}
+  } catch {
+    // Ignore storage access errors
+  }
+  return clearedLocalKeys;
+}
 
-  // 4. Client-side signOut if user is still signed in
-  if (user) {
-    try {
-      await signOut(auth);
-      if (!accountDeleted) accountDeleted = true;
-    } catch (so) {}
+/**
+ * Phase 4: Server-authoritative account deletion & complete data purge.
+ * Never falls back to client-side Firestore deletion or fakes completion.
+ */
+export async function deleteMyData(user: User | null): Promise<AccountDeletionResult> {
+  if (!isFirebaseConfigured || !user) {
+    return {
+      success: false,
+      status: 'failed',
+      deletedQuizzes: 0,
+      clearedLocalKeys: 0,
+      accountDeleted: false,
+      errors: ['You must be signed in with a persistent account to delete your account.'],
+    };
   }
 
-  return {
-    success: accountDeleted && (!serverErrors || serverErrors.length === 0),
-    deletedQuizzes,
-    deletedGames,
-    clearedLocalKeys,
-    accountDeleted,
-    errors: serverErrors,
-    retainedRecords,
-  };
+  let idToken = '';
+  try {
+    idToken = await user.getIdToken(true);
+  } catch {
+    return {
+      success: false,
+      status: 'failed',
+      deletedQuizzes: 0,
+      clearedLocalKeys: 0,
+      accountDeleted: false,
+      errors: ['Your session has expired. Please sign in again before deleting your account.'],
+    };
+  }
+
+  try {
+    const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+    const resp = await fetch(`${apiBase}/api/account/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    const isCompleted = resp.ok && data.status === 'completed' && data.success === true;
+
+    let clearedLocalKeys = 0;
+    if (isCompleted) {
+      clearedLocalKeys = clearLocalQuizArenaStorage();
+      try {
+        await signOut(auth);
+      } catch {
+        // Account is already deleted on Firebase Auth
+      }
+    }
+
+    return {
+      success: isCompleted,
+      status: data.status || (isCompleted ? 'completed' : 'failed'),
+      jobId: data.jobId,
+      currentStage: data.currentStage,
+      completedStages: data.completedStages,
+      recoveryToken: data.recoveryToken,
+      deletedQuizzes: data.counts?.deletedQuizzes || 0,
+      deletedGames: data.counts?.deletedGames || 0,
+      clearedLocalKeys,
+      accountDeleted: isCompleted,
+      errors: data.error ? [data.error] : undefined,
+      retainedRecords:
+        'Shared tournament history and issued certificates are preserved in a non-reversible anonymized state.',
+    };
+  } catch {
+    return {
+      success: false,
+      status: 'failed',
+      deletedQuizzes: 0,
+      clearedLocalKeys: 0,
+      accountDeleted: false,
+      errors: ['Network error while contacting the account deletion service. Please try again.'],
+    };
+  }
+}
+
+/**
+ * Resumes a failed account deletion job without requiring the deleted account's Firebase token.
+ */
+export async function retryAccountDeletion(
+  jobId: string,
+  recoveryToken: string
+): Promise<AccountDeletionResult> {
+  try {
+    const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+    const resp = await fetch(`${apiBase}/api/account/delete/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId, recoveryToken }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    const isCompleted = resp.ok && data.status === 'completed' && data.success === true;
+
+    let clearedLocalKeys = 0;
+    if (isCompleted) {
+      clearedLocalKeys = clearLocalQuizArenaStorage();
+      try {
+        await signOut(auth);
+      } catch {
+        // Ignore if already signed out / deleted
+      }
+    }
+
+    return {
+      success: isCompleted,
+      status: data.status || (isCompleted ? 'completed' : 'failed'),
+      jobId: data.jobId || jobId,
+      currentStage: data.currentStage,
+      completedStages: data.completedStages,
+      recoveryToken: data.recoveryToken || recoveryToken,
+      deletedQuizzes: data.counts?.deletedQuizzes || 0,
+      deletedGames: data.counts?.deletedGames || 0,
+      clearedLocalKeys,
+      accountDeleted: isCompleted,
+      errors: data.error ? [data.error] : undefined,
+    };
+  } catch {
+    return {
+      success: false,
+      status: 'failed',
+      jobId,
+      recoveryToken,
+      deletedQuizzes: 0,
+      clearedLocalKeys: 0,
+      accountDeleted: false,
+      errors: ['Network error while retrying account deletion.'],
+    };
+  }
 }

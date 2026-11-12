@@ -12,6 +12,10 @@ import {
   isValidEmail,
   QuestionBreakdownItem,
 } from './emailTemplates.ts';
+import {
+  assertAccountActive,
+  isEmailBlockedForDeletion,
+} from './accountDeletionEngine.ts';
 
 export const MAX_HOST_EMAIL_REQUESTS_PER_MIN = 5;
 export const MAX_RECIPIENTS_PER_GAME = 100;
@@ -400,7 +404,7 @@ export async function handleSendResults(
 
   let hostUid: string;
   try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
     if (!decoded || !decoded.uid) {
       res.status(401).json({ error: 'Invalid Firebase ID token' });
       return;
@@ -408,6 +412,12 @@ export async function handleSendResults(
     hostUid = decoded.uid;
   } catch (authError) {
     res.status(401).json({ error: 'Invalid Firebase ID token' });
+    return;
+  }
+
+  const acct = await assertAccountActive(options.adminDb, hostUid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -655,6 +665,13 @@ export async function handleSendResults(
       continue;
     }
 
+    if (await isEmailBlockedForDeletion(adminDb, item.to)) {
+      // Suppress silently without revealing whether the address is on a deletion blocklist
+      results.push({ id: item.id, to: '[suppressed]', status: 'skipped' });
+      skippedCount++;
+      continue;
+    }
+
     try {
       const dispatchRes = await dispatchSingleEmail({
         to: item.to,
@@ -722,7 +739,7 @@ export async function handleSendTestEmail(
   let hostUid: string;
   let hostEmail: string | undefined;
   try {
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
     if (!decoded || !decoded.uid) {
       res.status(401).json({ error: 'Invalid Firebase ID token' });
       return;
@@ -737,6 +754,12 @@ export async function handleSendTestEmail(
     }
   } catch (authError) {
     res.status(401).json({ error: 'Invalid Firebase ID token' });
+    return;
+  }
+
+  const acct = await assertAccountActive(options.adminDb, hostUid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
     return;
   }
 
@@ -766,6 +789,11 @@ export async function handleSendTestEmail(
   }
 
   const destination = isResendDeliverabilitySink ? 'delivered@resend.dev' : hostEmail;
+
+  if (!isResendDeliverabilitySink && (await isEmailBlockedForDeletion(options.adminDb, destination))) {
+    res.status(403).json({ error: 'Email dispatch is not permitted for this destination.' });
+    return;
+  }
 
   // Rate limit: 3 per hour
   const rateResult = checkTestEmailRateLimit(hostUid);
@@ -842,7 +870,7 @@ export async function handleSmtpHealth(
 
   if (adminAuth && typeof adminAuth.verifyIdToken === 'function') {
     try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
+      const decoded = await adminAuth.verifyIdToken(idToken, true);
       if (!decoded || !decoded.uid) {
         res.status(401).json({ connected: false, error: 'Invalid Firebase ID token' });
         return;

@@ -16,6 +16,7 @@ import {
   serverMeasuredLatencyMap,
 } from './scoringHardening.ts';
 import { checkAnswerRateLimit } from './sharedRateLimiter.ts';
+import { assertAccountActive } from './accountDeletionEngine.ts';
 
 /**
  * Creates SHA-256 hash block for tamper-evident answer audit chains.
@@ -119,10 +120,16 @@ export async function handleAnswerSubmission(
     const idToken = authHeader.split('Bearer ')[1].trim();
     let playerId = '';
     try {
-      const decodedToken = await adminAuth.verifyIdToken(idToken);
+      const decodedToken = await adminAuth.verifyIdToken(idToken, true);
       playerId = decodedToken.uid;
     } catch {
       res.status(401).json({ error: 'Unauthorized: Invalid or expired Firebase ID token' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, playerId);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 
@@ -460,10 +467,16 @@ export async function handleUsePowerUp(
     const idToken = authHeader.split('Bearer ')[1].trim();
     let playerId = '';
     try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
+      const decoded = await adminAuth.verifyIdToken(idToken, true);
       playerId = decoded.uid;
     } catch {
       res.status(401).json({ error: 'Unauthorized: Invalid or expired Firebase ID token' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, playerId);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 
@@ -585,10 +598,16 @@ export async function handleApproveAccommodation(
     const idToken = authHeader.split('Bearer ')[1].trim();
     let hostUid = '';
     try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
+      const decoded = await adminAuth.verifyIdToken(idToken, true);
       hostUid = decoded.uid;
     } catch {
       res.status(401).json({ error: 'Unauthorized: Invalid or expired Firebase ID token' });
+      return;
+    }
+
+    const acct = await assertAccountActive(adminDb, hostUid);
+    if (!acct.active) {
+      res.status(403).json({ error: acct.error });
       return;
     }
 
