@@ -1072,7 +1072,7 @@ app.post('/api/certificates/issue', async (req: Request, res: Response): Promise
 
 // GET /api/certificates/verify/:verificationId - Public verification
 app.get('/api/certificates/verify/:verificationId', async (req: Request, res: Response): Promise<void> => {
-  await handleVerifyCertificate(req, res);
+  await handleVerifyCertificate(req, res, { adminDb });
 });
 
 // POST /api/certificates/revoke - Issuer or admin revocation

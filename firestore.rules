@@ -217,15 +217,27 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 7. Digital Certificates (Phase 7 Hardened)
+    // 7. Digital Certificates (Phase 2 Persistent & Server-Authoritative)
     // ==========================================
     match /certificates/{certificateId} {
-      // Recipients, issuers, and public verification callers can read certificate metadata
-      allow read: if isSignedIn() || resource.data.status == 'valid';
+      // Only the certificate owner or issuing host may read private certificate records directly.
+      // Public verification must go through GET /api/certificates/verify/:verificationId.
+      allow read: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid ||
+        resource.data.issuerId == request.auth.uid
+      );
 
       // Issuance and revocation are strictly server-authoritative via Admin SDK
       // (/api/certificates/issue, /api/certificates/revoke). Direct client writes blocked.
       allow write: if false;
+    }
+
+    match /certificateVerification/{verificationId} {
+      allow read, write: if false; // Server Admin SDK only
+    }
+
+    match /certificateIdempotency/{idempotencyKey} {
+      allow read, write: if false; // Server Admin SDK only
     }
   }
 }

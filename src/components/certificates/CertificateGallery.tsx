@@ -6,29 +6,80 @@
 import React, { useState, useEffect } from 'react';
 import { sound } from '../../lib/sound';
 import { EmptyState } from '../common/EmptyState';
-import { auth } from '../../lib/firebase';
-import { getIssuedCertificatesByOwner, verifyCertificatePublic } from '../../server/certificateEngine';
+import { auth, db, isFirebaseConfigured } from '../../lib/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { IssuedCertificate, PublicVerificationResult } from '../../types/certificate';
 import { generateCertificatePdf } from '../../services/certificateService';
 
 export const CertificateGallery: React.FC = () => {
   const [certificates, setCertificates] = useState<IssuedCertificate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedCert, setSelectedCert] = useState<IssuedCertificate | null>(null);
   const [verificationQuery, setVerificationQuery] = useState('');
   const [verificationResult, setVerificationResult] = useState<PublicVerificationResult | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const currentUser = auth.currentUser;
-  const studentUid = currentUser?.uid || 'guest_student';
+  const [studentUid, setStudentUid] = useState<string | null>(() => {
+    const u = auth.currentUser;
+    return u && !u.isAnonymous ? u.uid : null;
+  });
 
   useEffect(() => {
-    try {
-      const list = getIssuedCertificatesByOwner(studentUid);
-      setCertificates(list);
-    } catch {
-      setCertificates([]);
-    }
+    const unsubscribe = auth.onAuthStateChanged(user => {
+      setStudentUid(user && !user.isAnonymous ? user.uid : null);
+    });
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCertificates = async () => {
+      if (!studentUid) {
+        if (!cancelled) {
+          setCertificates([]);
+          setLoadError(null);
+          setIsLoading(false);
+        }
+        return;
+      }
+      if (!isFirebaseConfigured || !db) {
+        if (!cancelled) {
+          setCertificates([]);
+          setLoadError('Certificate storage is unavailable in this environment.');
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setIsLoading(true);
+        setLoadError(null);
+      }
+
+      try {
+        const q = query(collection(db, 'certificates'), where('ownerId', '==', studentUid));
+        const snap = await getDocs(q);
+        const list = snap.docs
+          .map(d => d.data() as IssuedCertificate)
+          .sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));
+        if (!cancelled) setCertificates(list);
+      } catch (err: any) {
+        if (!cancelled) {
+          setCertificates([]);
+          setLoadError(err?.message || 'Unable to load your certificates. Please try again later.');
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+    loadCertificates();
+    return () => {
+      cancelled = true;
+    };
   }, [studentUid]);
 
   const handleDownloadPdf = async (cert: IssuedCertificate) => {
@@ -54,17 +105,33 @@ export const CertificateGallery: React.FC = () => {
     setTimeout(() => setCopiedId(null), 2500);
   };
 
-  const handlePublicVerify = (e: React.FormEvent) => {
+  const handlePublicVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!verificationQuery.trim()) return;
     sound.playClick();
     setIsVerifying(true);
+    setVerificationError(null);
 
     try {
-      const res = verifyCertificatePublic(verificationQuery.trim());
-      setVerificationResult(res);
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+      const res = await fetch(`${apiBase}/api/certificates/verify/${encodeURIComponent(verificationQuery.trim())}`);
+      if (res.status === 404) {
+        setVerificationResult({ valid: false, status: 'not_found' });
+        return;
+      }
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        setVerificationResult(null);
+        setVerificationError(
+          errPayload?.error || `Verification service error (HTTP ${res.status}). Please try again later.`
+        );
+        return;
+      }
+      const data = (await res.json()) as PublicVerificationResult;
+      setVerificationResult(data);
     } catch {
-      setVerificationResult({ valid: false, status: 'not_found' });
+      setVerificationResult(null);
+      setVerificationError('Unable to reach the certificate verification service. Please check your connection and try again.');
     } finally {
       setIsVerifying(false);
     }
@@ -115,6 +182,23 @@ export const CertificateGallery: React.FC = () => {
           </form>
         </div>
       </section>
+
+      {/* Verification Service Error Alert */}
+      {verificationError && (
+        <div
+          role="alert"
+          className="paper-card p-4 border-2 border-red-400 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200 flex items-center justify-between gap-3 text-xs font-bold"
+        >
+          <span>⚠️ {verificationError}</span>
+          <button
+            type="button"
+            onClick={() => setVerificationError(null)}
+            className="text-xs font-bold hover:underline shrink-0"
+          >
+            ✕ Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Verification Query Result Modal / Alert */}
       {verificationResult && (
@@ -178,7 +262,18 @@ export const CertificateGallery: React.FC = () => {
           </h2>
         </div>
 
-        {certificates.length === 0 ? (
+        {isLoading ? (
+          <div className="paper-card p-6 text-center text-sm font-semibold text-[var(--text-muted)]" role="status">
+            Loading your issued certificates...
+          </div>
+        ) : loadError ? (
+          <div
+            role="alert"
+            className="paper-card p-5 border-2 border-red-400 bg-red-50 dark:bg-red-950/40 text-xs font-bold text-red-800 dark:text-red-200"
+          >
+            ⚠️ {loadError}
+          </div>
+        ) : certificates.length === 0 ? (
           <EmptyState
             icon="🏅"
             title="No Certificates Issued Yet"

@@ -43,67 +43,102 @@ function createMockAdminDb(fixtures: {
   games?: Record<string, { data: any; players: Record<string, any> }>;
   tournaments?: Record<string, { data: any; registrations: Record<string, any> }>;
 }) {
-  return {
-    collection: (colName: string) => ({
-      doc: (docId: string) => {
-        if (colName === 'games') {
-          const gameEntry = fixtures.games?.[docId];
-          return {
-            get: async () => ({
-              exists: Boolean(gameEntry),
-              data: () => gameEntry?.data,
-            }),
-            collection: (subName: string) => {
-              if (subName === 'players') {
-                return {
-                  doc: (playerId: string) => ({
-                    get: async () => ({
-                      exists: Boolean(gameEntry?.players?.[playerId]),
-                      data: () => gameEntry?.players?.[playerId],
-                    }),
-                  }),
-                  get: async () => ({
-                    docs: Object.entries(gameEntry?.players || {}).map(([id, data]) => ({
-                      id,
-                      data: () => data,
-                    })),
-                  }),
-                };
-              }
+  const store: Record<string, Map<string, any>> = {
+    certificates: new Map(),
+    certificateVerification: new Map(),
+    certificateIdempotency: new Map(),
+  };
+
+  const makeCol = (colName: string) => ({
+    doc: (docId: string) => {
+      if (colName === 'games') {
+        const gameEntry = fixtures.games?.[docId];
+        return {
+          path: `games/${docId}`,
+          get: async () => ({
+            exists: Boolean(gameEntry),
+            data: () => gameEntry?.data,
+          }),
+          collection: (subName: string) => {
+            if (subName === 'players') {
               return {
-                doc: () => ({ get: async () => ({ exists: false }) }),
-                get: async () => ({ docs: [] }),
-              };
-            },
-          };
-        }
-
-        if (colName === 'tournaments') {
-          const tEntry = fixtures.tournaments?.[docId];
-          return {
-            get: async () => ({
-              exists: Boolean(tEntry),
-              data: () => tEntry?.data,
-            }),
-            collection: (subName: string) => {
-              if (subName === 'registrations') {
-                return {
-                  doc: (regId: string) => ({
-                    get: async () => ({
-                      exists: Boolean(tEntry?.registrations?.[regId]),
-                      data: () => tEntry?.registrations?.[regId],
-                    }),
+                doc: (playerId: string) => ({
+                  get: async () => ({
+                    exists: Boolean(gameEntry?.players?.[playerId]),
+                    data: () => gameEntry?.players?.[playerId],
                   }),
-                };
-              }
-              return { doc: () => ({ get: async () => ({ exists: false }) }) };
-            },
-          };
-        }
+                }),
+                get: async () => ({
+                  docs: Object.entries(gameEntry?.players || {}).map(([id, data]) => ({
+                    id,
+                    data: () => data,
+                  })),
+                }),
+              };
+            }
+            return {
+              doc: () => ({ get: async () => ({ exists: false }) }),
+              get: async () => ({ docs: [] }),
+            };
+          },
+        };
+      }
 
-        return { get: async () => ({ exists: false }) };
-      },
-    }),
+      if (colName === 'tournaments') {
+        const tEntry = fixtures.tournaments?.[docId];
+        return {
+          path: `tournaments/${docId}`,
+          get: async () => ({
+            exists: Boolean(tEntry),
+            data: () => tEntry?.data,
+          }),
+          collection: (subName: string) => {
+            if (subName === 'registrations') {
+              return {
+                doc: (regId: string) => ({
+                  get: async () => ({
+                    exists: Boolean(tEntry?.registrations?.[regId]),
+                    data: () => tEntry?.registrations?.[regId],
+                  }),
+                }),
+              };
+            }
+            return { doc: () => ({ get: async () => ({ exists: false }) }) };
+          },
+        };
+      }
+
+      const colMap = store[colName] || (store[colName] = new Map());
+      return {
+        path: `${colName}/${docId}`,
+        colName,
+        docId,
+        get: async () => ({
+          exists: colMap.has(docId),
+          data: () => colMap.get(docId),
+        }),
+      };
+    },
+  });
+
+  return {
+    collection: makeCol,
+    runTransaction: async (fn: (tx: any) => Promise<any>) => {
+      const writes: Array<{ colName: string; docId: string; data: any; merge?: boolean }> = [];
+      const tx = {
+        get: async (ref: any) => ref.get(),
+        set: (ref: any, data: any, opts?: { merge?: boolean }) => {
+          writes.push({ colName: ref.colName, docId: ref.docId, data, merge: opts?.merge });
+        },
+      };
+      const result = await fn(tx);
+      for (const w of writes) {
+        const colMap = store[w.colName] || (store[w.colName] = new Map());
+        const prev = w.merge ? colMap.get(w.docId) || {} : {};
+        colMap.set(w.docId, w.merge ? { ...prev, ...w.data } : { ...w.data });
+      }
+      return result;
+    },
   } as any;
 }
 
@@ -298,7 +333,7 @@ describe('Phase 1 & 1.1 — Critical Security Hardening Suite', () => {
         adminDb: db,
       });
       expect(rotateAttempt.getStatus()).toBe(403);
-      expect(Array.from(certificateStore.values())[0].verificationId).toBe(originalVid);
+      expect(rotateAttempt.getData().error).toMatch(/reissue/i);
     });
 
     it('allows authoritative host to reissue certificate (201, reissueCount=1)', async () => {

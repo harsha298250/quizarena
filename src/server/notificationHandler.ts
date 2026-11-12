@@ -9,9 +9,9 @@ import type { Auth } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { CertificateType } from '../types/certificate';
 import {
-  issueCertificate,
-  verifyCertificatePublic,
-  revokeCertificate,
+  issueCertificatePersistent,
+  verifyCertificatePublicPersistent,
+  revokeCertificatePersistent,
 } from './certificateEngine';
 import {
   processOutboxBatch,
@@ -287,64 +287,87 @@ export async function handleIssueCertificate(
     authoritativeAccuracy
   );
 
-  const result = issueCertificate(
-    {
-      ownerId,
-      recipientName: authoritativeRecipientName,
-      assessmentType: normalizedAssessmentType,
-      assessmentId,
-      assessmentTitle: authoritativeTitle,
-      type: authoritativeType,
-      score: authoritativeScore,
-      rank: authoritativeRank,
-      totalParticipants: authoritativeTotalParticipants,
-      accuracy: authoritativeAccuracy,
-      issuerId: authoritativeIssuerId,
-      issuerName: authoritativeIssuerName,
-    },
-    Boolean(reissue)
-  );
+  try {
+    const result = await issueCertificatePersistent(
+      deps.adminDb,
+      {
+        ownerId,
+        recipientName: authoritativeRecipientName,
+        assessmentType: normalizedAssessmentType,
+        assessmentId,
+        assessmentTitle: authoritativeTitle,
+        type: authoritativeType,
+        score: authoritativeScore,
+        rank: authoritativeRank,
+        totalParticipants: authoritativeTotalParticipants,
+        accuracy: authoritativeAccuracy,
+        issuerId: authoritativeIssuerId,
+        issuerName: authoritativeIssuerName,
+      },
+      Boolean(reissue)
+    );
 
-  if (!result.success) {
-    res.status(400).json({ error: result.error });
-    return;
+    if (!result.success) {
+      res.status(result.statusCode || 400).json({ error: result.error });
+      return;
+    }
+
+    res.status(201).json({ success: true, certificate: result.certificate, isDuplicate: Boolean(result.isDuplicate) });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to persist certificate in database.' });
   }
-
-  res.status(201).json({ success: true, certificate: result.certificate });
 }
 
 /**
  * GET /api/certificates/verify/:verificationId
- * Public, privacy-conscious verification endpoint.
+ * Public, privacy-conscious persistent verification endpoint backed by Firestore.
  */
-export async function handleVerifyCertificate(req: Request, res: Response): Promise<void> {
+export async function handleVerifyCertificate(
+  req: Request,
+  res: Response,
+  deps?: Pick<NotificationRouteDependencies, 'adminDb'>
+): Promise<void> {
+  const adminDb = deps?.adminDb;
+  if (!adminDb || typeof adminDb.collection !== 'function') {
+    res.status(503).json({ valid: false, status: 'error', error: 'Service Unavailable: Verification database is not configured.' });
+    return;
+  }
+
   const { verificationId } = req.params;
-  const result = verifyCertificatePublic(verificationId);
+  try {
+    const result = await verifyCertificatePublicPersistent(adminDb, verificationId);
 
-  if (result.status === 'not_found') {
-    res.status(404).json({ valid: false, status: 'not_found', message: 'Certificate not found.' });
-    return;
+    if (result.status === 'not_found') {
+      res.status(404).json({ valid: false, status: 'not_found', message: 'Certificate not found.' });
+      return;
+    }
+
+    if (result.status === 'revoked') {
+      res.status(200).json({
+        valid: false,
+        status: 'revoked',
+        verificationId: result.verificationId,
+        recipientName: result.recipientName,
+        assessmentTitle: result.assessmentTitle,
+        assessmentType: result.assessmentType,
+        type: result.type,
+        issueDate: result.issueDate,
+        issuerName: result.issuerName,
+        revokedAt: result.revokedAt,
+        revocationReason: result.revocationReason,
+      });
+      return;
+    }
+
+    res.status(200).json(result);
+  } catch (err: any) {
+    res.status(500).json({ valid: false, status: 'error', error: err?.message || 'Verification lookup failed.' });
   }
-
-  if (result.status === 'revoked') {
-    res.status(200).json({
-      valid: false,
-      status: 'revoked',
-      verificationId: result.verificationId,
-      recipientName: result.recipientName,
-      assessmentTitle: result.assessmentTitle,
-      revokedAt: result.revokedAt,
-      revocationReason: result.revocationReason,
-    });
-    return;
-  }
-
-  res.status(200).json(result);
 }
 
 /**
  * POST /api/certificates/revoke
- * Issuer or admin revocation endpoint.
+ * Persistent issuer or admin revocation endpoint.
  */
 export async function handleRevokeCertificate(
   req: Request,
@@ -357,15 +380,29 @@ export async function handleRevokeCertificate(
     return;
   }
 
-  const { certificateId, reason } = req.body;
-  const result = revokeCertificate(certificateId, user.uid, reason);
-
-  if (!result.success) {
-    res.status(403).json({ error: result.error });
+  if (!deps.adminDb || typeof deps.adminDb.runTransaction !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative database is not configured.' });
     return;
   }
 
-  res.status(200).json({ success: true, certificate: result.certificate });
+  const isAdmin = Boolean(
+    user.firebase?.sign_in_provider !== 'anonymous' &&
+    (user.admin === true || user.role === 'admin')
+  );
+
+  const { certificateId, reason } = req.body || {};
+  try {
+    const result = await revokeCertificatePersistent(deps.adminDb, certificateId, user.uid, reason, isAdmin);
+
+    if (!result.success) {
+      res.status(result.statusCode || 403).json({ error: result.error });
+      return;
+    }
+
+    res.status(200).json({ success: true, certificate: result.certificate });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to revoke certificate in database.' });
+  }
 }
 
 /**
