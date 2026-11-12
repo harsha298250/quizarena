@@ -520,13 +520,25 @@ export default function App() {
                 }}
                 onUpdateSettings={settings => {
                   if (!activeGame) return;
+                  const newTimeLimit = (settings as any).timeLimit;
+                  const updatedQuestions =
+                    newTimeLimit !== undefined
+                      ? activeGame.questions.map(q => ({
+                          ...q,
+                          timeLimit: q.type === 'info_slide' ? 0 : newTimeLimit,
+                        }))
+                      : activeGame.questions;
                   const updated = {
                     ...activeGame,
                     settings: { ...activeGame.settings, ...settings },
-                    timeLimit: (settings as any).timeLimit !== undefined ? (settings as any).timeLimit : activeGame.timeLimit,
+                    timeLimit: newTimeLimit !== undefined ? newTimeLimit : activeGame.timeLimit,
+                    questions: updatedQuestions,
                   };
                   setActiveGame(updated);
-                  GameEngine.updateGameSettings(activeGame.id, settings).catch(err => {
+                  GameEngine.updateGameSettings(
+                    activeGame.id,
+                    newTimeLimit !== undefined ? { ...settings, questions: updatedQuestions } : settings
+                  ).catch(err => {
                     console.warn('Failed to persist settings update:', err);
                   });
                 }}

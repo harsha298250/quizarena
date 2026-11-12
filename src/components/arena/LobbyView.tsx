@@ -256,22 +256,30 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => onUpdateSettings?.({ progressionMode: 'manual' })}
+                aria-pressed={game.settings?.progressionMode !== 'automatic'}
+                onClick={() => {
+                  sound.playClick();
+                  onUpdateSettings?.({ progressionMode: 'manual' });
+                }}
                 className={`paper-btn paper-btn-sm text-xs font-bold ${
                   game.settings?.progressionMode !== 'automatic'
                     ? 'paper-btn-primary'
-                    : 'bg-[var(--surface)] text-[var(--text)]'
+                    : ''
                 }`}
               >
                 Manual (Host clicks Next)
               </button>
               <button
                 type="button"
-                onClick={() => onUpdateSettings?.({ progressionMode: 'automatic' })}
+                aria-pressed={game.settings?.progressionMode === 'automatic'}
+                onClick={() => {
+                  sound.playClick();
+                  onUpdateSettings?.({ progressionMode: 'automatic' });
+                }}
                 className={`paper-btn paper-btn-sm text-xs font-bold ${
                   game.settings?.progressionMode === 'automatic'
-                    ? 'bg-[var(--ok)] text-white'
-                    : 'bg-[var(--surface)] text-[var(--text)]'
+                    ? 'paper-btn-ok'
+                    : ''
                 }`}
               >
                 ⚡ Automatic (Timer sync)
@@ -304,6 +312,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                   <button
                     key={seconds}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => {
                       sound.playClick();
                       onUpdateSettings?.({ timeLimit: seconds });

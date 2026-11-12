@@ -250,6 +250,13 @@ describe('Two-Shell Navigation, Authentication UI, Gameplay Timer & Results Audi
     expect(saved.status).toBe('lobby');
     expect(saved.questionStartTime).toBeNull();
     expect(saved.currentQuestionIndex).toBe(0);
+
+    // Changing default timeLimit in the lobby updates top-level timeLimit (not nested settings.timeLimit)
+    await GameEngine.updateGameSettings(gameId, { timeLimit: 45 });
+    const savedTimer = JSON.parse(localStorage.getItem(`quizarena_game_${gameId}`) || '{}');
+    expect(savedTimer.timeLimit).toBe(45);
+    expect(savedTimer.settings?.timeLimit).toBeUndefined();
+    expect(savedTimer.status).toBe('lobby');
   });
 
   // TEST 6: Automatic progression at timer expiry

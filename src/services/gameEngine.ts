@@ -451,20 +451,27 @@ export class GameEngine {
   // Host updates game settings (e.g. progressionMode, timeLimit) without changing game status or starting match
   public static async updateGameSettings(
     gameId: string,
-    settings: Partial<GameSettings>
+    settings: Partial<GameSettings> & { timeLimit?: number; questions?: GameSession['questions'] }
   ): Promise<void> {
     const user = auth.currentUser;
     const idToken = (await user?.getIdToken()) || '';
+    const { timeLimit, questions, ...gameSettings } = settings;
 
     if (isFirebaseConfigured && idToken) {
       try {
-        await updateDoc(doc(db, 'games', gameId), {
-          ...Object.entries(settings).reduce((acc: any, [k, v]) => {
-            acc[`settings.${k}`] = v;
-            return acc;
-          }, {}),
+        const updatePayload: Record<string, any> = {
           updatedAt: serverTimestamp(),
-        });
+        };
+        for (const [k, v] of Object.entries(gameSettings)) {
+          updatePayload[`settings.${k}`] = v;
+        }
+        if (timeLimit !== undefined) {
+          updatePayload.timeLimit = timeLimit;
+        }
+        if (questions !== undefined) {
+          updatePayload.questions = questions;
+        }
+        await updateDoc(doc(db, 'games', gameId), updatePayload);
       } catch (err: any) {
         console.warn('Failed to update game settings in Firestore:', err);
       }
@@ -478,7 +485,9 @@ export class GameEngine {
         const game = JSON.parse(saved);
         const updated = {
           ...game,
-          settings: { ...game.settings, ...settings },
+          settings: { ...game.settings, ...gameSettings },
+          ...(timeLimit !== undefined ? { timeLimit } : {}),
+          ...(questions !== undefined ? { questions } : {}),
           updatedAt: new Date().toISOString(),
         };
         localStorage.setItem(localKey, JSON.stringify(updated));
