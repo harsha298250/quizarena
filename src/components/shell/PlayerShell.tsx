@@ -6,7 +6,6 @@
 import React, { useState } from 'react';
 import { SupportedLanguage } from '../../lib/i18n';
 import { sound } from '../../lib/sound';
-import { useSoundMuted } from '../../hooks/useSoundMuted';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { ThemeMode } from '../../hooks/useTheme';
 import { AuthModal } from '../common/AuthModal';
@@ -38,7 +37,6 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
 }) => {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [isMuted, handleMuteToggle] = useSoundMuted();
 
   // An authenticated user is one that exists and is not anonymous
   const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
@@ -93,32 +91,6 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
                 <span className="hidden sm:inline">Host View</span>
               </button>
             )}
-
-            {/* Sound FX Toggle (Hidden on < 640px, available in Settings ⚙️) */}
-            <div className="hidden sm:block">
-              <button
-                type="button"
-                onClick={handleMuteToggle}
-                className={`p-1.5 rounded-lg border-2 border-[var(--border)] shadow-xs transition-transform active:translate-y-0.5 ${
-                  isMuted
-                    ? 'bg-[var(--accent)] text-[var(--text-on-accent)]'
-                    : 'bg-[var(--surface-2)] text-[var(--text)]'
-                }`}
-                title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-                aria-label={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-              >
-                {isMuted ? (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                  </svg>
-                )}
-              </button>
-            </div>
 
             {/* Theme Toggle (Hidden on < 640px, available in Settings ⚙️) */}
             <div className="hidden sm:block">
