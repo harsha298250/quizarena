@@ -343,13 +343,13 @@ export async function completeClaimedOutboxJobPersistent(
     const updatedJob: EmailOutboxJob = {
       ...current,
       status: nextState.status,
-      lockedUntil: undefined,
+      lockedUntil: null,
       updatedAt: nowIso,
       ...(nextState.provider ? { provider: nextState.provider } : {}),
       ...(nextState.providerMessageId ? { providerMessageId: nextState.providerMessageId } : {}),
       ...(nextState.errorCategory ? { errorCategory: nextState.errorCategory } : {}),
       ...(nextState.lastErrorMessage ? { lastErrorMessage: nextState.lastErrorMessage } : {}),
-      ...(nextState.nextRetryAt ? { nextRetryAt: nextState.nextRetryAt } : { nextRetryAt: undefined }),
+      ...(nextState.nextRetryAt ? { nextRetryAt: nextState.nextRetryAt } : { nextRetryAt: null }),
       ...(nextState.status === 'accepted' ? { sentAt: nowIso } : {}),
       ...(nextState.status === 'cancelled' ? { cancelledAt: nowIso } : {}),
       ...(nextState.scrubPii
@@ -886,14 +886,18 @@ export async function cancelOutboxJobsForAccountDeletion(
       const cancelledJob: EmailOutboxJob = {
         ...current,
         status: 'cancelled',
-        ownerId: current.ownerId === uid ? pseudoId : current.ownerId,
-        recipientUid: current.recipientUid === uid ? pseudoId : current.recipientUid,
+        ...(current.ownerId !== undefined
+          ? { ownerId: current.ownerId === uid ? pseudoId : current.ownerId }
+          : {}),
+        ...(current.recipientUid !== undefined
+          ? { recipientUid: current.recipientUid === uid ? pseudoId : current.recipientUid }
+          : {}),
         recipientEmail: '[deleted]',
         recipientName: 'Deleted User',
         subject: '[cancelled]',
         htmlContent: '',
         textContent: '',
-        lockedUntil: undefined,
+        lockedUntil: null,
         leaseVersion: (current.leaseVersion || 0) + 1, // Fence any active worker
         cancelledAt: nowIso,
         updatedAt: nowIso,

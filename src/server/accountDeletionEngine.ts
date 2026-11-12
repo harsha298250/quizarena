@@ -900,10 +900,13 @@ export async function executeDeletionJob(
           if (!bucket || typeof bucket.getFiles !== 'function' || typeof bucket.deleteFiles !== 'function') {
             throw new Error('Firebase Storage bucket is unavailable for purge.');
           }
-          const [files] = await bucket.getFiles({ prefix: `users/${uid}/` });
-          if (Array.isArray(files) && files.length > 0) {
-            await bucket.deleteFiles({ prefix: `users/${uid}/` });
-            job.counts.deletedStorageFiles += files.length;
+          const userPrefixes = [`users/${uid}/`, `avatars/${uid}/`];
+          for (const prefix of userPrefixes) {
+            const [files] = await bucket.getFiles({ prefix });
+            if (Array.isArray(files) && files.length > 0) {
+              await bucket.deleteFiles({ prefix });
+              job.counts.deletedStorageFiles += files.length;
+            }
           }
           break;
         }

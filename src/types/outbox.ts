@@ -45,8 +45,8 @@ export interface EmailOutboxJob {
   status: OutboxJobStatus;
   attempts: number;
   maxAttempts: number;
-  nextRetryAt?: string; // ISO string
-  lockedUntil?: string; // Concurrency lock ISO string
+  nextRetryAt?: string | null; // ISO string or null when unqueued
+  lockedUntil?: string | null; // Concurrency lock ISO string or null when unlocked
   leaseVersion?: number; // Monotonic fencing token
   workerId?: string;
   provider?: string;

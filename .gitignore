@@ -15,4 +15,7 @@ serviceAccountKey*.json
 .tmp_*
 qa_screenshots/
 *.zip
+test-results/
+playwright-report/
+blob-report/
 
