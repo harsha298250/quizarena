@@ -253,7 +253,7 @@ export interface MailQueueItem {
   recipientName: string;
   subject: string;
   htmlContent: string;
-  status: 'queued' | 'sent' | 'failed';
+  status: 'queued' | 'accepted' | 'delivered' | 'failed' | 'cancelled' | 'ambiguous' | 'skipped' | 'sent';
   errorMessage?: string;
   metadata: {
     gameId: string;

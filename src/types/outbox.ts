@@ -12,7 +12,16 @@ export type OutboxJobStatus =
   | 'rejected'
   | 'retrying'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'ambiguous';
+
+export type OutboxErrorCategory =
+  | 'transient'
+  | 'permanent'
+  | 'rate_limit'
+  | 'timeout'
+  | 'ambiguous'
+  | 'provider_5xx';
 
 export type NotificationEventType =
   | 'quiz_results_ready'
@@ -24,6 +33,8 @@ export type NotificationEventType =
 export interface EmailOutboxJob {
   id: string; // e.g. "job_..."
   idempotencyKey: string;
+  idempotencyScope?: string;
+  ownerId?: string;
   recipientEmail: string;
   recipientName: string;
   recipientUid?: string;
@@ -36,12 +47,16 @@ export interface EmailOutboxJob {
   maxAttempts: number;
   nextRetryAt?: string; // ISO string
   lockedUntil?: string; // Concurrency lock ISO string
+  leaseVersion?: number; // Monotonic fencing token
   workerId?: string;
-  errorCategory?: 'transient' | 'permanent';
+  provider?: string;
+  errorCategory?: OutboxErrorCategory;
   lastErrorMessage?: string;
   providerMessageId?: string;
   createdAt: string;
+  updatedAt?: string;
   sentAt?: string;
   deliveredAt?: string;
+  cancelledAt?: string;
   metadata?: Record<string, any>;
 }

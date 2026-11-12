@@ -173,12 +173,12 @@ export const EmailOutbox: React.FC = () => {
         htmlContent: mailItem.htmlContent,
       });
 
-      if (res.success && res.status === 'sent') {
-        updateOutboxItemStatus(mailId, 'sent');
-        alert(`✓ Resend delivery test SUCCESS! Test message sent to ${sinkTo} via Resend HTTPS API.`);
+      if (res.success && (res.status === 'accepted' || res.status === 'sent')) {
+        updateOutboxItemStatus(mailId, 'accepted');
+        alert(`✓ Resend delivery test ACCEPTED! Test message queued and accepted for ${sinkTo} via Resend HTTPS API.`);
       } else {
         const errorDesc = res.error || 'Resend delivery failed';
-        updateOutboxItemStatus(mailId, 'failed', errorDesc);
+        updateOutboxItemStatus(mailId, res.status === 'ambiguous' ? 'ambiguous' : 'failed', errorDesc);
         setTestErrorMessage(`Resend Test Failed: ${errorDesc}`);
       }
     } catch (err: any) {
@@ -270,12 +270,12 @@ export const EmailOutbox: React.FC = () => {
 
       if (dispatchTimeoutRef.current) clearTimeout(dispatchTimeoutRef.current);
 
-      if (res.success && res.status === 'sent') {
-        updateOutboxItemStatus(mailId, 'sent');
-        alert(`Test email successfully dispatched to ${destination} via ${res.provider || 'configured provider'}!`);
+      if (res.success && (res.status === 'accepted' || res.status === 'sent')) {
+        updateOutboxItemStatus(mailId, 'accepted');
+        alert(`Test email accepted for ${destination} via ${res.provider || 'configured provider'}!`);
       } else {
         const errorDesc = res.error || 'Delivery failed';
-        updateOutboxItemStatus(mailId, 'failed', errorDesc);
+        updateOutboxItemStatus(mailId, res.status === 'ambiguous' ? 'ambiguous' : 'failed', errorDesc);
         setTestErrorMessage(`Dispatch failed: ${errorDesc}`);
       }
     } catch (err: any) {

@@ -561,8 +561,9 @@ describe('Phase 4 — Secure Account Deletion & Complete Data Purge Suite', () =
     expect(mailDoc.to).toBe('[deleted]');
     expect(mailDoc.html).toBe('');
 
-    // Enqueue an in-memory outbox job targeting the deleted user's email; worker must cancel permanently
-    enqueueOutboxJob({
+    // Seed a pending durable outbox job targeting the deleted user's email; worker must cancel permanently
+    await db.collection('emailOutbox').doc('outbox_deleted_user_key').set({
+      id: 'outbox_deleted_user_key',
       idempotencyKey: 'outbox_deleted_user_key',
       recipientEmail: 'user1@example.com',
       recipientName: 'Alice',
@@ -571,6 +572,11 @@ describe('Phase 4 — Secure Account Deletion & Complete Data Purge Suite', () =
       subject: 'Late Retry',
       htmlContent: '<p>Hi</p>',
       textContent: 'Hi',
+      status: 'pending',
+      attempts: 0,
+      maxAttempts: 5,
+      leaseVersion: 0,
+      createdAt: new Date().toISOString(),
     });
 
     process.env.OUTBOX_WORKER_SECRET = 'test_worker_secret_123';
@@ -580,7 +586,7 @@ describe('Phase 4 — Secure Account Deletion & Complete Data Purge Suite', () =
     await handleProcessOutbox(workerCtx.req, workerCtx.res, { adminAuth, adminDb: db });
     expect(workerCtx.getStatus()).toBe(200);
     expect(workerCtx.getData().result.sentCount).toBe(0);
-    expect(workerCtx.getData().result.failedCount).toBe(1);
+    expect(workerCtx.getData().result.cancelledCount).toBe(1);
     delete process.env.OUTBOX_WORKER_SECRET;
   });
 

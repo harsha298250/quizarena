@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, auth, ensureAnonymousAuth, isFirebaseConfigured } from '../lib/firebase';
+import { auth, ensureAnonymousAuth } from '../lib/firebase';
 import { MailQueueItem, GameSession, Player, Question } from '../types/quiz';
 import { GameEngine } from './gameEngine';
 
@@ -52,7 +51,8 @@ export interface SendResultsPayload {
 }
 
 /**
- * Queue result email to localStorage outbox and Firestore 'mail' collection
+ * Cache email item in localStorage for UI history display only.
+ * Authoritative persistence and delivery occur strictly in the backend durable Firestore outbox.
  */
 export async function queueResultEmail(item: Omit<MailQueueItem, 'id' | 'createdAt'>): Promise<string> {
   const mailId = `mail_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -63,31 +63,12 @@ export async function queueResultEmail(item: Omit<MailQueueItem, 'id' | 'created
     createdAt: new Date().toISOString(),
   };
 
-  // Cache to local storage outbox
   try {
     const existing: MailQueueItem[] = JSON.parse(localStorage.getItem(LOCAL_STORAGE_MAIL_KEY) || '[]');
     existing.unshift(fullItem);
     localStorage.setItem(LOCAL_STORAGE_MAIL_KEY, JSON.stringify(existing.slice(0, 100)));
   } catch (e) {
     console.warn('Failed to cache mail to local outbox:', e);
-  }
-
-  // Write queue doc to Firestore 'mail' collection
-  if (isFirebaseConfigured && db) {
-    try {
-      await addDoc(collection(db, 'mail'), {
-        to: item.to,
-        message: {
-          subject: item.subject,
-          html: item.htmlContent,
-        },
-        metadata: item.metadata,
-        status: item.status || 'queued',
-        createdAt: serverTimestamp(),
-      });
-    } catch (error) {
-      console.warn('Firestore mail write skipped:', error);
-    }
   }
 
   return mailId;
@@ -103,7 +84,7 @@ export function getLocalOutboxEmails(): MailQueueItem[] {
 
 export function updateOutboxItemStatus(
   id: string,
-  newStatus: 'queued' | 'sent' | 'failed',
+  newStatus: MailQueueItem['status'],
   errorMessage?: string
 ): void {
   try {
@@ -127,8 +108,9 @@ export async function sendTestEmailViaApi(payload: {
   htmlContent: string;
 }): Promise<{
   success: boolean;
-  status: 'sent' | 'failed' | 'skipped';
+  status: 'accepted' | 'sent' | 'failed' | 'skipped' | 'ambiguous';
   statusCode?: number;
+  jobId?: string;
   provider?: string;
   fromAddress?: string;
   messageId?: string;
@@ -247,7 +229,16 @@ export async function sendResultsViaApi(payload: SendResultsPayload): Promise<{
   success: boolean;
   sentCount: number;
   failedCount: number;
-  results?: Array<{ id: string; to: string; status: 'sent' | 'failed'; error?: string }>;
+  skippedCount?: number;
+  ambiguousCount?: number;
+  results?: Array<{
+    id: string;
+    jobId?: string;
+    providerMessageId?: string;
+    to: string;
+    status: MailQueueItem['status'];
+    error?: string;
+  }>;
 }> {
   let user = auth.currentUser;
   if (!user) {
@@ -303,11 +294,11 @@ export async function resendOutboxEmail(id: string): Promise<boolean> {
       htmlContent: target.htmlContent,
     });
 
-    if (res.success && res.status === 'sent') {
-      updateOutboxItemStatus(id, 'sent');
+    if (res.success && (res.status === 'accepted' || res.status === 'sent')) {
+      updateOutboxItemStatus(id, 'accepted');
       return true;
     } else {
-      updateOutboxItemStatus(id, 'failed', res.error || 'Failed to dispatch test email');
+      updateOutboxItemStatus(id, res.status === 'ambiguous' ? 'ambiguous' : 'failed', res.error || 'Failed to dispatch test email');
       return false;
     }
   }
@@ -329,11 +320,12 @@ export async function resendOutboxEmail(id: string): Promise<boolean> {
     };
 
     const res = await sendResultsViaApi(payload);
-    if (res.sentCount > 0) {
-      updateOutboxItemStatus(id, 'sent');
+    const firstStatus = res.results?.[0]?.status;
+    if (res.sentCount > 0 || firstStatus === 'accepted') {
+      updateOutboxItemStatus(id, 'accepted');
       return true;
     } else {
-      updateOutboxItemStatus(id, 'failed', res.results?.[0]?.error || 'Failed to dispatch');
+      updateOutboxItemStatus(id, firstStatus || 'failed', res.results?.[0]?.error || 'Failed to dispatch');
       return false;
     }
   } catch (err) {

@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import type { Auth } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
+import { cancelOutboxJobsForAccountDeletion } from './emailOutboxEngine';
 
 export const ACCOUNT_DELETION_JOBS_COLLECTION = 'accountDeletionJobs';
 export const ACCOUNT_DELETION_LOCKS_COLLECTION = 'accountDeletionLocks';
@@ -566,6 +567,13 @@ export async function executeDeletionJob(
           if (toDelete.length > 0) {
             await deleteDocsInBatches(adminDb, toDelete);
           }
+
+          const outboxCancelled = await cancelOutboxJobsForAccountDeletion(adminDb, {
+            uid,
+            email: resolvedEmail || null,
+            pseudoId,
+          });
+          job.counts.cancelledEmails += outboxCancelled.cancelledCount;
           break;
         }
 

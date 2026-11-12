@@ -1100,6 +1100,8 @@ import {
   handleRevokeCertificate,
   handleProcessOutbox,
   handleOutboxWebhook,
+  handleOutboxMetrics,
+  handleOutboxEnqueue,
 } from './src/server/notificationHandler.ts';
 
 // POST /api/certificates/issue - Server-authoritative certificate issuance
@@ -1117,14 +1119,24 @@ app.post('/api/certificates/revoke', async (req: Request, res: Response): Promis
   await handleRevokeCertificate(req, res, { adminAuth, adminDb });
 });
 
+// POST /api/outbox/enqueue - Authenticated durable email enqueue
+app.post('/api/outbox/enqueue', async (req: Request, res: Response): Promise<void> => {
+  await handleOutboxEnqueue(req, res, { adminAuth, adminDb });
+});
+
 // POST /api/outbox/process - Protected email worker dispatch
 app.post('/api/outbox/process', async (req: Request, res: Response): Promise<void> => {
   await handleProcessOutbox(req, res, { adminAuth, adminDb });
 });
 
+// GET /api/outbox/metrics - Protected admin/worker outbox operational metrics
+app.get('/api/outbox/metrics', async (req: Request, res: Response): Promise<void> => {
+  await handleOutboxMetrics(req, res, { adminAuth, adminDb });
+});
+
 // POST /api/outbox/webhook - Provider delivery/bounce webhook
 app.post('/api/outbox/webhook', async (req: Request, res: Response): Promise<void> => {
-  await handleOutboxWebhook(req, res);
+  await handleOutboxWebhook(req, res, { adminDb });
 });
 
 // Phase 4: Secure Account Deletion & Complete Data Purge endpoints

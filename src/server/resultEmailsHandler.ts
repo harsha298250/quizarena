@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import type { Request, Response } from 'express';
@@ -16,6 +17,11 @@ import {
   assertAccountActive,
   isEmailBlockedForDeletion,
 } from './accountDeletionEngine.ts';
+import {
+  EMAIL_OUTBOX_COLLECTION,
+  enqueueOutboxJobPersistent,
+  processOutboxBatchPersistent,
+} from './emailOutboxEngine.ts';
 
 export const MAX_HOST_EMAIL_REQUESTS_PER_MIN = 5;
 export const MAX_RECIPIENTS_PER_GAME = 100;
@@ -235,6 +241,8 @@ export async function dispatchSingleEmail({
   html,
   transporter,
   fromAddress,
+  idempotencyKey,
+  timeoutMs = 8000,
 }: {
   to: string;
   recipientName: string;
@@ -242,11 +250,17 @@ export async function dispatchSingleEmail({
   html: string;
   transporter: Transporter | null;
   fromAddress?: string;
-}): Promise<{ status: 'sent' | 'skipped'; messageId?: string }> {
+  idempotencyKey?: string;
+  timeoutMs?: number;
+}): Promise<{ status: 'sent' | 'skipped'; messageId?: string; provider?: string }> {
   const provider = getResolvedEmailProvider();
   const resolvedFrom = fromAddress || getResolvedFromAddress(provider);
+  const timeoutSignal =
+    typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
+      ? (AbortSignal as any).timeout(timeoutMs)
+      : undefined;
 
-  // 1. Resend API (HTTPS Port 443)
+  // 1. Resend API (HTTPS Port 443) — supports Idempotency-Key header for safe retries
   if (provider === 'resend' || (!process.env.EMAIL_PROVIDER && process.env.RESEND_API_KEY)) {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
@@ -268,14 +282,28 @@ export async function dispatchSingleEmail({
       payload.reply_to = replyTo;
     }
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    };
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
+
+    let res: globalThis.Response;
+    try {
+      res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        ...(timeoutSignal ? { signal: timeoutSignal } : {}),
+      });
+    } catch (netErr: any) {
+      const err: any = new Error(`Resend network/timeout error: ${netErr?.message || 'timeout'}`);
+      err.isPermanent = false;
+      err.errorCategory = 'timeout';
+      throw err;
+    }
 
     let responseText = '';
     let data: any = {};
@@ -326,44 +354,84 @@ export async function dispatchSingleEmail({
       throw err;
     }
 
-    return { status: 'sent', messageId: data.id };
+    return { status: 'sent', messageId: data.id, provider: 'resend' };
   }
 
-  // 2. Brevo API (HTTPS Port 443)
+  // 2. Brevo API (HTTPS Port 443) — lacks provider idempotency keys; timeouts are ambiguous
   if (provider === 'brevo' || (!process.env.EMAIL_PROVIDER && process.env.BREVO_API_KEY)) {
     const senderEmail = process.env.BREVO_SENDER || resolvedFrom.replace(/^.*<([^>]+)>.*$/, '$1');
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: {
-        'api-key': process.env.BREVO_API_KEY || '',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sender: { name: 'QuizArena', email: senderEmail },
-        to: [{ email: to, name: recipientName }],
-        subject,
-        htmlContent: html,
-      }),
-    });
+    let res: globalThis.Response;
+    try {
+      res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': process.env.BREVO_API_KEY || '',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: 'QuizArena', email: senderEmail },
+          to: [{ email: to, name: recipientName }],
+          subject,
+          htmlContent: html,
+        }),
+        ...(timeoutSignal ? { signal: timeoutSignal } : {}),
+      });
+    } catch (netErr: any) {
+      const err: any = new Error(`Brevo ambiguous network/timeout error: ${netErr?.message || 'timeout'}`);
+      err.isAmbiguous = true;
+      err.errorCategory = 'ambiguous';
+      throw err;
+    }
+
     if (!res.ok) {
       const errText = await res.text();
-      throw new Error(`Brevo API HTTP ${res.status}: ${errText}`);
+      const err: any = new Error(`Brevo API HTTP ${res.status}: ${errText}`);
+      err.status = res.status;
+      if (res.status === 429) {
+        const retryAfter = res.headers?.get?.('retry-after') || '60';
+        err.retryAfter = parseInt(retryAfter, 10) || 60;
+        err.isPermanent = false;
+        err.errorCategory = 'rate_limit';
+      } else if (res.status >= 400 && res.status < 500) {
+        err.isPermanent = true;
+        err.errorCategory = 'permanent';
+      } else {
+        err.isPermanent = false;
+        err.errorCategory = 'provider_5xx';
+      }
+      throw err;
     }
     const data: any = await res.json();
-    return { status: 'sent', messageId: data.messageId };
+    return { status: 'sent', messageId: data.messageId, provider: 'brevo' };
   }
 
-  // 3. Authenticated SMTP (Nodemailer)
+  // 3. Authenticated SMTP (Nodemailer) — lacks provider idempotency keys; socket timeouts are ambiguous
   if (provider === 'smtp' || transporter) {
     const actualTransporter = transporter || getSmtpTransporter();
     if (actualTransporter) {
-      const info = await actualTransporter.sendMail({
-        from: resolvedFrom,
-        to,
-        subject,
-        html,
-      });
-      return { status: 'sent', messageId: info?.messageId };
+      try {
+        const info = await actualTransporter.sendMail({
+          from: resolvedFrom,
+          to,
+          subject,
+          html,
+        });
+        return { status: 'sent', messageId: info?.messageId, provider: 'smtp' };
+      } catch (smtpErr: any) {
+        const msg = String(smtpErr?.message || '');
+        const code = String(smtpErr?.code || '');
+        if (/ETIMEDOUT|ECONNRESET|ESOCKET|timeout|ambiguous/i.test(`${code} ${msg}`)) {
+          const err: any = new Error(`SMTP ambiguous timeout/connection error: ${msg}`);
+          err.isAmbiguous = true;
+          err.errorCategory = 'ambiguous';
+          throw err;
+        }
+        if (/550|553|554|invalid|rejected/i.test(msg)) {
+          smtpErr.isPermanent = true;
+          smtpErr.errorCategory = 'permanent';
+        }
+        throw smtpErr;
+      }
     }
   }
 
@@ -653,10 +721,162 @@ export async function handleSendResults(
   const fromAddress = getResolvedFromAddress(provider);
   const transporter = options.transporter !== undefined ? options.transporter : (provider === 'smtp' ? getSmtpTransporter() : null);
 
-  const results: Array<{ id: string; to: string; status: 'sent' | 'failed' | 'skipped'; error?: string; simulated?: boolean }> = [];
+  const results: Array<{
+    id: string;
+    jobId?: string;
+    providerMessageId?: string;
+    to: string;
+    status: 'sent' | 'accepted' | 'failed' | 'skipped' | 'ambiguous' | 'cancelled' | 'retrying';
+    error?: string;
+    simulated?: boolean;
+  }> = [];
   let sentCount = 0;
   let failedCount = 0;
   let skippedCount = 0;
+  let ambiguousCount = 0;
+
+  // Durable Firestore outbox path when transactional adminDb is available
+  if (typeof adminDb.runTransaction === 'function') {
+    const enqueuedItems: Array<{ clientItemId: string; jobId: string; to: string }> = [];
+    for (const item of recipients) {
+      if (!item.to || !item.htmlContent) {
+        results.push({ id: item.id, to: item.to, status: 'failed', error: 'Missing to address or html content' });
+        failedCount++;
+        continue;
+      }
+
+      const enq = await enqueueOutboxJobPersistent(adminDb, {
+        idempotencyKey: `game_${gameId}_${item.to.toLowerCase()}`,
+        idempotencyScope: hostUid,
+        ownerId: hostUid,
+        recipientEmail: item.to,
+        recipientName: item.recipientName,
+        eventType: 'quiz_results_ready',
+        subject: item.subject,
+        htmlContent: item.htmlContent,
+        textContent: '',
+        provider,
+        metadata: { gameId },
+      });
+
+      if (enq.suppressed) {
+        results.push({ id: item.id, to: '[suppressed]', status: 'skipped' });
+        skippedCount++;
+      } else if (!enq.success || !enq.job) {
+        results.push({ id: item.id, to: item.to, status: 'failed', error: enq.error });
+        failedCount++;
+      } else {
+        enqueuedItems.push({ clientItemId: item.id, jobId: enq.job.id, to: item.to });
+      }
+    }
+
+    if (enqueuedItems.length > 0) {
+      await processOutboxBatchPersistent(
+        adminDb,
+        enqueuedItems.length,
+        async job => {
+          try {
+            const dispatchRes = await dispatchSingleEmail({
+              to: job.recipientEmail,
+              recipientName: job.recipientName,
+              subject: job.subject,
+              html: job.htmlContent,
+              transporter,
+              fromAddress,
+              idempotencyKey: job.idempotencyKey,
+            });
+            if (dispatchRes.status === 'sent') {
+              return {
+                success: true,
+                provider: dispatchRes.provider || provider,
+                providerMessageId: dispatchRes.messageId || `msg_${job.id}`,
+              };
+            }
+            return {
+              success: false,
+              error: 'Email delivery provider is not configured or skipped dispatch.',
+              isPermanent: false,
+            };
+          } catch (sendErr: any) {
+            return {
+              success: false,
+              error: sendErr?.message || 'Dispatch failed',
+              isPermanent: Boolean(sendErr?.isPermanent),
+              isAmbiguous: Boolean(sendErr?.isAmbiguous),
+              retryAfterSec: sendErr?.retryAfter,
+              errorCategory: sendErr?.errorCategory,
+            };
+          }
+        },
+        `send_results_${hostUid}`
+      );
+
+      for (const item of enqueuedItems) {
+        const jobSnap = await adminDb.collection(EMAIL_OUTBOX_COLLECTION).doc(item.jobId).get();
+        const jobData = jobSnap?.exists ? jobSnap.data() : null;
+        const jobStatus = jobData?.status || 'failed';
+
+        if (jobStatus === 'accepted') {
+          sentCount++;
+          results.push({
+            id: item.clientItemId,
+            jobId: item.jobId,
+            providerMessageId: jobData?.providerMessageId,
+            to: item.to,
+            status: 'accepted',
+          });
+        } else if (jobStatus === 'cancelled') {
+          skippedCount++;
+          results.push({
+            id: item.clientItemId,
+            jobId: item.jobId,
+            to: '[suppressed]',
+            status: 'cancelled',
+          });
+        } else if (jobStatus === 'ambiguous') {
+          ambiguousCount++;
+          results.push({
+            id: item.clientItemId,
+            jobId: item.jobId,
+            to: item.to,
+            status: 'ambiguous',
+            error: jobData?.lastErrorMessage,
+          });
+        } else if (jobStatus === 'retrying') {
+          failedCount++;
+          results.push({
+            id: item.clientItemId,
+            jobId: item.jobId,
+            to: item.to,
+            status: 'retrying',
+            error: jobData?.lastErrorMessage,
+          });
+        } else {
+          failedCount++;
+          results.push({
+            id: item.clientItemId,
+            jobId: item.jobId,
+            to: item.to,
+            status: 'failed',
+            error: jobData?.lastErrorMessage,
+          });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      sentCount,
+      acceptedCount: sentCount,
+      failedCount,
+      skippedCount,
+      ambiguousCount,
+      totalProcessed: recipients.length,
+      capped,
+      results,
+    });
+    return;
+  }
 
   for (const item of recipients) {
     if (!item.to || !item.htmlContent) {
@@ -818,6 +1038,125 @@ export async function handleSendTestEmail(
   }
 
   const fromAddress = getResolvedFromAddress(provider);
+  const hasDurableDb = Boolean(options.adminDb && typeof options.adminDb.runTransaction === 'function');
+
+  if (!hasDurableDb && process.env.NODE_ENV !== 'test') {
+    res.status(503).json({
+      success: false,
+      status: 'failed',
+      error: 'Service Unavailable: Authoritative Firestore outbox is not configured.',
+    });
+    return;
+  }
+
+  if (hasDurableDb) {
+    const enq = await enqueueOutboxJobPersistent(options.adminDb, {
+      idempotencyKey: `test_${hostUid}_${crypto.randomUUID()}`,
+      idempotencyScope: hostUid,
+      ownerId: hostUid,
+      recipientEmail: destination,
+      recipientName: isResendDeliverabilitySink ? 'Resend Deliverability Sink' : 'Host',
+      eventType: 'quiz_results_ready',
+      subject: subject || 'QuizArena Test Result Email',
+      htmlContent: htmlContent || '<p>QuizArena Test Email</p>',
+      textContent: '',
+      provider,
+      metadata: { isTestEmail: true },
+    });
+
+    if (enq.suppressed) {
+      res.status(403).json({
+        success: false,
+        status: 'failed',
+        error: 'Email dispatch is not permitted for this destination.',
+      });
+      return;
+    }
+
+    if (!enq.success || !enq.job) {
+      res.status(400).json({
+        success: false,
+        status: 'failed',
+        error: enq.error || 'Failed to enqueue test email.',
+      });
+      return;
+    }
+
+    let lastStatusCode = 502;
+    await processOutboxBatchPersistent(
+      options.adminDb,
+      1,
+      async job => {
+        try {
+          const dispatchRes = await dispatchSingleEmail({
+            to: job.recipientEmail,
+            recipientName: job.recipientName,
+            subject: job.subject,
+            html: job.htmlContent,
+            transporter,
+            fromAddress,
+            idempotencyKey: job.idempotencyKey,
+          });
+          if (dispatchRes.status === 'sent') {
+            return {
+              success: true,
+              provider: dispatchRes.provider || provider,
+              providerMessageId: dispatchRes.messageId || `msg_${job.id}`,
+            };
+          }
+          return {
+            success: false,
+            error: 'Email delivery provider is not configured or skipped dispatch.',
+            isPermanent: false,
+          };
+        } catch (smtpErr: any) {
+          lastStatusCode = smtpErr?.status || (smtpErr?.isAmbiguous ? 504 : 502);
+          return {
+            success: false,
+            error: smtpErr instanceof Error ? smtpErr.message : String(smtpErr),
+            isPermanent: Boolean(smtpErr?.isPermanent),
+            isAmbiguous: Boolean(smtpErr?.isAmbiguous),
+            retryAfterSec: smtpErr?.retryAfter,
+            errorCategory: smtpErr?.errorCategory,
+          };
+        }
+      },
+      `send_test_${hostUid}`
+    );
+
+    const updatedSnap = await options.adminDb
+      .collection(EMAIL_OUTBOX_COLLECTION)
+      .doc(enq.job.id)
+      .get();
+    const updatedJob = updatedSnap?.exists ? updatedSnap.data() : enq.job;
+
+    if (updatedJob.status === 'accepted') {
+      res.json({
+        success: true,
+        status: 'accepted',
+        jobId: updatedJob.id,
+        to: destination,
+        provider: updatedJob.provider || provider,
+        fromAddress,
+        messageId: updatedJob.providerMessageId,
+        message: `Test email accepted for delivery to ${destination} via ${provider}.`,
+      });
+      return;
+    }
+
+    res.status(updatedJob.status === 'cancelled' ? 403 : lastStatusCode).json({
+      success: false,
+      status: updatedJob.status,
+      jobId: updatedJob.id,
+      statusCode: lastStatusCode,
+      provider,
+      fromAddress,
+      error: updatedJob.lastErrorMessage || 'Test email dispatch failed.',
+    });
+    return;
+  }
+
+  // Unit-test-only direct fallback when adminDb is omitted in legacy tests
   try {
     const dispatchRes = await dispatchSingleEmail({
       to: destination,

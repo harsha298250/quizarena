@@ -289,5 +289,24 @@ service cloud.firestore {
     match /accountDeletionEmailBlocks/{emailHash} {
       allow read, write: if false; // Server Admin SDK only
     }
+
+    // ==========================================
+    // 9. Durable Email Outbox (Phase 5 Server-Authoritative)
+    // ==========================================
+    match /emailOutbox/{jobId} {
+      allow read, write: if false; // Server Admin SDK only
+    }
+
+    match /emailOutboxIdempotency/{keyHash} {
+      allow read, write: if false; // Server Admin SDK only
+    }
+
+    match /emailWebhookEvents/{eventKey} {
+      allow read, write: if false; // Server Admin SDK only
+    }
+
+    match /emailOutboxMetrics/{docId} {
+      allow read, write: if false; // Server Admin SDK only
+    }
   }
 }

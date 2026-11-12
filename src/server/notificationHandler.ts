@@ -18,10 +18,17 @@ import {
   handleProviderWebhook,
 } from './emailOutboxWorker';
 import {
+  enqueueOutboxJobPersistent,
+  processOutboxBatchPersistent,
+  handleProviderWebhookPersistent,
+  getOutboxMetricsPersistent,
+} from './emailOutboxEngine';
+import {
   getSmtpTransporter,
   dispatchSingleEmail,
   getResolvedEmailProvider,
   getResolvedFromAddress,
+  checkHostEmailRateLimit,
 } from './resultEmailsHandler';
 import {
   assertAccountActive,
@@ -463,6 +470,12 @@ export async function handleProcessOutbox(
   }
 
   const batchSize = Number((req.query && req.query.batchSize) || 10);
+  const hasDurableDb = Boolean(deps.adminDb && typeof deps.adminDb.runTransaction === 'function');
+
+  if (!hasDurableDb && process.env.NODE_ENV !== 'test') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore outbox is not configured.' });
+    return;
+  }
 
   const sender = async (job: any) => {
     const targetUid = job?.ownerId || job?.userId || job?.recipientUid;
@@ -489,10 +502,15 @@ export async function handleProcessOutbox(
         html: job.htmlContent,
         transporter,
         fromAddress,
+        idempotencyKey: job.idempotencyKey,
       });
 
       if (dispatchResult.status === 'sent') {
-        return { success: true, providerMessageId: dispatchResult.messageId || `msg_${job.id}` };
+        return {
+          success: true,
+          provider: dispatchResult.provider || provider,
+          providerMessageId: dispatchResult.messageId || `msg_${job.id}`,
+        };
       }
 
       return {
@@ -507,11 +525,20 @@ export async function handleProcessOutbox(
         err?.status === 422 ||
         /invalid|550|rejected|401|403|422|unauthorized|forbidden|domain.not.verified|not.allowed/i.test(err?.message || '')
       );
-      return { success: false, error: err?.message, isPermanent };
+      return {
+        success: false,
+        error: err?.message,
+        isPermanent,
+        isAmbiguous: Boolean(err?.isAmbiguous),
+        retryAfterSec: err?.retryAfter,
+        errorCategory: err?.errorCategory,
+      };
     }
   };
 
-  const batchResult = await processOutboxBatch(batchSize, sender);
+  const batchResult = hasDurableDb
+    ? await processOutboxBatchPersistent(deps.adminDb, batchSize, sender)
+    : await processOutboxBatch(batchSize, sender);
   res.status(200).json({ success: true, result: batchResult });
 }
 
@@ -519,11 +546,13 @@ export async function handleProcessOutbox(
  * POST /api/outbox/webhook
  * Provider delivery webhook endpoint.
  * - Supports Resend official Svix signature verification over rawBody.
+ * - Deduplicates webhook events via Firestore emailWebhookEvents.
  * - Fails closed for providers without supported webhook verification (Brevo, SMTP) or missing WEBHOOK_SECRET.
  */
 export async function handleOutboxWebhook(
   req: Request & { rawBody?: Buffer | string },
-  res: Response
+  res: Response,
+  deps?: Partial<NotificationRouteDependencies>
 ): Promise<void> {
   const provider = getResolvedEmailProvider();
   if (provider === 'brevo' || provider === 'smtp') {
@@ -563,12 +592,165 @@ export async function handleOutboxWebhook(
     return;
   }
 
-  const result = handleProviderWebhook(messageId, normalizedEvent, true);
+  const rawSvixId = req.headers['svix-id'];
+  const eventId = Array.isArray(rawSvixId) ? rawSvixId[0] : rawSvixId || body.id;
+  const hasDurableDb = Boolean(deps?.adminDb && typeof deps.adminDb.runTransaction === 'function');
+
+  if (!hasDurableDb && process.env.NODE_ENV !== 'test') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore outbox is not configured.' });
+    return;
+  }
+
+  const result = hasDurableDb
+    ? await handleProviderWebhookPersistent(deps!.adminDb!, {
+        eventId: typeof eventId === 'string' ? eventId : undefined,
+        provider: provider === 'none' ? 'resend' : provider,
+        messageId,
+        event: normalizedEvent,
+      })
+    : handleProviderWebhook(messageId, normalizedEvent, true);
 
   if (!result.success) {
     res.status(400).json({ error: result.error });
     return;
   }
 
-  res.status(200).json({ success: true, job: result.job });
+  res.status(200).json({
+    success: true,
+    ...(('duplicate' in result && result.duplicate) ? { duplicate: true } : {}),
+    job: result.job,
+  });
+}
+
+async function authorizeWorkerOrAdmin(
+  req: Request,
+  deps: NotificationRouteDependencies
+): Promise<boolean> {
+  const rawSecret = req.headers['x-worker-secret'];
+  const internalSecret = Array.isArray(rawSecret) ? rawSecret[0] : rawSecret;
+  const expectedSecret = process.env.OUTBOX_WORKER_SECRET?.trim();
+
+  if (expectedSecret && typeof internalSecret === 'string' && internalSecret.length > 0) {
+    if (timingSafeEqualStrings(internalSecret, expectedSecret)) {
+      return true;
+    }
+  }
+
+  const user = await authenticate(req, deps.adminAuth);
+  if (!user) return false;
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) return false;
+
+  return Boolean(
+    user.firebase?.sign_in_provider !== 'anonymous' &&
+    (user.admin === true || user.role === 'admin')
+  );
+}
+
+/**
+ * GET /api/outbox/metrics
+ * Protected administrative/worker operational visibility endpoint.
+ */
+export async function handleOutboxMetrics(
+  req: Request,
+  res: Response,
+  deps: NotificationRouteDependencies
+): Promise<void> {
+  if (!(await authorizeWorkerOrAdmin(req, deps))) {
+    res.status(403).json({ error: 'Forbidden: Administrative or worker authorization required.' });
+    return;
+  }
+
+  if (!deps.adminDb || typeof deps.adminDb.collection !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore database is not configured.' });
+    return;
+  }
+
+  const metrics = await getOutboxMetricsPersistent(deps.adminDb);
+  res.status(200).json({ success: true, metrics });
+}
+
+/**
+ * POST /api/outbox/enqueue
+ * Authenticated endpoint to enqueue durable email notifications with scoped idempotency.
+ */
+export async function handleOutboxEnqueue(
+  req: Request,
+  res: Response,
+  deps: NotificationRouteDependencies
+): Promise<void> {
+  const user = await authenticate(req, deps.adminAuth);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required.' });
+    return;
+  }
+
+  if (user.firebase?.sign_in_provider === 'anonymous') {
+    res.status(403).json({ error: 'Forbidden: Anonymous accounts cannot enqueue notifications.' });
+    return;
+  }
+
+  if (!deps.adminDb || typeof deps.adminDb.runTransaction !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore database is not configured.' });
+    return;
+  }
+
+  const acct = await assertAccountActive(deps.adminDb, user.uid);
+  if (!acct.active) {
+    res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  if (!checkHostEmailRateLimit(user.uid)) {
+    res.status(429).json({ error: 'Rate limit exceeded for email enqueue requests.' });
+    return;
+  }
+
+  const {
+    idempotencyKey,
+    recipientEmail,
+    recipientName = 'Participant',
+    recipientUid,
+    eventType = 'quiz_results_ready',
+    subject,
+    htmlContent,
+    textContent = '',
+  } = req.body || {};
+
+  if (!idempotencyKey || !recipientEmail || !subject || !htmlContent) {
+    res.status(400).json({
+      error: 'Bad Request: idempotencyKey, recipientEmail, subject, and htmlContent are required.',
+    });
+    return;
+  }
+
+  const result = await enqueueOutboxJobPersistent(deps.adminDb, {
+    idempotencyKey: String(idempotencyKey),
+    idempotencyScope: user.uid,
+    ownerId: user.uid,
+    recipientEmail: String(recipientEmail),
+    recipientName: String(recipientName),
+    ...(recipientUid ? { recipientUid: String(recipientUid) } : {}),
+    eventType,
+    subject: String(subject),
+    htmlContent: String(htmlContent),
+    textContent: String(textContent),
+  });
+
+  if (result.suppressed) {
+    res.status(403).json({ error: result.error });
+    return;
+  }
+
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+
+  res.status(result.isDuplicate ? 200 : 201).json({
+    success: true,
+    isDuplicate: Boolean(result.isDuplicate),
+    jobId: result.job?.id,
+    status: result.job?.status,
+  });
 }
