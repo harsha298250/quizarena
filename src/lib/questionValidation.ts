@@ -233,31 +233,154 @@ export function validateQuiz(quiz: Quiz): QuizValidationResult {
   };
 }
 
+export const DEFAULT_DUPLICATE_SIMILARITY_THRESHOLD = 0.65;
+
+const FILLER_STOPWORDS = new Set([
+  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'from', 'as', 'into',
+  'about', 'that', 'this', 'these', 'those', 'it', 'its', 'and', 'or',
+  'does', 'do', 'did', 'can', 'could', 'would', 'should', 'will', 'shall',
+  'following', 'statement', 'statements', 'accurately', 'correctly', 'best',
+  'describes', 'describe', 'characterizes', 'characterize', 'means',
+]);
+
+const QUESTION_INTENT_GROUPS: Record<string, string> = {
+  who: 'person',
+  whom: 'person',
+  whose: 'person',
+  when: 'time',
+  where: 'place',
+  why: 'reason',
+  how: 'manner',
+  what: 'entity',
+  which: 'entity',
+};
+
+const NEGATION_WORDS = new Set(['not', 'never', 'except', 'without', 'neither', 'nor']);
+
+/**
+ * Normalizes question text (NFKC, lowercase, basic contractions, strip punctuation, collapse whitespace)
+ * while preserving numbers, dates, names, and question-intent words.
+ */
+export function normalizeQuestionText(text: string): string {
+  return String(text || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\b(what|who|when|where|why|how)'s\b/g, '$1 is')
+    .replace(/\bisn't\b/g, 'is not')
+    .replace(/\baren't\b/g, 'are not')
+    .replace(/\bdoesn't\b/g, 'does not')
+    .replace(/\bdon't\b/g, 'do not')
+    .replace(/\bcan't\b/g, 'cannot')
+    .replace(/\bwon't\b/g, 'will not')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function lightStemToken(token: string): string {
+  if (token.length > 4 && token.endsWith('ies')) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.length > 4 && /(?:x|ch|sh|ss|z)es$/.test(token)) {
+    return token.slice(0, -2);
+  }
+  if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss') && !/^\d+$/.test(token)) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+export interface QuestionFingerprint {
+  normalized: string;
+  tokens: Set<string>;
+  intent: string | null;
+  hasNegation: boolean;
+  numbers: Set<string>;
+}
+
+/**
+ * Precomputes normalized text, meaningful content tokens, question intent, negation, and numeric tokens
+ * so duplicate comparisons are fast and avoid false positives on differing intents/numbers.
+ */
+export function buildQuestionFingerprint(text: string): QuestionFingerprint {
+  const normalized = normalizeQuestionText(text);
+  const rawTokens = normalized ? normalized.split(' ').filter(Boolean) : [];
+  const tokens = new Set<string>();
+  const numbers = new Set<string>();
+  let intent: string | null = null;
+  let hasNegation = false;
+
+  for (const raw of rawTokens) {
+    const mappedIntent = QUESTION_INTENT_GROUPS[raw];
+    if (mappedIntent) {
+      if (!intent) intent = mappedIntent;
+      tokens.add(`__intent_${mappedIntent}`);
+      continue;
+    }
+    if (NEGATION_WORDS.has(raw)) {
+      hasNegation = true;
+    }
+    if (/^\d+$/.test(raw)) {
+      numbers.add(raw);
+    }
+    if (!FILLER_STOPWORDS.has(raw)) {
+      tokens.add(lightStemToken(raw));
+    }
+  }
+
+  return { normalized, tokens, intent, hasNegation, numbers };
+}
+
+export function compareQuestionFingerprints(
+  a: QuestionFingerprint,
+  b: QuestionFingerprint
+): number {
+  if (!a.normalized || !b.normalized) return 0;
+  if (a.normalized === b.normalized) return 1;
+
+  // Guard against false positives when explicit question intent differs (e.g., "Who ..." vs "When ...")
+  if (a.intent && b.intent && a.intent !== b.intent) {
+    return 0;
+  }
+
+  // Guard against false positives when polarity differs ("... is ..." vs "... is NOT ...")
+  if (a.hasNegation !== b.hasNegation) {
+    return 0;
+  }
+
+  // Guard against false positives when explicit numbers/years/codes differ (e.g. 429 vs 404, 1928 vs 1945)
+  if (a.numbers.size > 0 && b.numbers.size > 0) {
+    const sameNums =
+      a.numbers.size === b.numbers.size && [...a.numbers].every((n) => b.numbers.has(n));
+    if (!sameNums) return 0;
+  }
+
+  if (a.tokens.size === 0 || b.tokens.size === 0) return 0;
+
+  let intersection = 0;
+  for (const token of a.tokens) {
+    if (b.tokens.has(token)) intersection++;
+  }
+  const union = a.tokens.size + b.tokens.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
 /**
  * Calculates Token-based Jaccard similarity between two strings to detect duplicate/near-duplicate questions.
  */
 export function calculateQuestionSimilarity(a: string, b: string): number {
-  const tokenize = (str: string): Set<string> => {
-    return new Set(
-      str
-        .toLowerCase()
-        .replace(/[^\w\s]/g, '')
-        .split(/\s+/)
-        .filter(w => w.length > 2)
-    );
-  };
+  return compareQuestionFingerprints(buildQuestionFingerprint(a), buildQuestionFingerprint(b));
+}
 
-  const setA = tokenize(a);
-  const setB = tokenize(b);
-
-  if (setA.size === 0 || setB.size === 0) return 0;
-
-  let intersection = 0;
-  setA.forEach(token => {
-    if (setB.has(token)) intersection++;
-  });
-
-  const union = new Set([...setA, ...setB]).size;
-  return union === 0 ? 0 : intersection / union;
+/**
+ * Determines whether two question prompts are exact or near-duplicates above the similarity threshold.
+ */
+export function isNearDuplicateQuestion(
+  candidateText: string,
+  existingText: string,
+  threshold: number = DEFAULT_DUPLICATE_SIMILARITY_THRESHOLD
+): boolean {
+  return calculateQuestionSimilarity(candidateText, existingText) >= threshold;
 }
 

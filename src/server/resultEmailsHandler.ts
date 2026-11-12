@@ -22,60 +22,34 @@ import {
   enqueueOutboxJobPersistent,
   processOutboxBatchPersistent,
 } from './emailOutboxEngine.ts';
+import {
+  checkHostEmailRateLimit as sharedCheckHostEmailRateLimit,
+  checkHostEmailRateLimitDetailed,
+  resetHostEmailRateLimit as sharedResetHostEmailRateLimit,
+  checkTestEmailRateLimit as sharedCheckTestEmailRateLimit,
+  resetTestEmailRateLimit as sharedResetTestEmailRateLimit,
+} from './sharedRateLimiter.ts';
 
 export const MAX_HOST_EMAIL_REQUESTS_PER_MIN = 5;
 export const MAX_RECIPIENTS_PER_GAME = 100;
 
-// Host rate limiter state: hostUid -> { count, resetAt }
-const hostSendEmailRateLimiter = new Map<string, { count: number; resetAt: number }>();
-
 export function checkHostEmailRateLimit(hostUid: string, now: number = Date.now()): boolean {
-  const entry = hostSendEmailRateLimiter.get(hostUid);
-  if (!entry || now > entry.resetAt) {
-    hostSendEmailRateLimiter.set(hostUid, { count: 1, resetAt: now + 60000 });
-    return true;
-  }
-  if (entry.count >= MAX_HOST_EMAIL_REQUESTS_PER_MIN) {
-    return false;
-  }
-  entry.count++;
-  return true;
+  return sharedCheckHostEmailRateLimit(hostUid, now);
 }
 
 export function resetHostEmailRateLimit(hostUid?: string): void {
-  if (hostUid) {
-    hostSendEmailRateLimiter.delete(hostUid);
-  } else {
-    hostSendEmailRateLimiter.clear();
-  }
+  sharedResetHostEmailRateLimit(hostUid);
 }
-
-// Test email rate limiter: 3 requests per hour (3600000 ms) per hostUid
-const testEmailRateLimiter = new Map<string, { count: number; resetAt: number }>();
 
 export function checkTestEmailRateLimit(
   hostUid: string,
   now: number = Date.now()
 ): { allowed: boolean; retryAfterSec?: number } {
-  const entry = testEmailRateLimiter.get(hostUid);
-  if (!entry || now > entry.resetAt) {
-    testEmailRateLimiter.set(hostUid, { count: 1, resetAt: now + 3600000 });
-    return { allowed: true };
-  }
-  if (entry.count >= 3) {
-    const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
-    return { allowed: false, retryAfterSec };
-  }
-  entry.count++;
-  return { allowed: true };
+  return sharedCheckTestEmailRateLimit(hostUid, now);
 }
 
 export function resetTestEmailRateLimit(hostUid?: string): void {
-  if (hostUid) {
-    testEmailRateLimiter.delete(hostUid);
-  } else {
-    testEmailRateLimiter.clear();
-  }
+  sharedResetTestEmailRateLimit(hostUid);
 }
 
 export function validateAndCapRecipients<T>(recipients: T[], maxAllowed = MAX_RECIPIENTS_PER_GAME): {
@@ -490,7 +464,9 @@ export async function handleSendResults(
   }
 
   // 2. Rate limit per verified host UID
-  if (!checkHostEmailRateLimit(hostUid)) {
+  const hostRate = checkHostEmailRateLimitDetailed(hostUid);
+  if (!hostRate.allowed) {
+    res.setHeader('Retry-After', String(hostRate.retryAfterSec || 60));
     res.status(429).json({
       error: `Rate limit exceeded: maximum ${MAX_HOST_EMAIL_REQUESTS_PER_MIN} result email dispatches per minute per host`,
     });

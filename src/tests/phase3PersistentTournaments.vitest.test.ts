@@ -24,6 +24,7 @@ import {
   verificationIdIndex,
   idempotencyIndex,
 } from '../server/certificateEngine.ts';
+import { sharedRateLimiter } from '../server/sharedRateLimiter.ts';
 
 function createStatefulFirestoreMock() {
   const rootCols = new Map<string, Map<string, any>>();
@@ -151,6 +152,7 @@ function createMockReqRes(options: { body?: any; params?: any; headers?: any } =
 
 describe('Phase 3 — Persistent Tournament Management Suite', () => {
   beforeEach(() => {
+    sharedRateLimiter.reset();
     inMemoryTournaments.clear();
     inMemoryRegistrations.clear();
     certificateStore.clear();

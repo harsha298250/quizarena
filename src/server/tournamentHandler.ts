@@ -20,6 +20,12 @@ import {
   computeTournamentStandings,
 } from './tournamentEngine';
 import { assertAccountActive } from './accountDeletionEngine';
+import {
+  checkTournamentRateLimit,
+  checkTournamentReadRateLimit,
+  extractClientIp,
+  sendRateLimitResponse,
+} from './sharedRateLimiter';
 
 export interface TournamentRouteDependencies {
   adminAuth: Auth;
@@ -85,6 +91,14 @@ export async function handleCreateTournament(
   const acct = await assertAccountActive(deps.adminDb, user.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkTournamentRateLimit(user.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 
@@ -181,6 +195,14 @@ export async function handleRegisterTournament(
   const acct = await assertAccountActive(deps.adminDb, user.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkTournamentRateLimit(user.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 
@@ -348,6 +370,14 @@ export async function handleCancelRegistration(
     return;
   }
 
+  const rateCheck = checkTournamentRateLimit(user.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
+    return;
+  }
+
   const { tournamentId } = req.body || {};
   if (!tournamentId || typeof tournamentId !== 'string') {
     res.status(400).json({ error: 'tournamentId is required.' });
@@ -447,6 +477,14 @@ export async function handleStartRound(
   const acct = await assertAccountActive(deps.adminDb, user.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkTournamentRateLimit(user.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 
@@ -734,6 +772,14 @@ export async function handleFinalizeMatch(
     return;
   }
 
+  const rateCheck = checkTournamentRateLimit(user.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
+    return;
+  }
+
   const { tournamentId, matchId, winnerId, score1, score2 } = req.body || {};
   if (!tournamentId || !matchId) {
     res.status(400).json({ error: 'tournamentId and matchId are required.' });
@@ -911,6 +957,14 @@ export async function handleGetTournamentStandings(
   res: Response,
   deps: TournamentRouteDependencies
 ): Promise<void> {
+  const readRate = checkTournamentReadRateLimit(extractClientIp(req));
+  if (!readRate.allowed) {
+    sendRateLimitResponse(res, readRate.retryAfterSec, {
+      error: `Too many standings requests. Please wait ${readRate.retryAfterSec}s.`,
+    });
+    return;
+  }
+
   const { id } = req.params;
 
   if (hasFirestore(deps.adminDb)) {

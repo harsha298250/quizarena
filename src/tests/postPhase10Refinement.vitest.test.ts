@@ -66,7 +66,9 @@ describe('Post-Phase-10 Refinement Test Suite', () => {
       expect(result.rawQuestions.length).toBe(3);
       expect(result.providerUsed).toBe('heuristic');
       expect(result.rawQuestions[0].options.length).toBe(4);
-      expect(result.rawQuestions[0].correctAnswerIndex).toBe(0);
+      expect(result.rawQuestions[0].correctAnswerIndex).toBeGreaterThanOrEqual(0);
+      expect(result.rawQuestions[0].correctAnswerIndex).toBeLessThan(4);
+      expect(result.rawQuestions[0].options[result.rawQuestions[0].correctAnswerIndex]).toContain('authoritative mechanism');
       expect(result.rawQuestions[0].explanation).toBeDefined();
       expect(result.rawQuestions[0].topicTag).toBe('CO2');
     });

@@ -105,6 +105,7 @@ export async function handleRequestAccountDeletion(
 
   const rateCheck = checkAccountDeletionRateLimit(decoded.uid);
   if (!rateCheck.allowed) {
+    res.setHeader('Retry-After', String(rateCheck.retryAfterSec || 60));
     res.status(429).json({
       error: `Too many deletion requests. Please wait ${rateCheck.retryAfterSec}s before retrying.`,
     });
@@ -295,6 +296,7 @@ export async function handleRetryAccountDeletion(
 
   const rateCheck = checkAccountDeletionRateLimit(`retry_${existingJob.uidHash}`);
   if (!rateCheck.allowed) {
+    res.setHeader('Retry-After', String(rateCheck.retryAfterSec || 60));
     res.status(429).json({
       error: `Too many retry attempts. Please wait ${rateCheck.retryAfterSec}s.`,
     });

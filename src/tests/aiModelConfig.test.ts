@@ -3,8 +3,8 @@ import { DEFAULT_GEMINI_MODEL, GEMINI_MODEL, isGeminiModelNotFoundError } from '
 
 console.log('🧪 Running AI Model Configuration & 404 Normalization Tests...');
 
-// 1. Model defaults to gemini-3.8-flash
-assert.strictEqual(DEFAULT_GEMINI_MODEL, 'gemini-3.8-flash', 'Default Gemini model must be gemini-3.8-flash');
+// 1. Model defaults to gemini-2.5-flash
+assert.strictEqual(DEFAULT_GEMINI_MODEL, 'gemini-2.5-flash', 'Default Gemini model must be gemini-2.5-flash');
 assert.ok(typeof GEMINI_MODEL === 'string' && GEMINI_MODEL.length > 0, 'GEMINI_MODEL must resolve to a non-empty string');
 
 // 2. 404 / NOT_FOUND detection
@@ -25,8 +25,8 @@ async function testFallback() {
     models: {
       generateContent: async ({ model }: { model: string }) => {
         attemptedModels.push(model);
-        if (model === 'gemini-3.8-flash') {
-          const err: any = new Error('models/gemini-3.8-flash is not found for API version v1beta');
+        if (model === 'gemini-nonexistent-test') {
+          const err: any = new Error('models/gemini-nonexistent-test is not found for API version v1beta');
           err.status = 404;
           throw err;
         }
@@ -35,9 +35,9 @@ async function testFallback() {
     },
   };
 
-  const res = await generateContentWithFallback(mockAi, 'gemini-3.8-flash', { contents: 'test' });
+  const res = await generateContentWithFallback(mockAi, 'gemini-nonexistent-test', { contents: 'test' });
   assert.ok(res.text.includes('Test question?'), 'Must return valid response from fallback model');
-  assert.strictEqual(attemptedModels[0], 'gemini-3.8-flash', 'Must attempt primary model first');
+  assert.strictEqual(attemptedModels[0], 'gemini-nonexistent-test', 'Must attempt primary model first');
   assert.strictEqual(attemptedModels[1], FALLBACK_GEMINI_MODELS[0], 'Must fall back to active Gemini model on 404');
 }
 

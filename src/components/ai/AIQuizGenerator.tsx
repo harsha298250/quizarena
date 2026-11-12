@@ -6,7 +6,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Question, Quiz, BloomLevel } from '../../types/quiz';
 import { extractTextFromPdf, PdfExtractionResult } from '../../services/pdfExtractor';
-import { aiService, GenerateProgress, GEMINI_MODEL_NAME } from '../../services/aiService';
+import { aiService, GenerateProgress, GenerationMetadata, GEMINI_MODEL_NAME } from '../../services/aiService';
 import { SAMPLE_AI_SOURCE_TEXT } from '../../data/sampleQuizzes';
 import { sound } from '../../lib/sound';
 import { validateQuestion } from '../../lib/questionValidation';
@@ -44,6 +44,7 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationProgress, setGenerationProgress] = useState<GenerateProgress | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generationMeta, setGenerationMeta] = useState<GenerationMetadata | null>(null);
   const [generatedQuestions, setGeneratedQuestions] = useState<Question[]>([]);
   const [acceptedQuestionIds, setAcceptedQuestionIds] = useState<Set<string>>(new Set());
   const [quizTitle, setQuizTitle] = useState<string>('AI Generated Mastery Arena');
@@ -153,6 +154,12 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
     }, 120000);
 
     try {
+      setGenerationMeta(null);
+      const existingQuestionTexts = existingQuizzes
+        .flatMap(qz => (qz.questions || []).map(q => q.text))
+        .filter(Boolean)
+        .slice(0, 200);
+
       const questions = await aiService.generateQuestions(
         {
           sourceContent,
@@ -161,10 +168,12 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
           difficulty,
           targetCO,
           language: targetLanguage,
+          existingQuestionTexts,
         },
         {
           signal: controller.signal,
           onProgress: p => setGenerationProgress(p),
+          onMetadata: m => setGenerationMeta(m),
         }
       );
 
@@ -260,8 +269,15 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
   // Adapt question helper
   const handleAdapt = async (question: Question, action: 'convert_to_scenario' | 'make_easier' | 'make_harder') => {
     sound.playClick();
-    const adapted = await aiService.adaptQuestion(question, action);
-    setGeneratedQuestions(prev => prev.map(q => (q.id === question.id ? adapted : q)));
+    try {
+      const adapted = await aiService.adaptQuestion(question, action);
+      setGeneratedQuestions(prev => prev.map(q => (q.id === question.id ? adapted : q)));
+    } catch (err: any) {
+      setToastMessage({
+        text: err instanceof Error ? err.message : 'Unable to adapt question right now.',
+        isError: true,
+      });
+    }
   };
 
   // Add to Studio as New Quiz
@@ -886,6 +902,31 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
             </div>
           </div>
 
+          {/* Provider & Validation Summary Banner */}
+          {generationMeta && (
+            <div className="paper-card p-3 bg-[var(--surface-alt)] border border-[var(--border)] text-xs flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-[var(--text)]">
+                  Source:{' '}
+                  {generationMeta.providerUsed === 'heuristic'
+                    ? 'Deterministic Fallback (Not AI-Verified)'
+                    : generationMeta.providerUsed === 'grok'
+                      ? 'xAI Grok Fallback (Draft — Instructor Review Required)'
+                      : 'Gemini AI (Draft — Instructor Review Required)'}
+                </span>
+                {generationMeta.validationSummary && (
+                  <span className="text-[var(--text-muted)]">
+                    • {generationMeta.validationSummary.validCount} valid
+                    {generationMeta.validationSummary.duplicateCount > 0 &&
+                      `, ${generationMeta.validationSummary.duplicateCount} duplicate(s) excluded`}
+                    {generationMeta.validationSummary.rejectedCount > 0 &&
+                      `, ${generationMeta.validationSummary.rejectedCount} invalid excluded`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Generated Question Cards List */}
           <div className="space-y-4">
             {filteredQuestions.map((q, idx) => {
@@ -1030,8 +1071,27 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                         {q.courseOutcomeTag || targetCO}
                       </span>
                       {q.validationBadge === 'good' && (
-                        <span className="sticker-badge bg-green-100 text-green-800 border-green-800 text-[10px]">
-                          ✓ Grounded Citation
+                        <span
+                          className="sticker-badge bg-green-100 text-green-800 border-green-800 text-[10px]"
+                          title="AI-assisted pedagogical review passed; verify factual accuracy before publishing."
+                        >
+                          ✓ AI-Reviewed Draft
+                        </span>
+                      )}
+                      {(!q.validationBadge || q.validationBadge === 'needs_review' || q.validationBadge === 'check' || q.validationBadge === 'ai_draft') && (
+                        <span
+                          className="sticker-badge bg-amber-100 text-amber-900 border-amber-700 text-[10px]"
+                          title="Structural checks passed or AI review unavailable; instructor review recommended."
+                        >
+                          ⚠ Needs Review
+                        </span>
+                      )}
+                      {(q.validationBadge === 'flagged' || q.validationBadge === 'weak') && (
+                        <span
+                          className="sticker-badge bg-red-100 text-red-800 border-red-800 text-[10px]"
+                          title="Structural or quality issues detected; fix before publishing."
+                        >
+                          ✕ Needs Fix
                         </span>
                       )}
                     </div>

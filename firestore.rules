@@ -183,12 +183,11 @@ service cloud.firestore {
     // 5. Mail queue & Templates
     // ==========================================
     match /mail/{mailId} {
-      allow read: if isNonAnonymous() && (
+      allow read: if isNonAnonymous() && isAccountActive() && (
         resource.data.ownerId == request.auth.uid ||
         resource.data.to == request.auth.token.email
       );
-      allow create: if isNonAnonymous() && request.resource.data.ownerId == request.auth.uid;
-      allow update, delete: if isNonAnonymous() && resource.data.ownerId == request.auth.uid;
+      allow write: if false; // Legacy collection: direct client writes disabled; production dispatch uses backend emailOutbox
     }
 
     match /emailTemplates/{templateId} {

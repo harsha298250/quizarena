@@ -8,6 +8,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { sanitizeNickname } from '../lib/profanity.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
 import { assertAccountActive } from './accountDeletionEngine.ts';
+import { checkGameSessionRateLimit, sendRateLimitResponse } from './sharedRateLimiter.ts';
 
 export const MAX_GAME_CAPACITY = 300;
 
@@ -83,6 +84,14 @@ export async function handleCreateGame(
   const acct = await assertAccountActive(adminDb, authUser.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkGameSessionRateLimit(authUser.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many game session requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 
@@ -214,6 +223,14 @@ export async function handleJoinGame(
   const acct = await assertAccountActive(adminDb, authUser.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkGameSessionRateLimit(authUser.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many game session requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 
@@ -550,6 +567,14 @@ export async function handleLeaveGame(
   const acct = await assertAccountActive(adminDb, authUser.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkGameSessionRateLimit(authUser.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many game session requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 
@@ -1378,6 +1403,14 @@ export async function handleSessionRecovery(
   const acct = await assertAccountActive(adminDb, authUser.uid);
   if (!acct.active) {
     res.status(403).json({ error: acct.error });
+    return;
+  }
+
+  const rateCheck = checkGameSessionRateLimit(authUser.uid);
+  if (!rateCheck.allowed) {
+    sendRateLimitResponse(res, rateCheck.retryAfterSec, {
+      error: `Too many game session requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
     return;
   }
 

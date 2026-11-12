@@ -634,6 +634,18 @@ describe('Phase 5 — Durable Email Outbox & Reliable Delivery Suite', () => {
     expect(rules).toMatch(/match \/emailOutboxMetrics\/\{docId\}\s*\{\s*allow read, write:\s*if false;/);
   });
 
+  it('[P6.7-01] firestore.rules denies all client writes to legacy /mail collection while preserving authorized reads', () => {
+    const rules = fs.readFileSync(path.resolve(process.cwd(), 'firestore.rules'), 'utf8');
+    const mailMatch = rules.match(/match \/mail\/\{mailId\}\s*\{([\s\S]*?)\}/);
+    expect(mailMatch).toBeTruthy();
+    const mailBlock = mailMatch![1];
+    expect(mailBlock).toContain('allow write: if false;');
+    expect(mailBlock).not.toContain('allow create:');
+    expect(mailBlock).not.toContain('allow update');
+    expect(mailBlock).not.toContain('allow delete');
+    expect(mailBlock).toMatch(/allow read:\s*if isNonAnonymous\(\) && isAccountActive\(\)/);
+  });
+
   it('[P5.1-01] emailService.ts has no client-side Firestore mail writes and distinguishes queued, accepted, and delivered', () => {
     const svc = fs.readFileSync(path.resolve(process.cwd(), 'src/services/emailService.ts'), 'utf8');
     expect(svc).not.toContain("collection(db, 'mail')");

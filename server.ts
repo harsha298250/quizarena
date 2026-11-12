@@ -12,7 +12,6 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { validateServerEnvironment, isAllowedCorsOrigin } from './src/server/envValidator.ts';
-import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
@@ -30,14 +29,25 @@ import {
 } from './src/server/scoringHardening.ts';
 import {
   sharedRateLimiter,
+  extractClientIp,
   checkWarmupRateLimit,
   checkGenerateQuizRateLimit,
   checkAnonymousGenerateQuizRateLimit,
+  checkAnonymousGenerateQuizIpRateLimit,
   checkValidateRateLimit,
   checkBatchValidateRateLimit,
   checkAnswerRateLimit,
 } from './src/server/sharedRateLimiter.ts';
-import { generateWithAIAdapter } from './src/server/aiProviderAdapter.ts';
+import {
+  generateWithAIAdapter,
+  DEFAULT_GEMINI_MODEL,
+  getConfiguredGeminiModel,
+  isModelNotFoundError as isGeminiModelNotFoundError,
+  validateSingleQuestionWithAI,
+  batchValidateQuestionsWithAI,
+  validateAndFilterGeneratedQuestions,
+  MAX_BATCH_VALIDATE_QUESTIONS,
+} from './src/server/aiProviderAdapter.ts';
 import {
   handleAnswerSubmission,
   handleUsePowerUp,
@@ -419,73 +429,9 @@ app.use(express.json({
   },
 }));
 
-// Server-side Gemini initialization per guidelines (fastest suitable Gemini model)
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
-export const GEMINI_MODEL = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
-
-export function isGeminiModelNotFoundError(err: any): boolean {
-  if (!err) return false;
-  const msg = typeof err === 'string' ? err : (err.message || String(err));
-  const status = err.status || err.code || err.statusCode;
-  return (
-    status === 404 ||
-    /not[_\s-]?found/i.test(msg) ||
-    /404/i.test(msg) ||
-    /model.*not found/i.test(msg)
-  );
-}
-
-export const FALLBACK_GEMINI_MODELS = ['gemini-2.0-flash'];
-
-export async function generateContentWithFallback(
-  ai: GoogleGenAI,
-  primaryModel: string,
-  options: { contents: string; config?: any }
-): Promise<any> {
-  const modelsToTry = [primaryModel, ...FALLBACK_GEMINI_MODELS.filter(m => m !== primaryModel)];
-  let lastError: any = null;
-
-  for (const model of modelsToTry) {
-    try {
-      // 30s timeout per candidate model so a non-existent or lagging model never delays fallback past reverse proxy limits
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Model ${model} timeout`)), 30000)
-      );
-      const res = await Promise.race([
-        ai.models.generateContent({
-          ...options,
-          model,
-        }),
-        timeoutPromise,
-      ]);
-      return res;
-    } catch (err: any) {
-      lastError = err;
-      if (isGeminiModelNotFoundError(err) || (err && typeof err.message === 'string' && err.message.includes('timeout'))) {
-        console.warn(`[QuizArena Gemini] Model "${model}" not available (${err.message || '404'}). Falling back to next available model...`);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastError;
-}
-
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.warn('GEMINI_API_KEY is not set in environment.');
-    return null;
-  }
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
-}
+// Server-side Gemini model configuration (single source of truth in aiProviderAdapter.ts)
+export { DEFAULT_GEMINI_MODEL, isGeminiModelNotFoundError };
+export const GEMINI_MODEL = getConfiguredGeminiModel();
 
 // Authentication helper for AI endpoints
 async function authenticateUser(req: Request): Promise<{ uid: string; signInProvider?: string } | null> {
@@ -568,7 +514,7 @@ app.get('/api/time', async (req: Request, res: Response): Promise<void> => {
 // Endpoint 0b: Silent warm-up ping for AI generator server container (rate-limited via sharedRateLimiter)
 app.get('/api/ai-warmup', (req: Request, res: Response): void => {
   res.setHeader('Cache-Control', 'no-store');
-  const clientKey = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'client';
+  const clientKey = extractClientIp(req);
   const rate = checkWarmupRateLimit(clientKey);
   if (!rate.allowed) {
     res.setHeader('Retry-After', String(rate.retryAfterSec || 60));
@@ -594,18 +540,22 @@ app.post('/api/generate-quiz', async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Rate limiting: anonymous vs authenticated
+    // Rate limiting: anonymous (per-UID + per-IP cap to prevent UID rotation) vs authenticated
     const isAnonymous = user.signInProvider === 'anonymous';
     const rateCheck = isAnonymous
       ? checkAnonymousGenerateQuizRateLimit(user.uid)
       : checkGenerateQuizRateLimit(user.uid);
+    const anonIpCheck = isAnonymous
+      ? checkAnonymousGenerateQuizIpRateLimit(extractClientIp(req))
+      : { allowed: true };
 
-    if (!rateCheck.allowed) {
-      res.setHeader('Retry-After', String(rateCheck.retryAfterSec));
+    if (!rateCheck.allowed || !anonIpCheck.allowed) {
+      const retryAfterSec = Math.max(rateCheck.retryAfterSec || 0, anonIpCheck.retryAfterSec || 0, 1);
+      res.setHeader('Retry-After', String(retryAfterSec));
       res.status(429).json({
         error: isAnonymous
-          ? `Guest generation limit reached (5 per 10m). Please wait ${rateCheck.retryAfterSec}s or sign in with an instructor account.`
-          : `Rate limit exceeded. Please wait ${rateCheck.retryAfterSec} seconds before generating more questions.`,
+          ? `Guest generation limit reached. Please wait ${retryAfterSec}s or sign in with an instructor account.`
+          : `Rate limit exceeded. Please wait ${retryAfterSec} seconds before generating more questions.`,
       });
       return;
     }
@@ -661,71 +611,31 @@ app.post('/api/generate-quiz', async (req: Request, res: Response): Promise<void
     });
 
     const parsed = aiResult.rawQuestions || [];
+    const { existingQuestionTexts } = req.body || {};
 
-    // Format output, run structural validation, and assign honest validation badges
-    const seenTexts: string[] = [];
-    const formattedQuestions = parsed.map((item: any, idx: number) => {
-      const qText: string = String(item.question || '').trim();
-      const options: string[] = Array.isArray(item.options) ? item.options.map(String) : [];
-      const correctAnswerIndex: number = Number(item.correctAnswerIndex ?? 0);
-
-      // Structural checks for validation badge
-      const structuralIssues: string[] = [];
-      if (!qText) structuralIssues.push('empty question text');
-      if (qText.length > 600) structuralIssues.push('question text too long');
-      if (options.length < 2) structuralIssues.push('fewer than 2 options');
-      if (options.length > 8) structuralIssues.push('more than 8 options');
-      if (correctAnswerIndex < 0 || correctAnswerIndex >= options.length) structuralIssues.push('correctAnswerIndex out of bounds');
-      // Check for duplicate options (case-insensitive)
-      const lowerOptions = options.map(o => o.toLowerCase().trim());
-      const uniqueOptions = new Set(lowerOptions);
-      if (uniqueOptions.size !== lowerOptions.length) structuralIssues.push('duplicate options');
-
-      // Near-duplicate detection within generated batch
-      const isDuplicate = seenTexts.some(seen => {
-        const tokensA = new Set(seen.toLowerCase().split(/\W+/).filter(Boolean));
-        const tokensB = new Set(qText.toLowerCase().split(/\W+/).filter(Boolean));
-        const intersection = [...tokensA].filter(t => tokensB.has(t)).length;
-        const union = new Set([...tokensA, ...tokensB]).size;
-        return union > 0 && intersection / union >= 0.85;
-      });
-      if (isDuplicate) structuralIssues.push('near-duplicate of another generated question');
-      seenTexts.push(qText);
-
-      // Assign badge based on structural issues
-      let validationBadge: string;
-      if (structuralIssues.length === 0) {
-        validationBadge = 'ai_draft'; // Structurally sound but not teacher-verified
-      } else if (structuralIssues.length <= 2) {
-        validationBadge = 'needs_review';
-      } else {
-        validationBadge = 'flagged';
-      }
-
-      return {
-        id: `ai_q_${Date.now()}_${idx}`,
-        type: 'multiple_choice',
-        text: qText,
-        options,
-        correctAnswers: [correctAnswerIndex],
-        explanation: String(item.explanation || '').slice(0, 1000),
-        timeLimit: item.difficulty === 'hard' ? 30 : item.difficulty === 'medium' ? 20 : 15,
-        points: 1000,
-        topicTag: String(item.topicTag || targetCO).slice(0, 50),
-        bloomLevel: item.bloom_level || 'understand',
-        courseOutcomeTag: String(targetCO).slice(0, 20),
-        sourcePage: Number(item.source_page) || 1,
-        sourceQuote: String(item.source_quote || '').slice(0, 500),
-        validationBadge,
-        structuralIssues: structuralIssues.length > 0 ? structuralIssues : undefined,
-      };
+    const { validQuestions, validationSummary } = validateAndFilterGeneratedQuestions(parsed, {
+      targetCO,
+      existingQuestionTexts,
     });
 
+    if (validQuestions.length === 0) {
+      res.status(422).json({
+        error: 'No structurally valid unique questions could be generated.',
+        validationSummary,
+        providerUsed: aiResult.providerUsed,
+        modelUsed: aiResult.modelUsed,
+        fallbackTriggered: aiResult.fallbackTriggered,
+      });
+      return;
+    }
+
     res.json({
-      questions: formattedQuestions,
+      questions: validQuestions,
+      validationSummary,
       providerUsed: aiResult.providerUsed,
       modelUsed: aiResult.modelUsed,
       fallbackTriggered: aiResult.fallbackTriggered,
+      aiVerified: aiResult.aiVerified,
       notes: aiResult.notes,
     });
   } catch (error: any) {
@@ -768,69 +678,14 @@ app.post('/api/validate-question', async (req: Request, res: Response): Promise<
       return;
     }
 
-    const { question, action } = req.body;
-    const ai = getGeminiClient();
-    if (!ai) {
-      res.status(500).json({ error: 'Gemini API key is not configured' });
+    const { question, action } = req.body || {};
+    if (!question || typeof question !== 'object') {
+      res.status(400).json({ error: 'question payload is required.' });
       return;
     }
 
-    let prompt = '';
-    if (action === 'convert_to_scenario') {
-      prompt = `Rewrite this quiz question as a real-world analysis scenario for higher-order Bloom thinking:
-Question: ${question.text}
-Options: ${JSON.stringify(question.options)}
-Explanation: ${question.explanation}
-Keep 4 options with one clear correct answer. Return valid JSON.`;
-    } else if (action === 'make_easier') {
-      prompt = `Simplify this question to Bloom Recall level with clearer terminology:
-Question: ${question.text}
-Options: ${JSON.stringify(question.options)}
-Explanation: ${question.explanation}
-Return valid JSON.`;
-    } else if (action === 'make_harder') {
-      prompt = `Elevate this question to Bloom Analyze/Evaluate level with deeper distractors:
-Question: ${question.text}
-Options: ${JSON.stringify(question.options)}
-Explanation: ${question.explanation}
-Return valid JSON.`;
-    } else {
-      // Standard validation check
-      prompt = `Audit this quiz question for ambiguity, distractor plausibility, and single correct answer validity:
-Question: ${question.text}
-Options: ${JSON.stringify(question.options)}
-Correct Answer Index: ${question.correctAnswers[0]}
-Explanation: ${question.explanation}
-Return quality assessment.`;
-    }
-
-    const response = await generateContentWithFallback(ai, GEMINI_MODEL, {
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            question: { type: Type.STRING },
-            options: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-            },
-            correctAnswerIndex: { type: Type.INTEGER },
-            explanation: { type: Type.STRING },
-            qualityBadge: {
-              type: Type.STRING,
-              enum: ['good', 'check', 'weak'],
-            },
-            feedbackNotes: { type: Type.STRING },
-          },
-          required: ['question', 'options', 'correctAnswerIndex', 'explanation', 'qualityBadge'],
-        },
-      },
-    });
-
-    const parsed = JSON.parse(response.text?.trim() || '{}');
-    res.json(parsed);
+    const result = await validateSingleQuestionWithAI({ question, action });
+    res.json(result);
   } catch (error: any) {
     console.error('Validation error:', error);
     if (isGeminiModelNotFoundError(error)) {
@@ -866,56 +721,21 @@ app.post('/api/batch-validate-questions', async (req: Request, res: Response): P
       return;
     }
 
-    const { questions } = req.body;
+    const { questions } = req.body || {};
     if (!Array.isArray(questions) || questions.length === 0) {
       res.json({ results: [] });
       return;
     }
 
-    const ai = getGeminiClient();
-    if (!ai) {
-      res.json({
-        results: questions.map(q => ({
-          id: q.id,
-          qualityBadge: 'good',
-          feedback: 'Valid question with verified citation and grounded options.',
-        })),
+    if (questions.length > MAX_BATCH_VALIDATE_QUESTIONS) {
+      res.status(400).json({
+        error: `Batch validation is limited to a maximum of ${MAX_BATCH_VALIDATE_QUESTIONS} questions per request.`,
       });
       return;
     }
 
-    const prompt = `Audit these ${questions.length} quiz questions in ONE pass for single-answer validity and source grounding:
-${questions.map((q: any, idx: number) => `
-Q${idx + 1} [ID: ${q.id}]:
-Text: ${q.text}
-Options: ${JSON.stringify(q.options)}
-Correct Answer: ${q.correctAnswers?.[0] ?? 0}
-Source Quote: "${q.sourceQuote || ''}"
-`).join('\n')}
-
-Return JSON array assessing each question by id.`;
-
-    const response = await generateContentWithFallback(ai, GEMINI_MODEL, {
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              qualityBadge: { type: Type.STRING, enum: ['good', 'needs_review'] },
-              feedback: { type: Type.STRING },
-            },
-            required: ['id', 'qualityBadge'],
-          },
-        },
-      },
-    });
-
-    const parsed = JSON.parse(response.text?.trim() || '[]');
-    res.json({ results: parsed });
+    const results = await batchValidateQuestionsWithAI(questions);
+    res.json({ results });
   } catch (error: any) {
     console.error('Batch validation error:', error);
     if (isGeminiModelNotFoundError(error)) {

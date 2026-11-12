@@ -5,6 +5,7 @@
 
 import type { Request, Response } from 'express';
 import { assertAccountActive } from './accountDeletionEngine.ts';
+import { checkIntegrityRateLimit, sharedRateLimiter } from './sharedRateLimiter.ts';
 
 export const ALLOWED_INTEGRITY_EVENT_TYPES = [
   'tab_switch',
@@ -22,14 +23,11 @@ export type IntegrityEventType = (typeof ALLOWED_INTEGRITY_EVENT_TYPES)[number];
 
 export const MAX_STRIKES_LIMIT = 6;
 
-// In-memory deduplication: playerId_eventType -> timestamp
+// In-memory deduplication: playerId_eventType -> timestamp (bounded to 5000 entries)
 const lastEventMap = new Map<string, number>();
 
 // Replay prevention cache: eventId -> timestamp (retains up to 2000 recent unique event IDs)
 const seenEventIds = new Map<string, number>();
-
-// In-memory rate limiter: playerId -> { count, windowStart } (2 per 1000ms window)
-const rateLimitMap = new Map<string, { count: number; windowStart: number }>();
 
 export function isAllowedIntegrityEventType(type: string): type is IntegrityEventType {
   return (ALLOWED_INTEGRITY_EVENT_TYPES as readonly string[]).includes(type);
@@ -49,42 +47,40 @@ export function isDuplicateIntegrityEvent(
   if (now - lastTime < 500) {
     return true;
   }
+  if (lastEventMap.size >= 5000 && !lastEventMap.has(key)) {
+    for (const [k, ts] of lastEventMap.entries()) {
+      if (now - ts >= 10000) lastEventMap.delete(k);
+    }
+    if (lastEventMap.size >= 5000) {
+      const oldestKey = lastEventMap.keys().next().value;
+      if (oldestKey !== undefined) lastEventMap.delete(oldestKey);
+    }
+  }
   lastEventMap.set(key, now);
   return false;
 }
 
 /**
- * Rate limits player integrity events to at most 2 per second.
+ * Rate limits player integrity events to at most 2 per second via SharedRateLimiter.
  */
 export function checkPlayerIntegrityRateLimit(
   playerId: string,
   now: number = Date.now()
 ): { allowed: boolean; retryAfterSec?: number } {
-  const entry = rateLimitMap.get(playerId);
-  if (!entry || now - entry.windowStart >= 1000) {
-    rateLimitMap.set(playerId, { count: 1, windowStart: now });
-    return { allowed: true };
-  }
-
-  if (entry.count >= 2) {
-    const retryAfterSec = Math.ceil((entry.windowStart + 1000 - now) / 1000);
-    return { allowed: false, retryAfterSec: Math.max(1, retryAfterSec) };
-  }
-
-  entry.count++;
-  return { allowed: true };
+  const res = checkIntegrityRateLimit(playerId, now);
+  return res.allowed ? { allowed: true } : { allowed: false, retryAfterSec: res.retryAfterSec };
 }
 
 export function resetIntegrityRateLimits(playerId?: string): void {
   if (playerId) {
-    rateLimitMap.delete(playerId);
+    sharedRateLimiter.reset(`integ_${playerId}`);
     for (const key of lastEventMap.keys()) {
       if (key.startsWith(`${playerId}_`)) {
         lastEventMap.delete(key);
       }
     }
   } else {
-    rateLimitMap.clear();
+    sharedRateLimiter.reset();
     lastEventMap.clear();
   }
 }

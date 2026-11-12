@@ -28,8 +28,13 @@ import {
   dispatchSingleEmail,
   getResolvedEmailProvider,
   getResolvedFromAddress,
-  checkHostEmailRateLimit,
 } from './resultEmailsHandler';
+import {
+  checkOutboxEnqueueRateLimit,
+  checkCertificateRateLimit,
+  checkPublicVerifyRateLimit,
+  extractClientIp,
+} from './sharedRateLimiter';
 import {
   assertAccountActive,
   isAccountDeletionPending,
@@ -167,6 +172,13 @@ export async function handleIssueCertificate(
   const user = await authenticate(req, deps.adminAuth);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized: Authentication required.' });
+    return;
+  }
+
+  const certRate = checkCertificateRateLimit(user.uid);
+  if (!certRate.allowed) {
+    res.setHeader('Retry-After', String(certRate.retryAfterSec || 60));
+    res.status(429).json({ error: `Rate limit exceeded for certificate issuance. Please wait ${certRate.retryAfterSec}s.` });
     return;
   }
 
@@ -349,6 +361,17 @@ export async function handleVerifyCertificate(
   res: Response,
   deps?: Pick<NotificationRouteDependencies, 'adminDb'>
 ): Promise<void> {
+  const verifyRate = checkPublicVerifyRateLimit(extractClientIp(req));
+  if (!verifyRate.allowed) {
+    res.setHeader('Retry-After', String(verifyRate.retryAfterSec || 60));
+    res.status(429).json({
+      valid: false,
+      status: 'rate_limited',
+      error: `Too many verification requests. Please wait ${verifyRate.retryAfterSec}s.`,
+    });
+    return;
+  }
+
   const adminDb = deps?.adminDb;
   if (!adminDb || typeof adminDb.collection !== 'function') {
     res.status(503).json({ valid: false, status: 'error', error: 'Service Unavailable: Verification database is not configured.' });
@@ -399,6 +422,13 @@ export async function handleRevokeCertificate(
   const user = await authenticate(req, deps.adminAuth);
   if (!user) {
     res.status(401).json({ error: 'Unauthorized.' });
+    return;
+  }
+
+  const certRate = checkCertificateRateLimit(user.uid);
+  if (!certRate.allowed) {
+    res.setHeader('Retry-After', String(certRate.retryAfterSec || 60));
+    res.status(429).json({ error: `Rate limit exceeded for certificate revocation. Please wait ${certRate.retryAfterSec}s.` });
     return;
   }
 
@@ -701,7 +731,9 @@ export async function handleOutboxEnqueue(
     return;
   }
 
-  if (!checkHostEmailRateLimit(user.uid)) {
+  const enqRate = checkOutboxEnqueueRateLimit(user.uid);
+  if (!enqRate.allowed) {
+    res.setHeader('Retry-After', String(enqRate.retryAfterSec || 60));
     res.status(429).json({ error: 'Rate limit exceeded for email enqueue requests.' });
     return;
   }

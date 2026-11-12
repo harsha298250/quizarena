@@ -7,7 +7,7 @@ import { Question } from '../types/quiz';
 import { auth, ensureAnonymousAuth } from '../lib/firebase';
 
 export const GEMINI_MODEL_NAME =
-  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_MODEL) || 'gemini-3.8-flash';
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_MODEL) || 'gemini-2.5-flash';
 
 export interface GenerateQuizParams {
   sourceContent: string;
@@ -16,6 +16,7 @@ export interface GenerateQuizParams {
   difficulty: 'easy' | 'medium' | 'hard' | 'mixed';
   targetCO: string;
   language: string;
+  existingQuestionTexts?: string[];
 }
 
 export interface AIInsightsReport {
@@ -33,13 +34,31 @@ export interface GenerateProgress {
   totalCount: number;
 }
 
+export interface GenerationMetadata {
+  providerUsed?: 'gemini' | 'grok' | 'heuristic';
+  modelUsed?: string;
+  fallbackTriggered?: boolean;
+  aiVerified?: boolean;
+  notes?: string;
+  validationSummary?: {
+    totalReceived: number;
+    validCount: number;
+    rejectedCount: number;
+    duplicateCount: number;
+    rejectedReasons?: Array<{ index: number; reasons: string[] }>;
+    duplicateWarnings?: Array<{ index: number; reason: string }>;
+  };
+}
+
 export interface GenerateOptions {
   signal?: AbortSignal;
   onProgress?: (p: GenerateProgress) => void;
+  onMetadata?: (meta: GenerationMetadata) => void;
 }
 
 class AIService {
   private endpoint: string;
+  public lastGenerationMetadata: GenerationMetadata | null = null;
 
   constructor() {
     this.endpoint = import.meta.env.VITE_AI_ENDPOINT || '/api/generate-quiz';
@@ -84,11 +103,20 @@ class AIService {
 
     let completedBatches = 0;
     const allQuestions: Question[] = [];
+    const aggregateSummary = {
+      totalReceived: 0,
+      validCount: 0,
+      rejectedCount: 0,
+      duplicateCount: 0,
+      rejectedReasons: [] as Array<{ index: number; reasons: string[] }>,
+      duplicateWarnings: [] as Array<{ index: number; reason: string }>,
+    };
+    let latestMeta: GenerationMetadata = {};
 
-    // Helper with 2x retry and exponential backoff
+    // Helper with bounded transient retry (never retries 400/401/403/422/429)
     const fetchBatchWithRetry = async (batchParams: GenerateQuizParams, batchIdx: number): Promise<Question[]> => {
       let attempts = 0;
-      const maxAttempts = 3; // 1 initial + up to 2 retries
+      const maxAttempts = 3; // 1 initial + up to 2 transient retries
       let lastErr: any = null;
 
       while (attempts < maxAttempts) {
@@ -107,7 +135,25 @@ class AIService {
           if (!res.ok) {
             const errJson = await res.json().catch(() => ({}));
             const rawErr = errJson.error || `Server responded with ${res.status}`;
-            if (res.status === 404 || res.status === 503 || /not[_\s-]?found|404|model unavailable/i.test(rawErr)) {
+            if (res.status === 429) {
+              const retryAfter = res.headers?.get?.('retry-after');
+              const rateErr: any = new Error(
+                retryAfter
+                  ? `Rate limit exceeded. Please wait ${retryAfter}s before generating more questions.`
+                  : rawErr
+              );
+              rateErr.nonRetryable = true;
+              rateErr.status = 429;
+              rateErr.retryAfterSec = retryAfter ? Number(retryAfter) : undefined;
+              throw rateErr;
+            }
+            if (res.status >= 400 && res.status < 500) {
+              const clientErr: any = new Error(rawErr);
+              clientErr.nonRetryable = true;
+              clientErr.status = res.status;
+              throw clientErr;
+            }
+            if (res.status === 503 || /not[_\s-]?found|model unavailable/i.test(rawErr)) {
               throw new Error('Quiz generation is temporarily unavailable. Please try again shortly.');
             }
             throw new Error(rawErr);
@@ -118,10 +164,30 @@ class AIService {
             throw new Error('Invalid question response format from server.');
           }
 
+          if (data.providerUsed) latestMeta.providerUsed = data.providerUsed;
+          if (data.modelUsed) latestMeta.modelUsed = data.modelUsed;
+          if (typeof data.fallbackTriggered === 'boolean') {
+            latestMeta.fallbackTriggered = Boolean(latestMeta.fallbackTriggered || data.fallbackTriggered);
+          }
+          if (typeof data.aiVerified === 'boolean') latestMeta.aiVerified = data.aiVerified;
+          if (data.notes) latestMeta.notes = data.notes;
+          if (data.validationSummary) {
+            aggregateSummary.totalReceived += Number(data.validationSummary.totalReceived || 0);
+            aggregateSummary.validCount += Number(data.validationSummary.validCount || 0);
+            aggregateSummary.rejectedCount += Number(data.validationSummary.rejectedCount || 0);
+            aggregateSummary.duplicateCount += Number(data.validationSummary.duplicateCount || 0);
+            if (Array.isArray(data.validationSummary.rejectedReasons)) {
+              aggregateSummary.rejectedReasons.push(...data.validationSummary.rejectedReasons);
+            }
+            if (Array.isArray(data.validationSummary.duplicateWarnings)) {
+              aggregateSummary.duplicateWarnings.push(...data.validationSummary.duplicateWarnings);
+            }
+          }
+
           return data.questions;
         } catch (err: any) {
           lastErr = err;
-          if (options?.signal?.aborted) throw err;
+          if (options?.signal?.aborted || err?.nonRetryable) throw err;
           if (attempts < maxAttempts) {
             const backoffMs = attempts * 1500;
             options?.onProgress?.({
@@ -161,6 +227,12 @@ class AIService {
 
     await Promise.all(batchPromises);
 
+    if (aggregateSummary.totalReceived > 0) {
+      latestMeta.validationSummary = aggregateSummary;
+    }
+    this.lastGenerationMetadata = latestMeta;
+    options?.onMetadata?.(latestMeta);
+
     // Ensure IDs are unique
     const formatted: Question[] = allQuestions.map((q, idx) => ({
       ...q,
@@ -199,12 +271,21 @@ class AIService {
 
         formatted.forEach(q => {
           if (resultMap.has(q.id)) {
-            q.validationBadge = (resultMap.get(q.id) as any) || 'good';
+            q.validationBadge = (resultMap.get(q.id) as any) || 'needs_review';
+          } else {
+            q.validationBadge = 'needs_review';
           }
+        });
+      } else {
+        formatted.forEach(q => {
+          q.validationBadge = 'needs_review';
         });
       }
     } catch (e) {
       console.warn('Batch validation non-fatal warning:', e);
+      formatted.forEach(q => {
+        q.validationBadge = 'needs_review';
+      });
     }
 
     options?.onProgress?.({
@@ -242,27 +323,38 @@ class AIService {
           options: data.options || question.options,
           correctAnswers: [data.correctAnswerIndex ?? question.correctAnswers[0]],
           explanation: data.explanation || question.explanation,
-          validationBadge: data.qualityBadge || 'good',
+          validationBadge: data.qualityBadge || 'needs_review',
         };
       }
-    } catch (e) {
+      if (response.status === 429) {
+        const retryAfter = response.headers?.get?.('retry-after');
+        throw new Error(
+          retryAfter
+            ? `Rate limit exceeded. Please wait ${retryAfter}s before adapting questions.`
+            : 'Rate limit exceeded. Please wait before adapting questions.'
+        );
+      }
+    } catch (e: any) {
+      if (e?.message && /rate limit/i.test(e.message)) {
+        throw e;
+      }
       console.warn('Adapt question failed:', e);
     }
 
-    // Client-side adaptation fallback
+    // Client-side adaptation fallback (never marked as 'good' / AI-verified)
     if (action === 'convert_to_scenario') {
       return {
         ...question,
         text: `In a real-world enterprise scenario: ${question.text.replace(/\?$/, '')}. How should the team proceed?`,
         bloomLevel: 'analyze',
-        validationBadge: 'good',
+        validationBadge: 'needs_review',
       };
     } else if (action === 'make_easier') {
       return {
         ...question,
         text: `Which of the following describes: ${question.text.replace(/^Which of the following\s+/i, '')}`,
         bloomLevel: 'remember',
-        validationBadge: 'good',
+        validationBadge: 'needs_review',
       };
     } else {
       return {

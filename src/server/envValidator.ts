@@ -52,7 +52,7 @@ export function validateServerEnvironment(): EnvValidationResult {
 
   // Check Gemini Key
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY');
-  const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
   if (!hasGeminiKey) {
     warnings.push('GEMINI_API_KEY is missing or using placeholder value. AI Quiz Generation features will operate with fallbacks.');
