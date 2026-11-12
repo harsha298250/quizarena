@@ -4,16 +4,14 @@
  */
 
 import React, { useState } from 'react';
-import { SupportedLanguage } from '../../lib/i18n';
 import { sound } from '../../lib/sound';
+import { useSoundMuted } from '../../hooks/useSoundMuted';
 import { ThemeMode } from '../../hooks/useTheme';
 import { ThemeToggle } from './ThemeToggle';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  lang: SupportedLanguage;
-  setLang: (lang: SupportedLanguage) => void;
   theme?: ThemeMode;
   setTheme?: (theme: ThemeMode) => void;
   onDeleteMyData?: () => void;
@@ -24,30 +22,16 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
-  lang,
-  setLang,
   theme = 'light',
   setTheme,
   onDeleteMyData,
   currentUserEmail,
   currentUserName,
 }) => {
-  const [isMuted, setIsMuted] = useState(sound.getMuted());
+  const [isMuted, handleToggleSound] = useSoundMuted();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   if (!isOpen) return null;
-
-  const handleToggleSound = () => {
-    const next = sound.toggleMute();
-    setIsMuted(next);
-    if (next) {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    } else {
-      sound.playClick();
-    }
-  };
 
   const handleThemeChange = (newTheme: ThemeMode) => {
     sound.playClick();
@@ -99,18 +83,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         )}
 
-        {/* Setting 1: Language */}
-        <div className="space-y-1.5">
-          <label htmlFor="settings-lang-select" className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-            <span>🌐</span> Interface Language
-          </label>
-          <div className="flex items-center justify-between p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
-            <span className="text-xs font-semibold text-[var(--text)]">English</span>
-            <span className="sticker-badge sticker-badge-sunshine text-[10px] px-2 py-0.5">Default (EN)</span>
-          </div>
-        </div>
-
-        {/* Setting 2: Theme */}
+        {/* Setting 1: Theme */}
         <div className="space-y-1.5">
           <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
             <span>🎨</span> Color Theme & Appearance

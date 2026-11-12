@@ -348,7 +348,7 @@ export const HostShell: React.FC<HostShellProps> = ({
               </span>
               {!isCollapsed && (
                 <span className="text-[10px] font-mono-code text-[var(--text-muted)] uppercase">
-                  {lang.toUpperCase()} • {theme}
+                  {theme}
                 </span>
               )}
             </button>
@@ -618,8 +618,6 @@ export const HostShell: React.FC<HostShellProps> = ({
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        lang={lang}
-        setLang={setLang}
         theme={theme}
         setTheme={setTheme}
         onDeleteMyData={onDeleteMyData}

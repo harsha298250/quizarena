@@ -8,6 +8,7 @@
 class SoundManager {
   private ctx: AudioContext | null = null;
   private isMuted: boolean = false;
+  private listeners: Set<(muted: boolean) => void> = new Set();
 
   constructor() {
     // Check localStorage for user preference
@@ -39,6 +40,23 @@ class SoundManager {
     return this.isMuted;
   }
 
+  public subscribe(listener: (muted: boolean) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notifyListeners() {
+    this.listeners.forEach(listener => {
+      try {
+        listener(this.isMuted);
+      } catch {
+        // Ignore subscriber callback errors
+      }
+    });
+  }
+
   public setMuted(muted: boolean) {
     this.isMuted = muted;
     if (muted && typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -53,6 +71,7 @@ class SoundManager {
         // Safe fallback in restricted environments
       }
     }
+    this.notifyListeners();
   }
 
   public toggleMute(): boolean {

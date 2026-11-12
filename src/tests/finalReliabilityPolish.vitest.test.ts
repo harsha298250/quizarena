@@ -287,30 +287,46 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
       expect(sound.getMuted()).toBe(false);
       expect(localStorage.getItem('quizarena_mute')).toBe('false');
     });
+
+    it('[SOUND-02] sound.subscribe notifies listeners across Settings and Home Page shells', () => {
+      const updates: boolean[] = [];
+      const unsubscribe = sound.subscribe(muted => updates.push(muted));
+
+      sound.setMuted(true);
+      sound.toggleMute();
+
+      expect(updates).toEqual([true, false]);
+      unsubscribe();
+
+      sound.setMuted(true);
+      // After unsubscribe, no further updates are received
+      expect(updates).toEqual([true, false]);
+      sound.setMuted(false);
+    });
   });
 
   // ==========================================
-  // PART 5: ENGLISH-ONLY INTERFACE & SETTINGS MODAL
+  // PART 5: SETTINGS MODAL WITHOUT LANGUAGE SECTION
   // ==========================================
-  describe('English-Only Language Setting', () => {
-    it('[LANG-01] SettingsModal presents English as default interface language without Tamil/Hindi options', () => {
+  describe('Settings Modal Cleanup', () => {
+    it('[LANG-01] SettingsModal omits language selection and retains Theme, Sound, and GDPR sections', () => {
       const doc = renderToDoc(
         React.createElement(SettingsModal, {
           isOpen: true,
           onClose: vi.fn(),
-          lang: 'en',
-          setLang: vi.fn(),
           theme: 'light',
           setTheme: vi.fn(),
         })
       );
 
       const text = doc.body.textContent || '';
-      expect(text).toContain('Interface Language');
-      expect(text).toContain('Default (EN)');
-      // Tamil and Hindi options must not exist in interface selector
+      expect(text).not.toContain('Interface Language');
+      expect(text).not.toContain('LANGUAGE');
       expect(text).not.toContain('தமிழ்');
       expect(text).not.toContain('हिन्दी');
+      expect(text).toContain('Color Theme & Appearance');
+      expect(text).toContain('Sound Effects & Auditory Feedback');
+      expect(text).toContain('Data Privacy & GDPR');
     });
   });
 

@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { SupportedLanguage, translations } from '../../lib/i18n';
 import { sound } from '../../lib/sound';
+import { useSoundMuted } from '../../hooks/useSoundMuted';
 import { PWAInstallButton } from './PWAInstallButton';
 import { ThemeToggle } from './ThemeToggle';
 import { ThemeMode } from '../../hooks/useTheme';
@@ -40,7 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   userRole = 'host',
   setUserRole,
 }) => {
-  const [isMuted, setIsMuted] = useState(sound.getMuted());
+  const [isMuted, handleMuteToggle] = useSoundMuted();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -56,12 +57,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     });
     return () => unsub();
   }, []);
-
-  const handleMuteToggle = () => {
-    const newMute = sound.toggleMute();
-    setIsMuted(newMute);
-    if (!newMute) sound.playClick();
-  };
 
   const handleNavClick = (tabId: string) => {
     sound.playClick();

@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { GameSession, Player } from '../../types/quiz';
 import { QRCodeSVG } from 'qrcode.react';
 import { sound } from '../../lib/sound';
+import { useSoundMuted } from '../../hooks/useSoundMuted';
 import { Avatar } from '../common/Avatar';
 
 interface LobbyViewProps {
@@ -31,7 +32,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [isMuted, setIsMuted] = useState(sound.getMuted());
+  const [isMuted, handleToggleSound] = useSoundMuted();
 
   const joinUrl = `${window.location.origin}/?pin=${game.pin}`;
   const maxCapacity = 300;
@@ -49,12 +50,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     navigator.clipboard.writeText(game.pin);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
-  };
-
-  const handleToggleSound = () => {
-    const next = sound.toggleMute();
-    setIsMuted(next);
-    if (!next) sound.playClick();
   };
 
   const enableDevTools = import.meta.env.VITE_ENABLE_DEV_TOOLS === 'true';

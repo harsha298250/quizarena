@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { SupportedLanguage } from '../../lib/i18n';
 import { sound } from '../../lib/sound';
+import { useSoundMuted } from '../../hooks/useSoundMuted';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { ThemeMode } from '../../hooks/useTheme';
 import { AuthModal } from '../common/AuthModal';
@@ -37,22 +38,10 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
 }) => {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [isMuted, setIsMuted] = useState(sound.getMuted());
+  const [isMuted, handleMuteToggle] = useSoundMuted();
 
   // An authenticated user is one that exists and is not anonymous
   const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
-
-  const handleMuteToggle = () => {
-    const next = sound.toggleMute();
-    setIsMuted(next);
-    if (next) {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    } else {
-      sound.playClick();
-    }
-  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[var(--bg-page)] text-[var(--text)] transition-colors overflow-x-clip min-w-0">
@@ -144,7 +133,7 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
                 setSettingsOpen(true);
               }}
               className="p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] shadow-xs transition-transform active:translate-y-0.5 shrink-0"
-              title="Settings (Language, Theme, Sound, Privacy)"
+              title="Settings (Theme, Sound, Privacy)"
               aria-label="Settings"
             >
               <span aria-hidden="true">⚙️</span>
@@ -177,8 +166,6 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        lang={lang}
-        setLang={setLang}
         theme={theme}
         setTheme={setTheme}
         onDeleteMyData={onDeleteMyData}
