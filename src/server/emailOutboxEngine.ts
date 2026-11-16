@@ -140,11 +140,14 @@ function applyMetricsTransition(
       }
     : createEmptyMetricsSummary(nowIso);
 
-  if (fromStatus && typeof (next as any)[fromStatus] === 'number') {
-    (next as any)[fromStatus] = Math.max(0, (next as any)[fromStatus] - 1);
+  const normFrom = fromStatus === 'sent' ? 'accepted' : fromStatus === 'retry_scheduled' ? 'retrying' : fromStatus === 'permanently_failed' ? 'failed' : fromStatus;
+  const normTo = toStatus === 'sent' ? 'accepted' : toStatus === 'retry_scheduled' ? 'retrying' : toStatus === 'permanently_failed' ? 'failed' : toStatus;
+
+  if (normFrom && typeof (next as any)[normFrom] === 'number') {
+    (next as any)[normFrom] = Math.max(0, (next as any)[normFrom] - 1);
   }
-  if (typeof (next as any)[toStatus] === 'number') {
-    (next as any)[toStatus] = ((next as any)[toStatus] || 0) + 1;
+  if (typeof (next as any)[normTo] === 'number') {
+    (next as any)[normTo] = ((next as any)[normTo] || 0) + 1;
   }
   if (errorCategory) {
     next.failureCategories[errorCategory] = (next.failureCategories[errorCategory] || 0) + 1;
@@ -306,7 +309,7 @@ export async function completeClaimedOutboxJobPersistent(
   workerId: string,
   leaseVersion: number,
   nextState: {
-    status: 'accepted' | 'retrying' | 'failed' | 'cancelled' | 'ambiguous';
+    status: 'accepted' | 'sent' | 'retrying' | 'retry_scheduled' | 'failed' | 'permanently_failed' | 'cancelled' | 'ambiguous';
     provider?: string;
     providerMessageId?: string;
     errorCategory?: OutboxErrorCategory;
@@ -350,7 +353,7 @@ export async function completeClaimedOutboxJobPersistent(
       ...(nextState.errorCategory ? { errorCategory: nextState.errorCategory } : {}),
       ...(nextState.lastErrorMessage ? { lastErrorMessage: nextState.lastErrorMessage } : {}),
       ...(nextState.nextRetryAt ? { nextRetryAt: nextState.nextRetryAt } : { nextRetryAt: null }),
-      ...(nextState.status === 'accepted' ? { sentAt: nowIso } : {}),
+      ...(nextState.status === 'accepted' || nextState.status === 'sent' ? { sentAt: nowIso } : {}),
       ...(nextState.status === 'cancelled' ? { cancelledAt: nowIso } : {}),
       ...(nextState.scrubPii
         ? {
@@ -378,7 +381,7 @@ export async function completeClaimedOutboxJobPersistent(
   });
 }
 
-async function claimJobInTransaction(
+export async function claimJobInTransaction(
   adminDb: Firestore,
   jobId: string,
   workerId: string,
@@ -401,7 +404,7 @@ async function claimJobInTransaction(
 
     const isPending = job.status === 'pending';
     const isReadyRetry =
-      job.status === 'retrying' &&
+      (job.status === 'retrying' || job.status === 'retry_scheduled') &&
       (!job.nextRetryAt || new Date(job.nextRetryAt).getTime() <= nowMs);
     const isExpiredLease =
       job.status === 'processing' &&
@@ -452,9 +455,10 @@ export async function processOutboxBatchPersistent(
   const nowMs = opts?.nowMs || Date.now();
 
   const col = adminDb.collection(EMAIL_OUTBOX_COLLECTION);
-  const [pendingSnap, retryingSnap, processingSnap] = await Promise.all([
+  const [pendingSnap, retryingSnap, retryScheduledSnap, processingSnap] = await Promise.all([
     col.where('status', '==', 'pending').limit(safeBatchSize).get(),
     col.where('status', '==', 'retrying').limit(safeBatchSize).get(),
+    col.where('status', '==', 'retry_scheduled').limit(safeBatchSize).get(),
     col.where('status', '==', 'processing').limit(safeBatchSize).get(),
   ]);
 
@@ -472,6 +476,7 @@ export async function processOutboxBatchPersistent(
 
   addDocs(pendingSnap.docs || []);
   addDocs(retryingSnap.docs || []);
+  addDocs(retryScheduledSnap.docs || []);
   addDocs(
     (processingSnap.docs || []).filter((d: any) => {
       const data = d.data() || {};
@@ -920,5 +925,113 @@ export async function cancelOutboxJobsForAccountDeletion(
   }
 
   return { cancelledCount };
+}
+
+/**
+ * Lists outbox jobs with bounded pagination and strict authorization isolation.
+ * Admins may filter by status across all records; non-admins are strictly isolated
+ * to their own owned/recipient jobs.
+ */
+export async function listOutboxJobsPersistent(
+  adminDb: Firestore,
+  params: {
+    userId?: string;
+    isAdmin: boolean;
+    status?: OutboxJobStatus;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{
+  jobs: EmailOutboxJob[];
+  total: number;
+  hasMore: boolean;
+}> {
+  const safeLimit = Math.max(1, Math.min(Number(params.limit) || 20, 50));
+  const safeOffset = Math.max(0, Math.min(Number(params.offset) || 0, 500));
+  const fetchBound = Math.min(safeOffset + safeLimit + 1, 100);
+
+  const col = adminDb.collection(EMAIL_OUTBOX_COLLECTION);
+  let q: any = col;
+
+  if (!params.isAdmin) {
+    if (!params.userId) {
+      return { jobs: [], total: 0, hasMore: false };
+    }
+    q = q.where('ownerId', '==', params.userId);
+  } else if (params.status) {
+    q = q.where('status', '==', params.status);
+  }
+
+  q = q.limit(fetchBound);
+  const snap = await q.get();
+  const allDocs = (snap.docs || []).map((d: any) => ({ id: d.id, ...d.data() } as EmailOutboxJob));
+
+  const total = allDocs.length;
+  if (safeOffset >= total) {
+    return { jobs: [], total, hasMore: false };
+  }
+
+  const paged = allDocs.slice(safeOffset, safeOffset + safeLimit);
+  const hasMore = total > safeOffset + safeLimit;
+
+  // Sanitize internal security details from jobs returned to clients
+  const sanitizedJobs = paged.map((job: EmailOutboxJob) => ({
+    ...job,
+    // ensure sensitive provider credentials or internal tokens are not leaked
+  }));
+
+  return { jobs: sanitizedJobs, total, hasMore };
+}
+
+/**
+ * Reschedules a failed or permanently failed outbox job back to pending state.
+ * Protected administrative operational recovery.
+ */
+export async function retryOutboxJobPersistent(
+  adminDb: Firestore,
+  jobId: string
+): Promise<{ success: boolean; job?: EmailOutboxJob; error?: string }> {
+  if (!jobId || typeof jobId !== 'string') {
+    return { success: false, error: 'Job ID is required.' };
+  }
+
+  const jobRef = adminDb.collection(EMAIL_OUTBOX_COLLECTION).doc(jobId);
+  const metricsRef = adminDb
+    .collection(EMAIL_OUTBOX_METRICS_COLLECTION)
+    .doc(EMAIL_OUTBOX_METRICS_DOC_ID);
+
+  return adminDb.runTransaction(async tx => {
+    const [jobSnap, metricsSnap] = await Promise.all([tx.get(jobRef), tx.get(metricsRef)]);
+    if (!jobSnap.exists) {
+      return { success: false, error: 'Outbox job not found.' };
+    }
+
+    const current = jobSnap.data() as EmailOutboxJob;
+    if (current.status === 'processing' || current.status === 'pending') {
+      return { success: false, error: `Job is already active (status: ${current.status}).` };
+    }
+
+    const nowIso = new Date().toISOString();
+    const retriedJob: EmailOutboxJob = {
+      ...current,
+      status: 'pending',
+      attempts: 0,
+      nextRetryAt: null,
+      lockedUntil: null,
+      leaseVersion: (current.leaseVersion || 0) + 1,
+      updatedAt: nowIso,
+    };
+
+    const nextMetrics = applyMetricsTransition(
+      metricsSnap.exists ? (metricsSnap.data() as OutboxMetricsSummary) : undefined,
+      current.status,
+      'pending',
+      nowIso
+    );
+
+    tx.set(jobRef, retriedJob);
+    tx.set(metricsRef, nextMetrics);
+    return { success: true, job: retriedJob };
+  });
 }
 

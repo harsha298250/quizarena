@@ -18,7 +18,7 @@ It features real-time synchronization via **Firebase Firestore**, an AI Quiz Gen
 
 2. **AI Quiz Generator (Flagship)**:
    - In-browser text extraction from uploaded PDF textbooks and lecture slides using `pdfjs-dist` (no server file upload needed).
-   - Powered by `@google/genai` and `gemini-3.8-flash`.
+   - Powered by `@google/genai` and `gemini-2.5-flash`.
    - Pedagogical mapping to **Bloom's Taxonomy** (Remember, Understand, Apply, Analyze, Evaluate) and Course Outcome (CO) tags.
    - Interactive teacher review card: Accept, Reject, Edit, Convert to Scenario, Make Easier/Harder.
 
@@ -44,7 +44,7 @@ It features real-time synchronization via **Firebase Firestore**, an AI Quiz Gen
 - **Frontend**: React 19, TypeScript, Vite 8, Tailwind CSS v4, Motion, Recharts.
 - **PWA**: `vite-plugin-pwa`, Web App Manifest, Service Worker runtime caching for Google Fonts, in-app install prompt.
 - **Audio & Haptics**: Native Web Audio API procedural sound synthesizers (zero external audio file dependencies) and `navigator.vibrate`.
-- **Backend / AI**: Node.js Express server (`server.ts`) with `@google/genai` SDK using `gemini-3.8-flash` on `/api/generate-quiz`.
+- **Backend / AI**: Node.js Express server (`server.ts`) with `@google/genai` SDK using `gemini-2.5-flash` on `/api/generate-quiz`.
 - **Database & Realtime**: Firebase Firestore (`onSnapshot` listeners) with fallback BroadcastChannel for local cross-tab demonstration.
 
 ---

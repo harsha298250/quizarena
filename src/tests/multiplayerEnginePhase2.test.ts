@@ -59,10 +59,10 @@ function createMockBackend() {
   const adminAuth = {
     verifyIdToken: async (token: string) => {
       if (token === 'host_token') {
-        return { uid: 'host_101', email: 'host@quizarena.app', firebase: { sign_in_provider: 'google.com' } };
+        return { uid: 'host_101', email: 'host@quizarena.app', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
       }
       if (token === 'other_host_token') {
-        return { uid: 'host_999', email: 'otherhost@quizarena.app', firebase: { sign_in_provider: 'google.com' } };
+        return { uid: 'host_999', email: 'otherhost@quizarena.app', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
       }
       if (token === 'player_token_1') {
         return { uid: 'player_001', email: 'p1@school.edu', firebase: { sign_in_provider: 'google.com' } };

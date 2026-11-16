@@ -7,7 +7,8 @@ import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { GameSession, Player, Question } from '../../types/quiz';
 import { sound } from '../../lib/sound';
-import { generateCertificatePdf } from '../../services/certificateService';
+import { generateCertificatePdf, issueGameCertificate } from '../../services/certificateService';
+import { IssuedCertificate } from '../../types/certificate';
 import { TrophyIcon, FlameIcon } from '../common/CustomIcons';
 import { Avatar } from '../common/Avatar';
 import { auth } from '../../lib/firebase';
@@ -21,7 +22,7 @@ interface PodiumViewProps {
   onReviewAnalytics: () => void;
 }
 
-export const PodiumView: React.FC<PodiumViewProps> = ({
+export const PodiumView: React.FC<PodiumViewProps> = React.memo(({
   game,
   players,
   activePlayerId,
@@ -31,19 +32,53 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
 }) => {
   const [selectedReviewQuestion, setSelectedReviewQuestion] = useState<Question | null>(null);
   const [revealStep, setRevealStep] = useState<number>(0);
+  const [issuedCertificate, setIssuedCertificate] = useState<IssuedCertificate | null>(null);
+  const [isIssuingCert, setIsIssuingCert] = useState<boolean>(false);
 
   // Determine whether current viewer is the host
   const isViewerHost = Boolean(isHost || (auth?.currentUser?.uid && game.hostId && auth.currentUser.uid === game.hostId));
 
-  // Sort players by score descending
-  const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+  // Memoize sorted players by score descending
+  const sortedPlayers = React.useMemo(() => [...players].sort((a, b) => b.score - a.score), [players]);
   const first = sortedPlayers[0];
   const second = sortedPlayers[1];
   const third = sortedPlayers[2];
 
   // If host is viewing, they do NOT have an active student personal record
-  const activePlayer = !isViewerHost && activePlayerId ? players.find(p => p.id === activePlayerId) : null;
-  const activeRank = activePlayer ? sortedPlayers.findIndex(p => p.id === activePlayer.id) + 1 : 0;
+  const activePlayer = React.useMemo(
+    () => (!isViewerHost && activePlayerId ? players.find(p => p.id === activePlayerId) : null),
+    [isViewerHost, activePlayerId, players]
+  );
+  const activeRank = React.useMemo(
+    () => (activePlayer ? sortedPlayers.findIndex(p => p.id === activePlayer.id) + 1 : 0),
+    [activePlayer, sortedPlayers]
+  );
+
+  // Mint / fetch authoritative certificate for active authenticated player
+  useEffect(() => {
+    let cancelled = false;
+    const mintCertificate = async () => {
+      const currentUid = auth?.currentUser?.uid;
+      if (!activePlayer || isViewerHost || !currentUid || !game.id) return;
+
+      try {
+        setIsIssuingCert(true);
+        const res = await issueGameCertificate(game.id, activePlayer.id);
+        if (!cancelled && res.success && res.certificate) {
+          setIssuedCertificate(res.certificate);
+        }
+      } catch {
+        // Non-blocking: player can still download local certificate
+      } finally {
+        if (!cancelled) setIsIssuingCert(false);
+      }
+    };
+
+    mintCertificate();
+    return () => {
+      cancelled = true;
+    };
+  }, [game.id, activePlayer?.id, isViewerHost]);
 
   // Staggered Reveal: 3rd place (0.5s) -> 2nd place (1.2s) -> 1st place (2.0s + confetti)
   useEffect(() => {
@@ -100,6 +135,23 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
   const handleDownloadCertificate = async () => {
     sound.playClick();
     if (!activePlayer) return;
+
+    let cert = issuedCertificate;
+    if (!cert && auth?.currentUser?.uid) {
+      setIsIssuingCert(true);
+      try {
+        const res = await issueGameCertificate(game.id, activePlayer.id);
+        if (res.success && res.certificate) {
+          cert = res.certificate;
+          setIssuedCertificate(res.certificate);
+        }
+      } catch {
+        // Fall back to client generation
+      } finally {
+        setIsIssuingCert(false);
+      }
+    }
+
     await generateCertificatePdf({
       studentName: activePlayer.nickname,
       quizTitle: game.quizTitle,
@@ -109,6 +161,8 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
       accuracy: game.questions.length > 0 ? activePlayer.correctCount / game.questions.length : 1,
       date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
       hostName: game.hostName,
+      certificateNumber: cert?.verificationId,
+      verificationId: cert?.verificationId,
     });
   };
 
@@ -295,12 +349,20 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
               <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--accent)]">
                 {activePlayer.nickname} — Rank #{activeRank}
               </h3>
+              {issuedCertificate?.verificationId && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="sticker-badge sticker-badge-sunshine text-[11px] font-mono-code font-bold">
+                    🛡️ Verified ID: {issuedCertificate.verificationId}
+                  </span>
+                </div>
+              )}
             </div>
             <button
               onClick={handleDownloadCertificate}
-              className="paper-btn paper-btn-primary px-4 py-2 text-xs font-black shadow-[3px_3px_0px_var(--shadow)]"
+              disabled={isIssuingCert}
+              className="paper-btn paper-btn-primary px-4 py-2 text-xs font-black shadow-[3px_3px_0px_var(--shadow)] disabled:opacity-50"
             >
-              📄 Download Official Certificate (PDF)
+              {isIssuingCert ? '⏳ Minting Certificate...' : '📄 Download Official Certificate (PDF)'}
             </button>
           </div>
 
@@ -466,4 +528,4 @@ export const PodiumView: React.FC<PodiumViewProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -138,6 +138,7 @@ export interface Player {
   isEliminated?: boolean;
   joinedAt: string;
   lastSeen: string;
+  lastAuditHash?: string;
 }
 
 export interface AnswerSubmission {

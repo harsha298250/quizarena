@@ -10,6 +10,12 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function isNonAnonymous() {
+      return isSignedIn() &&
+        (!('firebase' in request.auth.token) ||
+         request.auth.token.firebase.sign_in_provider != 'anonymous');
+    }
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -24,29 +30,45 @@ service firebase.storage {
         && request.resource.size < 15 * 1024 * 1024;
     }
 
-    // 1. User profile avatars
+    function isQuizAuthor(quizId) {
+      return isNonAnonymous() &&
+        firestore.exists(/databases/(default)/documents/quizzes/$(quizId)) &&
+        firestore.get(/databases/(default)/documents/quizzes/$(quizId)).data.authorId == request.auth.uid;
+    }
+
+    function isTournamentHost(tournamentId) {
+      return isNonAnonymous() &&
+        firestore.exists(/databases/(default)/documents/tournaments/$(tournamentId)) &&
+        firestore.get(/databases/(default)/documents/tournaments/$(tournamentId)).data.hostId == request.auth.uid;
+    }
+
+    // 1. User profile avatars (max 5MB, owner only, valid image format)
     match /avatars/{userId}/{fileName} {
       allow read: if true;
       allow write: if isOwner(userId) && isValidImage() && request.resource.size < 5 * 1024 * 1024;
     }
 
-    // 2. Quiz illustration assets
+    // 2. Quiz illustration assets (max 10MB, quiz author only, valid image format)
+    // Deletion allowed only for the author who owns the quiz document
     match /quizzes/{quizId}/{fileName} {
       allow read: if true;
-      allow write: if isSignedIn() && isValidImage();
+      allow write: if isQuizAuthor(quizId) && isValidImage();
+      allow delete: if isQuizAuthor(quizId);
     }
 
     // 3. Digital Certificate documents
-    // Public read for verification; write is strictly server-authoritative via Admin SDK
+    // Public read for verification; write and delete are strictly server-authoritative via Admin SDK
     match /certificates/{certificateId}/{fileName} {
       allow read: if true;
-      allow write: if false; // Server Admin SDK only
+      allow write, delete: if false; // Server Admin SDK only
     }
 
-    // 4. Tournament media & banners
+    // 4. Tournament media & banners (max 10MB, tournament host only, valid image format)
+    // Deletion allowed only for the tournament host
     match /tournaments/{tournamentId}/{fileName} {
       allow read: if true;
-      allow write: if isSignedIn() && isValidImage();
+      allow write: if isTournamentHost(tournamentId) && isValidImage();
+      allow delete: if isTournamentHost(tournamentId);
     }
   }
 }

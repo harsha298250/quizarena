@@ -50,7 +50,7 @@ function createMockBackend() {
   const adminAuth = {
     verifyIdToken: async (token: string) => {
       if (token === 'valid_teacher_token') {
-        return { uid: 'teacher_123', email: 'teacher@school.edu', firebase: { sign_in_provider: 'google.com' } };
+        return { uid: 'teacher_123', email: 'teacher@school.edu', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
       }
       if (token === 'valid_student_token') {
         return { uid: 'student_456', email: 'student@school.edu', firebase: { sign_in_provider: 'google.com' } };

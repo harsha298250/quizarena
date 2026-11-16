@@ -39,6 +39,7 @@ export interface TournamentRouteDependencies {
  */
 export const inMemoryTournaments = new Map<string, Tournament>();
 export const inMemoryRegistrations = new Map<string, TournamentRegistration[]>();
+export const inMemoryGames = new Map<string, any>();
 
 function hasFirestore(adminDb: any): adminDb is Firestore {
   return Boolean(
@@ -85,6 +86,15 @@ export async function handleCreateTournament(
 
   if (user.firebase?.sign_in_provider === 'anonymous') {
     res.status(403).json({ error: 'Anonymous users cannot create or host tournaments.' });
+    return;
+  }
+
+  // SEC-05: Server-side email verification required to host tournaments
+  if (user.email_verified !== true) {
+    res.status(403).json({
+      error: 'Email verification required to host tournaments.',
+      code: 'EMAIL_NOT_VERIFIED',
+    });
     return;
   }
 
@@ -297,6 +307,7 @@ export async function handleRegisterTournament(
         return;
       }
 
+      clearTournamentStandingsCache(tournamentId);
       res.status(200).json({ success: true, registration: result.registration });
       return;
     } catch (err: any) {
@@ -347,6 +358,7 @@ export async function handleRegisterTournament(
   inMemoryRegistrations.set(tournamentId, currentRegs);
   tournament.participantCount = currentRegs.filter(r => r.status === 'registered').length;
   tournament.updatedAt = new Date().toISOString();
+  clearTournamentStandingsCache(tournamentId);
   res.status(200).json({ success: true, registration });
 }
 
@@ -427,6 +439,7 @@ export async function handleCancelRegistration(
         return;
       }
 
+      clearTournamentStandingsCache(tournamentId);
       res.status(200).json({ success: true, message: 'Registration cancelled.' });
       return;
     } catch (err: any) {
@@ -456,6 +469,7 @@ export async function handleCancelRegistration(
     tournament.participantCount = currentRegs.filter(r => r.status === 'registered').length;
     tournament.updatedAt = new Date().toISOString();
   }
+  clearTournamentStandingsCache(tournamentId);
   res.status(200).json({ success: true, message: 'Registration cancelled.' });
 }
 
@@ -673,6 +687,8 @@ export async function handleStartRound(
         return;
       }
 
+      clearTournamentStandingsCache(tournamentId);
+
       res.status(200).json({
         success: true,
         ...(result.message ? { message: result.message } : {}),
@@ -716,6 +732,7 @@ export async function handleStartRound(
     tournament.rounds = rounds;
     tournament.status = 'active';
     tournament.updatedAt = new Date().toISOString();
+    clearTournamentStandingsCache(tournamentId);
     res.status(200).json({ success: true, round: rounds[0], tournament });
     return;
   }
@@ -734,6 +751,7 @@ export async function handleStartRound(
       tournament.championNickname =
         finalMatch.winnerId === finalMatch.player1Id ? finalMatch.player1Nickname : finalMatch.player2Nickname;
       tournament.updatedAt = new Date().toISOString();
+      clearTournamentStandingsCache(tournamentId);
       res.status(200).json({ success: true, message: 'Tournament completed!', tournament });
       return;
     }
@@ -746,6 +764,7 @@ export async function handleStartRound(
     currentRound.completedAt = new Date().toISOString();
     tournament.rounds[currentActiveIdx + 1] = updatedNextRound;
     tournament.updatedAt = new Date().toISOString();
+    clearTournamentStandingsCache(tournamentId);
     res.status(200).json({ success: true, round: updatedNextRound, tournament });
   } catch (err: any) {
     res.status(400).json({ error: err?.message || 'Failed to advance winners.' });
@@ -785,6 +804,8 @@ export async function handleFinalizeMatch(
     res.status(400).json({ error: 'tournamentId and matchId are required.' });
     return;
   }
+
+  const MAX_MATCH_SCORE = 500000;
 
   if (hasFirestore(deps.adminDb)) {
     try {
@@ -831,19 +852,35 @@ export async function handleFinalizeMatch(
           return { statusCode: 200, match: targetMatch, message: 'Match already finalized.' };
         }
 
+        if (!targetMatch.player1Id || !targetMatch.player2Id) {
+          return { statusCode: 400, error: 'Cannot finalize match: participants have not been determined.' };
+        }
+
         let resolvedWinnerId = winnerId;
-        let resolvedScore1 = Number(score1) || 0;
-        let resolvedScore2 = Number(score2) || 0;
+        let resolvedScore1 = 0;
+        let resolvedScore2 = 0;
 
         // If match is linked to an authoritative game session, derive scores exclusively from Firestore players
         if (targetMatch.gameId) {
-          if (!targetMatch.player1Id || !targetMatch.player2Id) {
-            return {
-              statusCode: 404,
-              error: 'Authoritative match participants are missing for the linked game.',
-            };
+          const gameDocRef = deps.adminDb.collection('games').doc(targetMatch.gameId);
+          const gameSnap = await tx.get(gameDocRef);
+          if (gameSnap.exists) {
+            const gameData = gameSnap.data();
+            if (gameData?.hostId && gameData.hostId !== tournament.hostId) {
+              return {
+                statusCode: 403,
+                error: 'Forbidden: Linked game session does not belong to this tournament host.',
+              };
+            }
+            if (gameData?.status && gameData.status !== 'finished') {
+              return {
+                statusCode: 400,
+                error: `Cannot finalize match: linked game session is still ${gameData.status}. Game must be finished first.`,
+              };
+            }
           }
-          const playersCol = deps.adminDb.collection('games').doc(targetMatch.gameId).collection('players');
+
+          const playersCol = gameDocRef.collection('players');
           const [p1Snap, p2Snap] = await Promise.all([
             tx.get(playersCol.doc(targetMatch.player1Id)),
             tx.get(playersCol.doc(targetMatch.player2Id)),
@@ -864,14 +901,35 @@ export async function handleFinalizeMatch(
             // Deterministic server-side tie-breaker: higher bracket seed (player1Id slot)
             resolvedWinnerId = targetMatch.player1Id;
           }
-        }
-
-        if (resolvedScore1 < 0 || resolvedScore2 < 0 || !Number.isFinite(resolvedScore1) || !Number.isFinite(resolvedScore2)) {
-          return { statusCode: 400, error: 'Match scores must be non-negative finite numbers.' };
-        }
-
-        if (resolvedWinnerId !== targetMatch.player1Id && resolvedWinnerId !== targetMatch.player2Id) {
-          return { statusCode: 400, error: 'Invalid winnerId: Must match player1Id or player2Id.' };
+        } else {
+          // Manual / unlinked match score validation
+          if (score1 === undefined || score2 === undefined) {
+            return { statusCode: 400, error: 'score1 and score2 are required for unlinked matches.' };
+          }
+          const numScore1 = Number(score1);
+          const numScore2 = Number(score2);
+          if (!Number.isFinite(numScore1) || !Number.isFinite(numScore2) || numScore1 < 0 || numScore2 < 0) {
+            return { statusCode: 400, error: 'Match scores must be non-negative finite numbers.' };
+          }
+          if (!Number.isInteger(numScore1) || !Number.isInteger(numScore2)) {
+            return { statusCode: 400, error: 'Match scores must be integers.' };
+          }
+          if (numScore1 > MAX_MATCH_SCORE || numScore2 > MAX_MATCH_SCORE) {
+            return { statusCode: 400, error: `Match scores cannot exceed ${MAX_MATCH_SCORE}.` };
+          }
+          if (!winnerId || (winnerId !== targetMatch.player1Id && winnerId !== targetMatch.player2Id)) {
+            return { statusCode: 400, error: 'Invalid winnerId: Must match player1Id or player2Id.' };
+          }
+          // Enforce score-winner consistency
+          if (numScore1 > numScore2 && winnerId !== targetMatch.player1Id) {
+            return { statusCode: 400, error: `Invalid winnerId: Player 1 has higher score (${numScore1} > ${numScore2}).` };
+          }
+          if (numScore2 > numScore1 && winnerId !== targetMatch.player2Id) {
+            return { statusCode: 400, error: `Invalid winnerId: Player 2 has higher score (${numScore2} > ${numScore1}).` };
+          }
+          resolvedScore1 = numScore1;
+          resolvedScore2 = numScore2;
+          resolvedWinnerId = winnerId;
         }
 
         const nowIso = new Date().toISOString();
@@ -893,6 +951,8 @@ export async function handleFinalizeMatch(
         res.status(result.statusCode).json({ error: result.error });
         return;
       }
+
+      clearTournamentStandingsCache(tournamentId);
 
       res.status(200).json({
         success: true,
@@ -920,6 +980,10 @@ export async function handleFinalizeMatch(
     res.status(403).json({ error: 'Forbidden: Only the tournament host can finalize matches.' });
     return;
   }
+  if (tournament.status !== 'active') {
+    res.status(400).json({ error: `Cannot finalize match when tournament status is ${tournament.status}.` });
+    return;
+  }
   let targetMatch: TournamentMatch | null = null;
   for (const r of tournament.rounds) {
     const m = r.matches.find(item => item.id === matchId);
@@ -936,17 +1000,99 @@ export async function handleFinalizeMatch(
     res.status(200).json({ success: true, match: targetMatch, message: 'Match already finalized.' });
     return;
   }
-  if (winnerId !== targetMatch.player1Id && winnerId !== targetMatch.player2Id) {
-    res.status(400).json({ error: 'Invalid winnerId: Must match player1Id or player2Id.' });
+  if (!targetMatch.player1Id || !targetMatch.player2Id) {
+    res.status(400).json({ error: 'Cannot finalize match: participants have not been determined.' });
     return;
   }
-  targetMatch.winnerId = winnerId;
-  targetMatch.score1 = Number(score1) || 0;
-  targetMatch.score2 = Number(score2) || 0;
+
+  let resolvedWinnerId = winnerId;
+  let resolvedScore1 = 0;
+  let resolvedScore2 = 0;
+
+  if (targetMatch.gameId) {
+    // In-memory test representation of linked game
+    const game = inMemoryGames.get(targetMatch.gameId);
+    if (!game) {
+      res.status(404).json({ error: 'Linked game session not found.' });
+      return;
+    }
+    if (game.status !== 'finished') {
+      res.status(400).json({ error: `Cannot finalize match: linked game session is still ${game.status}. Game must be finished first.` });
+      return;
+    }
+    const p1 = (game.players || []).find((p: any) => p.id === targetMatch.player1Id);
+    const p2 = (game.players || []).find((p: any) => p.id === targetMatch.player2Id);
+    if (!p1 || !p2) {
+      res.status(404).json({ error: 'Authoritative game player records not found for linked match.' });
+      return;
+    }
+    resolvedScore1 = Math.max(0, Number(p1.score) || 0);
+    resolvedScore2 = Math.max(0, Number(p2.score) || 0);
+    resolvedWinnerId = resolvedScore1 > resolvedScore2 ? targetMatch.player1Id : resolvedScore2 > resolvedScore1 ? targetMatch.player2Id : targetMatch.player1Id;
+  } else {
+    if (score1 === undefined || score2 === undefined) {
+      res.status(400).json({ error: 'score1 and score2 are required for unlinked matches.' });
+      return;
+    }
+    const numScore1 = Number(score1);
+    const numScore2 = Number(score2);
+    if (!Number.isFinite(numScore1) || !Number.isFinite(numScore2) || numScore1 < 0 || numScore2 < 0) {
+      res.status(400).json({ error: 'Match scores must be non-negative finite numbers.' });
+      return;
+    }
+    if (!Number.isInteger(numScore1) || !Number.isInteger(numScore2)) {
+      res.status(400).json({ error: 'Match scores must be integers.' });
+      return;
+    }
+    if (numScore1 > MAX_MATCH_SCORE || numScore2 > MAX_MATCH_SCORE) {
+      res.status(400).json({ error: `Match scores cannot exceed ${MAX_MATCH_SCORE}.` });
+      return;
+    }
+    if (!winnerId || (winnerId !== targetMatch.player1Id && winnerId !== targetMatch.player2Id)) {
+      res.status(400).json({ error: 'Invalid winnerId: Must match player1Id or player2Id.' });
+      return;
+    }
+    if (numScore1 > numScore2 && winnerId !== targetMatch.player1Id) {
+      res.status(400).json({ error: `Invalid winnerId: Player 1 has higher score (${numScore1} > ${numScore2}).` });
+      return;
+    }
+    if (numScore2 > numScore1 && winnerId !== targetMatch.player2Id) {
+      res.status(400).json({ error: `Invalid winnerId: Player 2 has higher score (${numScore2} > ${numScore1}).` });
+      return;
+    }
+    resolvedScore1 = numScore1;
+    resolvedScore2 = numScore2;
+    resolvedWinnerId = winnerId;
+  }
+
+  targetMatch.winnerId = resolvedWinnerId;
+  targetMatch.score1 = resolvedScore1;
+  targetMatch.score2 = resolvedScore2;
   targetMatch.status = 'completed';
   targetMatch.finalizedAt = new Date().toISOString();
   tournament.updatedAt = new Date().toISOString();
+  clearTournamentStandingsCache(tournamentId);
   res.status(200).json({ success: true, match: targetMatch });
+}
+
+interface StandingsCacheEntry {
+  body: any;
+  cachedAt: number;
+}
+export const publicStandingsCache = new Map<string, StandingsCacheEntry>();
+export const STANDINGS_CACHE_TTL_MS = 5_000;
+export const MAX_STANDINGS_CACHE_ENTRIES = 500;
+
+export function clearTournamentStandingsCache(tournamentId?: string): void {
+  if (tournamentId) {
+    for (const key of publicStandingsCache.keys()) {
+      if (key.startsWith(`${tournamentId}:`)) {
+        publicStandingsCache.delete(key);
+      }
+    }
+  } else {
+    publicStandingsCache.clear();
+  }
 }
 
 /**
@@ -966,6 +1112,42 @@ export async function handleGetTournamentStandings(
   }
 
   const { id } = req.params;
+  if (!id || typeof id !== 'string' || id.trim().length === 0 || id.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(id)) {
+    res.status(400).json({ error: 'Invalid tournament ID format.' });
+    return;
+  }
+
+  let limit = 50;
+  let offset = 0;
+  const query = req.query || {};
+  if (query.limit !== undefined) {
+    const parsedLimit = parseInt(String(query.limit), 10);
+    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+      res.status(400).json({ error: 'Invalid limit parameter: must be a positive integer.' });
+      return;
+    }
+    limit = Math.min(parsedLimit, 100);
+  }
+  if (query.offset !== undefined) {
+    const parsedOffset = parseInt(String(query.offset), 10);
+    if (isNaN(parsedOffset) || parsedOffset < 0) {
+      res.status(400).json({ error: 'Invalid offset parameter: must be a non-negative integer.' });
+      return;
+    }
+    if (parsedOffset > 500) {
+      res.status(400).json({ error: 'Invalid offset parameter: offset cannot exceed 500.' });
+      return;
+    }
+    offset = parsedOffset;
+  }
+
+  const cacheKey = `${id}:${offset}:${limit}`;
+  const now = Date.now();
+  const cached = publicStandingsCache.get(cacheKey);
+  if (cached && now - cached.cachedAt < STANDINGS_CACHE_TTL_MS) {
+    res.status(200).json(cached.body);
+    return;
+  }
 
   if (hasFirestore(deps.adminDb)) {
     try {
@@ -999,18 +1181,51 @@ export async function handleGetTournamentStandings(
         }
       }
 
-      const regsSnap = await tRef.collection('registrations').get();
-      const registrations = (regsSnap.docs || []).map(d => d.data() as TournamentRegistration);
-      const standings = computeTournamentStandings(registrations, tournament.rounds || []);
+      const regCol = tRef.collection('registrations');
+      const maxParticipantsConfig = Math.max(16, Number(tournament.maxParticipants) || 128);
+      // Ensure queryCap covers the requested window up to offset + limit + 1 (safely bounded at 1024)
+      const queryCap = Math.min(Math.max(offset + limit + 1, maxParticipantsConfig), 1024);
+      const regsSnap = typeof regCol.limit === 'function'
+        ? await regCol.limit(queryCap + 1).get()
+        : await regCol.get();
+      const rawDocs = regsSnap.docs || [];
+      const isCapped = rawDocs.length > queryCap;
+      const effectiveDocs = isCapped ? rawDocs.slice(0, queryCap) : rawDocs;
+      const registrations = effectiveDocs.map(d => d.data() as TournamentRegistration);
+      const allStandings = computeTournamentStandings(registrations, tournament.rounds || []);
+      const paginatedStandings = offset >= allStandings.length
+        ? []
+        : allStandings.slice(offset, offset + limit);
 
-      res.status(200).json({
+      const hasMore = paginatedStandings.length > 0 && allStandings.length > offset + limit;
+
+      const responseBody = {
         tournamentId: id,
         title: tournament.title,
         status: tournament.status,
         championId: tournament.championId,
         championNickname: tournament.championNickname,
-        standings,
-      });
+        standings: paginatedStandings,
+        pagination: {
+          total: isCapped ? undefined : allStandings.length,
+          count: paginatedStandings.length,
+          limit,
+          offset,
+          hasMore,
+          isCapped,
+          ...(isCapped ? { approximateTotal: queryCap } : {}),
+        },
+      };
+
+      if (tournament.visibility !== 'private') {
+        if (publicStandingsCache.size >= MAX_STANDINGS_CACHE_ENTRIES) {
+          const oldestKey = publicStandingsCache.keys().next().value;
+          if (oldestKey) publicStandingsCache.delete(oldestKey);
+        }
+        publicStandingsCache.set(cacheKey, { body: responseBody, cachedAt: now });
+      }
+
+      res.status(200).json(responseBody);
       return;
     } catch (err: any) {
       res.status(500).json({ error: err?.message || 'Failed to load tournament standings.' });
@@ -1036,13 +1251,184 @@ export async function handleGetTournamentStandings(
     }
   }
   const registrations = inMemoryRegistrations.get(id) || [];
-  const standings = computeTournamentStandings(registrations, tournament.rounds);
+  const allStandings = computeTournamentStandings(registrations, tournament.rounds);
+  const paginatedStandings = allStandings.slice(offset, offset + limit);
   res.status(200).json({
     tournamentId: id,
     title: tournament.title,
     status: tournament.status,
     championId: tournament.championId,
     championNickname: tournament.championNickname,
-    standings,
+    standings: paginatedStandings,
+    pagination: {
+      total: allStandings.length,
+      count: paginatedStandings.length,
+      limit,
+      offset,
+      hasMore: allStandings.length > offset + limit,
+      isCapped: false,
+    },
   });
+}
+
+/**
+ * GET /api/tournaments
+ * Lists tournaments visible to the authenticated caller or public viewers with pagination.
+ */
+export async function handleListTournaments(
+  req: Request,
+  res: Response,
+  deps: TournamentRouteDependencies
+): Promise<void> {
+  const readRate = checkTournamentReadRateLimit(extractClientIp(req));
+  if (!readRate.allowed) {
+    sendRateLimitResponse(res, readRate.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${readRate.retryAfterSec}s.`,
+    });
+    return;
+  }
+
+  let limit = 20;
+  let offset = 0;
+  const query = req.query || {};
+  if (query.limit !== undefined) {
+    const parsedLimit = parseInt(String(query.limit), 10);
+    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+      res.status(400).json({ error: 'Invalid limit parameter: must be a positive integer.' });
+      return;
+    }
+    limit = Math.min(parsedLimit, 50);
+  }
+  if (query.offset !== undefined) {
+    const parsedOffset = parseInt(String(query.offset), 10);
+    if (isNaN(parsedOffset) || parsedOffset < 0) {
+      res.status(400).json({ error: 'Invalid offset parameter: must be a non-negative integer.' });
+      return;
+    }
+    offset = parsedOffset;
+  }
+
+  const user = await authenticate(req, deps.adminAuth);
+
+  if (hasFirestore(deps.adminDb)) {
+    try {
+      const tourneysCol = deps.adminDb.collection('tournaments');
+      const fetchBound = Math.min(limit + offset + 1, 100);
+      const snap = await tourneysCol.orderBy('createdAt', 'desc').limit(fetchBound).get().catch(async () => {
+        return await tourneysCol.limit(fetchBound).get();
+      });
+
+      const list: Tournament[] = [];
+      for (const doc of snap.docs) {
+        const t = doc.data() as Tournament;
+        if (t.visibility !== 'private' || (user && (t.hostId === user.uid || isAdminUser(user)))) {
+          list.push(t);
+        }
+      }
+
+      const paginatedList = list.slice(offset, offset + limit);
+
+      res.status(200).json({
+        tournaments: paginatedList,
+        pagination: {
+          limit,
+          offset,
+          count: paginatedList.length,
+          hasMore: list.length > offset + limit,
+        },
+      });
+      return;
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Failed to list tournaments.' });
+      return;
+    }
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore database is not configured.' });
+    return;
+  }
+
+  const list = Array.from(inMemoryTournaments.values()).filter(t => {
+    return t.visibility !== 'private' || (user && (t.hostId === user.uid || isAdminUser(user)));
+  });
+  const paginatedList = list.slice(offset, offset + limit);
+  res.status(200).json({
+    tournaments: paginatedList,
+    pagination: {
+      limit,
+      offset,
+      count: paginatedList.length,
+      hasMore: list.length > offset + limit,
+    },
+  });
+}
+
+/**
+ * GET /api/tournaments/:id
+ * Fetches a single tournament's details.
+ */
+export async function handleGetTournament(
+  req: Request,
+  res: Response,
+  deps: TournamentRouteDependencies
+): Promise<void> {
+  const readRate = checkTournamentReadRateLimit(extractClientIp(req));
+  if (!readRate.allowed) {
+    sendRateLimitResponse(res, readRate.retryAfterSec, {
+      error: `Too many tournament requests. Please wait ${readRate.retryAfterSec}s.`,
+    });
+    return;
+  }
+
+  const { id } = req.params;
+  if (!id || typeof id !== 'string' || id.trim().length === 0 || id.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(id)) {
+    res.status(400).json({ error: 'Invalid tournament ID format.' });
+    return;
+  }
+
+  if (hasFirestore(deps.adminDb)) {
+    try {
+      const tDoc = await deps.adminDb.collection('tournaments').doc(id).get();
+      if (!tDoc.exists) {
+        res.status(404).json({ error: 'Tournament not found.' });
+        return;
+      }
+      const tournament = tDoc.data() as Tournament;
+
+      if (tournament.visibility === 'private') {
+        const user = await authenticate(req, deps.adminAuth);
+        if (!user) {
+          res.status(401).json({ error: 'Authentication required for private tournament.' });
+          return;
+        }
+        const isHostOrAdmin = tournament.hostId === user.uid || isAdminUser(user);
+        if (!isHostOrAdmin) {
+          const regDoc = await deps.adminDb.collection('tournaments').doc(id).collection('registrations').doc(user.uid).get();
+          if (!regDoc.exists || regDoc.data()?.status !== 'registered') {
+            res.status(403).json({ error: 'Forbidden: You do not have access to this private tournament.' });
+            return;
+          }
+        }
+      }
+
+      res.status(200).json({ tournament });
+      return;
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Failed to load tournament.' });
+      return;
+    }
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore database is not configured.' });
+    return;
+  }
+
+  const tournament = inMemoryTournaments.get(id);
+  if (!tournament) {
+    res.status(404).json({ error: 'Tournament not found.' });
+    return;
+  }
+  res.status(200).json({ tournament });
 }

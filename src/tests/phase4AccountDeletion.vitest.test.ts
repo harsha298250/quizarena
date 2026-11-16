@@ -188,18 +188,18 @@ function createMockAuth(deletedUids = new Set<string>()) {
     verifyIdToken: async (token: string) => {
       if (token === 'user1_token') {
         if (deletedUids.has('user_1')) throw new Error('User deleted');
-        return { uid: 'user_1', email: 'user1@example.com', firebase: { sign_in_provider: 'google.com' } };
+        return { uid: 'user_1', email: 'user1@example.com', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
       }
       if (token === 'user2_token') {
         if (deletedUids.has('user_2')) throw new Error('User deleted');
-        return { uid: 'user_2', email: 'user2@example.com', firebase: { sign_in_provider: 'google.com' } };
+        return { uid: 'user_2', email: 'user2@example.com', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
       }
       if (token === 'host_token') {
         if (deletedUids.has('host_1')) throw new Error('User deleted');
-        return { uid: 'host_1', email: 'host1@example.com', firebase: { sign_in_provider: 'password' } };
+        return { uid: 'host_1', email: 'host1@example.com', email_verified: true, firebase: { sign_in_provider: 'password' } };
       }
       if (token === 'admin_token') {
-        return { uid: 'admin_1', admin: true, email: 'admin@example.com', firebase: { sign_in_provider: 'password' } };
+        return { uid: 'admin_1', admin: true, email: 'admin@example.com', email_verified: true, firebase: { sign_in_provider: 'password' } };
       }
       if (token === 'anon_token') {
         return { uid: 'anon_1', firebase: { sign_in_provider: 'anonymous' } };
@@ -626,7 +626,7 @@ describe('Phase 4 — Secure Account Deletion & Complete Data Purge Suite', () =
     // Simulate post-Auth-deletion finalize_job failure on user_2 and recovery without user_2 token
     const failingAuth = {
       ...createMockAuth(deletedUids),
-      verifyIdToken: async () => ({ uid: 'user_2', email: 'user2@example.com', firebase: { sign_in_provider: 'google.com' } }),
+      verifyIdToken: async () => ({ uid: 'user_2', email: 'user2@example.com', email_verified: true, firebase: { sign_in_provider: 'google.com' } }),
       deleteUser: async (uid: string) => {
         deletedUids.add(uid);
       },

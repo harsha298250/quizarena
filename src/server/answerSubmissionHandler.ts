@@ -40,6 +40,50 @@ export interface AnswerSubmissionOptions {
   adminDb: any;
 }
 
+interface AnswerKeyCacheEntry {
+  data: any;
+  cachedAt: number;
+}
+export const answerKeyCache = new Map<string, AnswerKeyCacheEntry>();
+export const ANSWER_KEY_CACHE_TTL_MS = 600_000; // 10 minutes
+export const MAX_ANSWER_KEY_CACHE_ENTRIES = 1_000;
+
+export function clearAnswerKeyCache(gameId?: string): void {
+  if (gameId) {
+    answerKeyCache.delete(gameId);
+  } else {
+    answerKeyCache.clear();
+  }
+}
+
+export async function getOrFetchSecretAnswerKey(
+  adminDb: any,
+  gameId: string,
+  questionIndex?: number
+): Promise<any> {
+  const now = Date.now();
+  const cached = answerKeyCache.get(gameId);
+  if (cached && now - cached.cachedAt < ANSWER_KEY_CACHE_TTL_MS) {
+    if (questionIndex === undefined || extractSecretAnswerForQuestion(cached.data, questionIndex) !== null) {
+      return cached.data;
+    }
+  }
+
+  const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
+  const secretDoc = await secretDocRef.get();
+  const secretData = secretDoc.exists ? secretDoc.data() : null;
+
+  if (secretData) {
+    if (answerKeyCache.size >= MAX_ANSWER_KEY_CACHE_ENTRIES) {
+      const oldestKey = answerKeyCache.keys().next().value;
+      if (oldestKey) answerKeyCache.delete(oldestKey);
+    }
+    answerKeyCache.set(gameId, { data: secretData, cachedAt: now });
+  }
+
+  return secretData;
+}
+
 /**
  * Validates submitted answer payload structure against question type.
  * Rejects malformed payloads, out-of-bounds indices, and invalid types.
@@ -96,6 +140,49 @@ export function validateAnswerPayload(
   }
 
   return { valid: true };
+}
+
+/**
+ * Canonical comparison of existing vs incoming answer payload.
+ * Follows the project's answer-evaluation rules.
+ */
+export function isSameAnswerPayload(
+  questionType: string,
+  existing: { selectedIndices?: unknown; textAnswer?: unknown },
+  incomingSelectedIndices: unknown,
+  incomingTextAnswer: unknown
+): boolean {
+  if (questionType === 'type_answer') {
+    const existingText = typeof existing.textAnswer === 'string' ? existing.textAnswer.trim().toLowerCase() : null;
+    const incomingText = typeof incomingTextAnswer === 'string' ? incomingTextAnswer.trim().toLowerCase() : null;
+    return existingText !== null && existingText === incomingText;
+  }
+
+  if (questionType === 'poll' || questionType === 'word_cloud' || questionType === 'info_slide') {
+    return true;
+  }
+
+  // Ordering question: exact sequence comparison
+  if (questionType === 'ordering') {
+    if (!Array.isArray(existing.selectedIndices) || !Array.isArray(incomingSelectedIndices)) {
+      return false;
+    }
+    if (existing.selectedIndices.length !== incomingSelectedIndices.length) {
+      return false;
+    }
+    return existing.selectedIndices.every((val, idx) => Number(val) === Number(incomingSelectedIndices[idx]));
+  }
+
+  // Multiple choice, multi-select, true-false
+  if (!Array.isArray(existing.selectedIndices) || !Array.isArray(incomingSelectedIndices)) {
+    return false;
+  }
+  if (existing.selectedIndices.length !== incomingSelectedIndices.length) {
+    return false;
+  }
+  const existingSorted = [...existing.selectedIndices].map(Number).sort((a, b) => a - b);
+  const incomingSorted = [...incomingSelectedIndices].map(Number).sort((a, b) => a - b);
+  return existingSorted.every((val, idx) => val === incomingSorted[idx]);
 }
 
 /**
@@ -161,9 +248,16 @@ export async function handleAnswerSubmission(
       return;
     }
 
-    // 3. Fetch Game Session Document
+    // 3, 4 & 6. Concurrently fetch Game Session Document, Player Document, and cached Secret Answer Key
     const gameDocRef = adminDb.doc(`games/${gameId}`);
-    const gameDoc = await gameDocRef.get();
+    const playerDocRef = adminDb.doc(`games/${gameId}/players/${playerId}`);
+
+    const [gameDoc, initialPlayerDoc, secretData] = await Promise.all([
+      gameDocRef.get(),
+      playerDocRef.get(),
+      getOrFetchSecretAnswerKey(adminDb, gameId, questionIndex),
+    ]);
+
     if (!gameDoc.exists) {
       res.status(404).json({ error: 'Game session not found' });
       return;
@@ -171,9 +265,6 @@ export async function handleAnswerSubmission(
 
     const gameData = gameDoc.data() || {};
 
-    // 4. Verify player existence and eligibility in game
-    const playerDocRef = adminDb.doc(`games/${gameId}/players/${playerId}`);
-    const initialPlayerDoc = await playerDocRef.get();
     const eligibilityCheck = validatePlayerEligibility(initialPlayerDoc.exists, initialPlayerDoc.data());
     if (!eligibilityCheck.eligible) {
       res.status(eligibilityCheck.statusCode).json({ error: eligibilityCheck.error });
@@ -192,11 +283,6 @@ export async function handleAnswerSubmission(
       });
       return;
     }
-
-    // 6. Fetch secret answer key from host-only subcollection games/{id}/secrets/answerKey
-    const secretDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
-    const secretDoc = await secretDocRef.get();
-    const secretData = secretDoc.exists ? secretDoc.data() : null;
 
     const secretQuestion = extractSecretAnswerForQuestion(
       secretData,
@@ -252,7 +338,29 @@ export async function handleAnswerSubmission(
 
     // 8. Atomic Firestore Transaction for duplicate prevention, eligibility, power-up usage, and scoring
     const txResult = await adminDb.runTransaction(async (transaction: any) => {
-      // (a) Verify player document and eligibility
+      // (a) Read all documents first (Firestore transaction requirement: all reads before writes)
+      const txGameDoc = await transaction.get(gameDocRef);
+      if (!txGameDoc.exists) {
+        const err: any = new Error('Game session not found');
+        err.statusCode = 404;
+        throw err;
+      }
+      const txGameData = txGameDoc.data() || {};
+
+      // Authoritative validation of game status and question index inside transaction
+      if (txGameData.status !== 'question_active') {
+        const err: any = new Error(`Question is not active for answers (current game status: ${txGameData.status})`);
+        err.statusCode = 400;
+        throw err;
+      }
+
+      if (txGameData.currentQuestionIndex !== questionIndex) {
+        const err: any = new Error(`Question index mismatch: expected ${txGameData.currentQuestionIndex}, got ${questionIndex}`);
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // (b) Verify player document and eligibility inside transaction
       const playerDoc = await transaction.get(playerDocRef);
       const playerEligibility = validatePlayerEligibility(playerDoc.exists, playerDoc.data());
       if (!playerEligibility.eligible) {
@@ -263,8 +371,51 @@ export async function handleAnswerSubmission(
 
       const playerData = playerDoc.data() || {};
 
-      // (b) Verify accommodation approval and calculate allowed deadline
-      // Only host-approved accommodations are respected. Self-declared values are ignored.
+      // (c) Inspect existing answer document for duplicate / retry handling
+      const existingAnswerDoc = await transaction.get(answerDocRef);
+      if (existingAnswerDoc.exists) {
+        const existingData = existingAnswerDoc.data() || {};
+        const isMatch = isSameAnswerPayload(
+          questionType,
+          existingData,
+          selectedIndices,
+          textAnswer
+        );
+
+        if (isMatch) {
+          // Idempotent retry: return recorded submission and authoritative player state without awarding points again
+          return {
+            submissionData: existingData,
+            updatedPlayer: {
+              id: playerId,
+              score: playerData.score || 0,
+              streak: playerData.streak || 0,
+              maxStreak: playerData.maxStreak || 0,
+              correctCount: playerData.correctCount || 0,
+              powerUps: playerData.powerUps || {},
+            },
+            idempotentRepeat: true,
+          };
+        }
+
+        // Conflicting payload: reject with 409 Conflict
+        const err: any = new Error('Duplicate answer: a different answer has already been submitted for this question');
+        err.statusCode = 409;
+        throw err;
+      }
+
+      // (d) Authoritative question timing & deadline validation inside transaction
+      const txQuestionStartMs =
+        extractQuestionStartTimeMs(txGameData.questionStartTime) ||
+        (typeof txGameData.questionStartTimeMs === 'number' ? txGameData.questionStartTimeMs : questionStartMs);
+
+      if (txQuestionStartMs <= 0) {
+        const err: any = new Error('Question start time not established by server');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // Verify accommodation approval and calculate allowed deadline
       const hasApprovedAccommodation = Boolean(playerData.accommodationsApproved || playerData.accessibleApproved);
       const rawMultiplier = Number(playerData.accommodations?.extraTimeMultiplier);
       const approvedMultiplier = hasApprovedAccommodation && rawMultiplier >= 1 && rawMultiplier <= 2
@@ -277,7 +428,7 @@ export async function handleAnswerSubmission(
 
       // Allowed deadline: base time * multiplier + freeze bonus + 3500ms network transit grace
       const allowedWindowMs = Math.round(baseDurationSec * approvedMultiplier * 1000) + timeFreezeBonusMs + 3500;
-      const serverElapsedMs = Math.max(0, now - questionStartMs);
+      const serverElapsedMs = Math.max(0, now - txQuestionStartMs);
 
       if (serverElapsedMs > allowedWindowMs) {
         const err: any = new Error('Answer submitted too late: question time limit expired');
@@ -285,15 +436,7 @@ export async function handleAnswerSubmission(
         throw err;
       }
 
-      // (c) Reject duplicate answers
-      const existingAnswerDoc = await transaction.get(answerDocRef);
-      if (existingAnswerDoc.exists) {
-        const err: any = new Error('Duplicate answer: already submitted for this question');
-        err.statusCode = 409;
-        throw err;
-      }
-
-      // (d) Validate and track power-ups (single-use per match)
+      // (e) Validate and track power-ups (single-use per match)
       const requestedDoublePoints = Boolean(powerUps?.doublePoints || powerUps?.doublePointsUsed);
       const powerUpCheck = validateAndTrackPowerUp(
         playerData,
@@ -306,7 +449,7 @@ export async function handleAnswerSubmission(
       }
       const willUseDoublePoints = powerUpCheck.willUse;
 
-      // (e) Latency compensation (server-measured or clamped [0, 300ms])
+      // (f) Latency compensation (server-measured or clamped [0, 300ms])
       const measuredPing = serverMeasuredLatencyMap?.get ? serverMeasuredLatencyMap.get(playerId) : undefined;
       const clampedLatency = clampLatency(measuredPing !== undefined ? measuredPing : playerData.latencyMs);
 
@@ -315,7 +458,7 @@ export async function handleAnswerSubmission(
       const maxStreak = playerData.maxStreak || 0;
       const correctCount = playerData.correctCount || 0;
 
-      // (f) Deterministic score calculation
+      // (g) Deterministic score calculation
       const scoreResult = calculateFairScore({
         basePoints: secretQuestion.points || 1000,
         isCorrect,
@@ -324,15 +467,17 @@ export async function handleAnswerSubmission(
         latencyMs: clampedLatency,
         clockOffsetMs: 0,
         currentStreak,
-        scoringProfile: gameData.settings?.scoringProfile || 'speed_weighted',
+        scoringProfile: txGameData.settings?.scoringProfile || 'speed_weighted',
         doublePointsPowerUp: willUseDoublePoints,
       });
 
-      // (g) Tamper-evident Audit Block
-      let serverPrevHash = '0000000000000000000000000000000000000000000000000000000000000000';
-      if (gameData.lastAuditHash) {
-        serverPrevHash = gameData.lastAuditHash;
-      }
+      // (h) Per-Player Tamper-evident Audit Block
+      // Links to this specific player's prior audit hash, maintaining an unbroken personal audit chain
+      // while eliminating lock contention on the shared parent game document.
+      const serverPrevHash =
+        playerData.lastAuditHash ||
+        txGameData.lastAuditHash ||
+        '0000000000000000000000000000000000000000000000000000000000000000';
 
       const auditBlock = await createHashBlock(
         serverPrevHash,
@@ -364,11 +509,11 @@ export async function handleAnswerSubmission(
         },
       };
 
-      // Write answer record & update latest audit hash on game doc
+      // (i) Atomic Transaction Writes: Write answer record & update player document
+      // Note: gameDocRef is NOT written to, completely eliminating contention across concurrent players.
       transaction.set(answerDocRef, submissionData);
-      transaction.update(gameDocRef, { lastAuditHash: auditBlock.hash });
 
-      // (h) Timing anomaly telemetry
+      // (j) Timing anomaly telemetry
       const timingAnomaly = globalTimingAnomalyDetector.recordAndCheck(playerId, serverElapsedMs);
       if (timingAnomaly.isAnomaly) {
         const flagRef = adminDb.collection(`games/${gameId}/flags`).doc();
@@ -384,7 +529,7 @@ export async function handleAnswerSubmission(
         });
       }
 
-      // (i) Update player document with new score, streaks, and consumed power-ups
+      // (k) Update player document with new score, streaks, consumed power-ups, and player audit hash
       const newStreak = scoreResult.newStreak;
       const newScore = currentScore + scoreResult.finalPoints;
       const newMaxStreak = Math.max(maxStreak, newStreak);
@@ -396,6 +541,7 @@ export async function handleAnswerSubmission(
         maxStreak: newMaxStreak,
         correctCount: isCorrect ? FieldValue.increment(1) : correctCount,
         lastSeen: FieldValue.serverTimestamp(),
+        lastAuditHash: auditBlock.hash,
       };
 
       if (willUseDoublePoints) {
@@ -424,6 +570,7 @@ export async function handleAnswerSubmission(
             timeFreezeActive: false,
           },
         },
+        idempotentRepeat: false,
       };
     });
 
@@ -431,9 +578,12 @@ export async function handleAnswerSubmission(
       success: true,
       submission: {
         ...txResult.submissionData,
-        serverSubmittedAt: now,
+        serverSubmittedAt: typeof txResult.submissionData.serverSubmittedAt === 'number'
+          ? txResult.submissionData.serverSubmittedAt
+          : now,
       },
       updatedPlayer: txResult.updatedPlayer,
+      ...(txResult.idempotentRepeat ? { idempotentRepeat: true } : {}),
     });
   } catch (error: any) {
     const status = error.statusCode || error.cause?.statusCode;

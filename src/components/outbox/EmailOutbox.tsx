@@ -15,6 +15,7 @@ import {
 } from '../../services/emailService';
 import { auth } from '../../lib/firebase';
 import { sound } from '../../lib/sound';
+import { sanitizeEmailHtml } from '../../lib/emailSanitizer';
 
 export const EmailOutbox: React.FC = () => {
   const [emails, setEmails] = useState<MailQueueItem[]>([]);
@@ -564,7 +565,7 @@ export const EmailOutbox: React.FC = () => {
               </div>
 
               <div id="emailHtmlPreviewContainer" className="rounded-xl border-2 border-[var(--border)] p-4 bg-white text-black max-h-[380px] overflow-y-auto overflow-x-auto">
-                <div dangerouslySetInnerHTML={{ __html: selectedEmail.htmlContent }} />
+                <div dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(selectedEmail.htmlContent) }} />
               </div>
             </div>
           ) : (

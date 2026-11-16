@@ -18,7 +18,7 @@ interface HostArenaProps {
   onFinishGame: () => void;
 }
 
-export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGame }) => {
+export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, onFinishGame }) => {
   const currentQuestion: Question | undefined = game.questions[game.currentQuestionIndex];
   const questionTimeLimit = currentQuestion?.timeLimit || game.timeLimit || 20;
   const [timeLeft, setTimeLeft] = useState<number>(questionTimeLimit);
@@ -32,22 +32,47 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
   const hasRevealedRef = useRef<boolean>(false);
   const lastTickedSecRef = useRef<number>(-1);
 
-  // Subscribe to live submitted answers for active question
+  // Subscribe to live submitted answers for active question (bounded query)
   useEffect(() => {
     const unsub = GameEngine.subscribeToAnswers(game.id, game.currentQuestionIndex, setAnswers);
     return () => unsub();
   }, [game.id, game.currentQuestionIndex]);
 
-  // Subscribe to all submitted answers across questions for inspection and finalization
+  // On-demand fetch of inspected player's answers (avoids continuous whole-game answer listener)
   useEffect(() => {
-    const unsub = GameEngine.subscribeToAllAnswers(game.id, setAllAnswers);
-    return () => unsub();
-  }, [game.id]);
+    if (!selectedPlayerForInspect) {
+      setAllAnswers([]);
+      return;
+    }
+    GameEngine.getAnswersForPlayer(game.id, selectedPlayerForInspect.id).then(setAllAnswers);
+  }, [game.id, selectedPlayerForInspect]);
 
   // Subscribe to live anti-cheat flags
   useEffect(() => {
     const unsub = GameEngine.subscribeToFlags(game.id, setFlags);
     return () => unsub();
+  }, [game.id]);
+
+  // Periodic Host Heartbeat maintaining authoritative presence and detecting abandonment
+  useEffect(() => {
+    // Send immediate connected heartbeat
+    GameEngine.sendHostHeartbeat(game.id, 'connected');
+
+    // Schedule 20-second heartbeat interval
+    const interval = setInterval(() => {
+      GameEngine.sendHostHeartbeat(game.id, 'connected');
+    }, 20_000);
+
+    const handleBeforeUnload = () => {
+      GameEngine.sendHostHeartbeat(game.id, 'disconnected');
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      GameEngine.sendHostHeartbeat(game.id, 'disconnected');
+    };
   }, [game.id]);
 
   // Reset advancing and reveal guards on question index change
@@ -877,4 +902,4 @@ export const HostArena: React.FC<HostArenaProps> = ({ game, players, onFinishGam
       )}
     </div>
   );
-};
+});

@@ -13,7 +13,17 @@
  * - Privacy-preserving AI Insights (PII stripping)
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Isolate unit tests from live external Cloud Firestore network calls
+vi.mock('firebase/firestore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('firebase/firestore')>();
+  return {
+    ...actual,
+    getDocs: vi.fn().mockResolvedValue({ docs: [], forEach: () => {} }),
+    getDoc: vi.fn().mockResolvedValue({ exists: () => false, data: () => null }),
+  };
+});
 import {
   computeGameAnalytics,
   getFinishedGamesList,

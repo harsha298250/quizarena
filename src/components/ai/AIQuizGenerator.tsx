@@ -909,11 +909,16 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                 <span className="font-bold text-[var(--text)]">
                   Source:{' '}
                   {generationMeta.providerUsed === 'heuristic'
-                    ? 'Deterministic Fallback (Not AI-Verified)'
+                    ? `Deterministic Fallback (${generationMeta.modelUsed || 'pedagogy engine'}) — Not AI-Verified`
                     : generationMeta.providerUsed === 'grok'
-                      ? 'xAI Grok Fallback (Draft — Instructor Review Required)'
-                      : 'Gemini AI (Draft — Instructor Review Required)'}
+                      ? `xAI Grok Fallback (${generationMeta.modelUsed || 'grok-2-latest'}) — Draft`
+                      : `Gemini AI (${generationMeta.modelUsed || 'gemini-2.5-flash'}) — Draft`}
                 </span>
+                {generationMeta.notes && (
+                  <span className="sticker-badge sticker-badge-sunshine text-[10px] py-0.5 px-2">
+                    {generationMeta.notes}
+                  </span>
+                )}
                 {generationMeta.validationSummary && (
                   <span className="text-[var(--text-muted)]">
                     • {generationMeta.validationSummary.validCount} valid

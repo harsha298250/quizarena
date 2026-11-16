@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import type { Auth } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
-import type { CertificateType } from '../types/certificate';
+import type { CertificateType, IssuedCertificate } from '../types/certificate';
 import {
   issueCertificatePersistent,
   verifyCertificatePublicPersistent,
@@ -22,6 +22,8 @@ import {
   processOutboxBatchPersistent,
   handleProviderWebhookPersistent,
   getOutboxMetricsPersistent,
+  listOutboxJobsPersistent,
+  retryOutboxJobPersistent,
 } from './emailOutboxEngine';
 import {
   getSmtpTransporter,
@@ -353,6 +355,86 @@ export async function handleIssueCertificate(
 }
 
 /**
+ * GET /api/certificates/my-certificates
+ * Lists authenticated user's certificates.
+ */
+export async function handleListUserCertificates(
+  req: Request,
+  res: Response,
+  deps: NotificationRouteDependencies
+): Promise<void> {
+  const user = await authenticate(req, deps.adminAuth);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized: Authentication required.' });
+    return;
+  }
+
+  const adminDb = deps.adminDb;
+  if (!adminDb || typeof adminDb.collection !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Database not configured.' });
+    return;
+  }
+
+  let limit = 20;
+  let offset = 0;
+  const query = req.query || {};
+  if (query.limit !== undefined) {
+    const parsedLimit = parseInt(String(query.limit), 10);
+    if (isNaN(parsedLimit) || parsedLimit <= 0) {
+      res.status(400).json({ error: 'Invalid limit parameter: must be a positive integer.' });
+      return;
+    }
+    limit = Math.min(parsedLimit, 100);
+  }
+  if (query.offset !== undefined) {
+    const parsedOffset = parseInt(String(query.offset), 10);
+    if (isNaN(parsedOffset) || parsedOffset < 0) {
+      res.status(400).json({ error: 'Invalid offset parameter: must be a non-negative integer.' });
+      return;
+    }
+    if (parsedOffset > 500) {
+      res.status(400).json({ error: 'Invalid offset parameter: offset cannot exceed 500.' });
+      return;
+    }
+    offset = parsedOffset;
+  }
+
+  try {
+    const certsCol = adminDb.collection('certificates');
+    // Ensure fetchBound covers the requested page up to offset + limit + 1, safely bounded at 1001
+    const fetchBound = Math.min(limit + offset + 1, 1001);
+    const certQuery = certsCol.where('ownerId', '==', user.uid);
+    const snap = typeof certQuery.limit === 'function'
+      ? await certQuery.orderBy('issueDate', 'desc').limit(fetchBound).get().catch(async () => {
+          return typeof certQuery.limit === 'function' ? await certQuery.limit(fetchBound).get() : await certQuery.get();
+        })
+      : await certQuery.get();
+
+    const allCertificates = (snap.docs || [])
+      .map(d => d.data() as IssuedCertificate)
+      .sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));
+
+    const paginatedCertificates = offset >= allCertificates.length
+      ? []
+      : allCertificates.slice(offset, offset + limit);
+
+    const hasMore = paginatedCertificates.length > 0 && allCertificates.length > offset + limit;
+
+    res.status(200).json({
+      certificates: paginatedCertificates,
+      pagination: {
+        limit,
+        offset,
+        count: paginatedCertificates.length,
+        hasMore,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Failed to load user certificates.' });
+  }
+}
+
+/**
  * GET /api/certificates/verify/:verificationId
  * Public, privacy-conscious persistent verification endpoint backed by Firestore.
  */
@@ -372,13 +454,17 @@ export async function handleVerifyCertificate(
     return;
   }
 
+  const { verificationId } = req.params;
+  if (!verificationId || typeof verificationId !== 'string' || verificationId.trim().length === 0 || verificationId.length > 128 || !/^[a-zA-Z0-9_-]+$/.test(verificationId)) {
+    res.status(400).json({ valid: false, status: 'invalid_format', error: 'Invalid verification ID format.' });
+    return;
+  }
+
   const adminDb = deps?.adminDb;
   if (!adminDb || typeof adminDb.collection !== 'function') {
     res.status(503).json({ valid: false, status: 'error', error: 'Service Unavailable: Verification database is not configured.' });
     return;
   }
-
-  const { verificationId } = req.params;
   try {
     const result = await verifyCertificatePublicPersistent(adminDb, verificationId);
 
@@ -720,6 +806,15 @@ export async function handleOutboxEnqueue(
     return;
   }
 
+  // SEC-05: Server-side email verification required to enqueue email notifications
+  if (user.email_verified !== true) {
+    res.status(403).json({
+      error: 'Email verification required to enqueue email notifications.',
+      code: 'EMAIL_NOT_VERIFIED',
+    });
+    return;
+  }
+
   if (!deps.adminDb || typeof deps.adminDb.runTransaction !== 'function') {
     res.status(503).json({ error: 'Service Unavailable: Authoritative Firestore database is not configured.' });
     return;
@@ -785,4 +880,91 @@ export async function handleOutboxEnqueue(
     jobId: result.job?.id,
     status: result.job?.status,
   });
+}
+
+/**
+ * GET /api/outbox/jobs
+ * Protected outbox listing endpoint.
+ * Administrators can list jobs with status filter and bounded pagination.
+ * Non-administrators can only see their own jobs.
+ */
+export async function handleListOutboxJobs(
+  req: Request,
+  res: Response,
+  deps: NotificationRouteDependencies
+): Promise<void> {
+  const user = await authenticate(req, deps.adminAuth);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required.' });
+    return;
+  }
+
+  if (!deps.adminDb || typeof deps.adminDb.collection !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Database not configured.' });
+    return;
+  }
+
+  const isAdmin = Boolean(
+    user.firebase?.sign_in_provider !== 'anonymous' &&
+    (user.admin === true || user.role === 'admin')
+  );
+
+  const status = typeof req.query.status === 'string' ? (req.query.status as any) : undefined;
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+  const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : undefined;
+
+  const result = await listOutboxJobsPersistent(deps.adminDb, {
+    userId: user.uid,
+    isAdmin,
+    status,
+    limit,
+    offset,
+  });
+
+  res.status(200).json({ success: true, ...result });
+}
+
+/**
+ * POST /api/outbox/retry
+ * Administrative recovery endpoint to reschedule a failed outbox job.
+ */
+export async function handleRetryOutboxJob(
+  req: Request,
+  res: Response,
+  deps: NotificationRouteDependencies
+): Promise<void> {
+  const user = await authenticate(req, deps.adminAuth);
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required.' });
+    return;
+  }
+
+  const isAdmin = Boolean(
+    user.firebase?.sign_in_provider !== 'anonymous' &&
+    (user.admin === true || user.role === 'admin')
+  );
+
+  if (!isAdmin) {
+    res.status(403).json({ error: 'Forbidden: Administrative authorization required to retry outbox jobs.' });
+    return;
+  }
+
+  if (!deps.adminDb || typeof deps.adminDb.runTransaction !== 'function') {
+    res.status(503).json({ error: 'Service Unavailable: Database not configured.' });
+    return;
+  }
+
+  const { jobId } = req.body || {};
+  if (!jobId || typeof jobId !== 'string') {
+    res.status(400).json({ error: 'Bad Request: jobId is required.' });
+    return;
+  }
+
+  const result = await retryOutboxJobPersistent(deps.adminDb, jobId);
+  if (!result.success) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+
+  res.status(200).json({ success: true, job: result.job });
 }

@@ -6,8 +6,28 @@
 import { sharedRateLimiter, SharedRateLimiter } from './sharedRateLimiter.ts';
 
 export const MAX_ALLOWED_LATENCY_MS = 300;
+export const MAX_LATENCY_MAP_ENTRIES = 5000;
 
-export const serverMeasuredLatencyMap = new Map<string, number>();
+export class BoundedMap<K, V> extends Map<K, V> {
+  public readonly maxEntries: number;
+
+  constructor(maxEntries: number = MAX_LATENCY_MAP_ENTRIES) {
+    super();
+    this.maxEntries = Math.max(1, maxEntries);
+  }
+
+  public set(key: K, value: V): this {
+    if (!this.has(key) && this.size >= this.maxEntries) {
+      const oldest = this.keys().next().value;
+      if (oldest !== undefined) {
+        this.delete(oldest);
+      }
+    }
+    return super.set(key, value);
+  }
+}
+
+export const serverMeasuredLatencyMap = new BoundedMap<string, number>(MAX_LATENCY_MAP_ENTRIES);
 
 /**
  * Clamps client-reported latency to [0, MAX_ALLOWED_LATENCY_MS].

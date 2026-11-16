@@ -177,7 +177,7 @@ describe('Phase 9 — Production Deployment & Infrastructure Hardening', () => {
       const renderContent = fs.readFileSync(renderPath, 'utf-8');
       expect(renderContent).toContain('name: quizarena-backend');
       expect(renderContent).toContain('healthCheckPath: /health');
-      expect(renderContent).toContain('buildCommand: npm install && npm run build');
+      expect(renderContent).toMatch(/buildCommand: npm install (?:--include=dev )?&& npm run build/);
       expect(renderContent).toContain('startCommand: npm start');
     });
 

@@ -221,7 +221,7 @@ describe('Phase 6.1 — Rate Limiting & Abuse Protection', () => {
       } as any,
       enqRes,
       {
-        adminAuth: { verifyIdToken: vi.fn().mockResolvedValue({ uid: 'user-enq', firebase: {} }) } as any,
+        adminAuth: { verifyIdToken: vi.fn().mockResolvedValue({ uid: 'user-enq', email_verified: true, firebase: {} }) } as any,
         adminDb: {
           runTransaction: vi.fn(),
           collection: vi.fn().mockReturnValue({
@@ -242,7 +242,7 @@ describe('Phase 6.1 — Rate Limiting & Abuse Protection', () => {
       { headers: { authorization: 'Bearer tok' }, body: {} } as any,
       gameRes,
       {
-        adminAuth: { verifyIdToken: vi.fn().mockResolvedValue({ uid: 'host-game', firebase: {} }) } as any,
+        adminAuth: { verifyIdToken: vi.fn().mockResolvedValue({ uid: 'host-game', email_verified: true, firebase: {} }) } as any,
         adminDb: {
           collection: vi.fn().mockReturnValue({
             doc: vi.fn().mockReturnValue({ get: vi.fn().mockResolvedValue({ exists: false }) }),

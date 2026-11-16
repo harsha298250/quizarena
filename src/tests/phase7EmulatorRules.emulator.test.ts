@@ -410,6 +410,12 @@ describe('Phase 7.1 — Firebase Emulator Firestore Security Rules Integration S
         strikes: 0,
         status: 'active',
       });
+      await setDoc(doc(db, 'games/g_1/answers/ans_1'), {
+        playerId: 'p_1',
+        score: 100,
+        prevHash: '0000000000000000000000000000000000000000000000000000000000000000',
+        hash: '1111111111111111111111111111111111111111111111111111111111111111',
+      });
     });
 
     const playerDb = userCtx('p_1').firestore();
@@ -425,6 +431,17 @@ describe('Phase 7.1 — Firebase Emulator Firestore Security Rules Integration S
     await assertFails(setDoc(doc(playerDb, 'games/g_1/secrets/q_0'), { correctAnswerIndex: 0 }));
     await assertFails(updateDoc(doc(playerDb, 'games/g_1/players/p_1'), { score: 9999 }));
     await assertFails(updateDoc(doc(playerDb, 'games/g_1/players/p_1'), { strikes: 3, status: 'terminated' }));
+
+    // SEC-06 & Phase 4D hardening: Host client CANNOT directly manipulate player scores, strikes, or status
+    await assertFails(updateDoc(doc(hostDb, 'games/g_1/players/p_1'), { score: 99999 }));
+    await assertFails(updateDoc(doc(hostDb, 'games/g_1/players/p_1'), { strikes: 5 }));
+    await assertFails(updateDoc(doc(hostDb, 'games/g_1/players/p_1'), { status: 'kicked' }));
+
+    // Neither host nor player can delete or modify answer records from client
+    await assertFails(deleteDoc(doc(hostDb, 'games/g_1/answers/ans_1')));
+    await assertFails(deleteDoc(doc(playerDb, 'games/g_1/answers/ans_1')));
+    await assertFails(updateDoc(doc(hostDb, 'games/g_1/answers/ans_1'), { score: 999 }));
+    await assertFails(updateDoc(doc(playerDb, 'games/g_1/answers/ans_1'), { score: 999 }));
 
     // Oversized avatarConfig (> 12 keys) is rejected
     const oversizedAvatarConfig = Object.fromEntries(

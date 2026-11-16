@@ -127,4 +127,5 @@ if (typeof process !== 'undefined' && process.argv && process.argv[1]?.includes(
   result.results.forEach((r) => console.log(r));
   console.log(`\nSnapshot Test Summary: ${result.passed} Passed, ${result.failed} Failed`);
   if (result.failed > 0) process.exit(1);
+  process.exit(0);
 }

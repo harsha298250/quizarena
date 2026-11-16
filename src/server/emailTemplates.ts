@@ -346,3 +346,202 @@ export function generateTeacherReportHtml(params: TeacherReportParams): string {
 </html>
   `;
 }
+
+export interface CertificateEmailParams {
+  recipientName: string;
+  quizTitle: string;
+  certificateId: string;
+  verificationUrl: string;
+  score: number;
+  issuedAt: string;
+}
+
+/**
+ * Generates tactile Playful Paper HTML for certificate issuance notifications
+ */
+export function generateCertificateIssuedHtml(params: CertificateEmailParams): string {
+  const { recipientName, quizTitle, certificateId, verificationUrl, score, issuedAt } = params;
+  const safeName = escapeHtml(recipientName || 'Contender');
+  const safeTitle = escapeHtml(quizTitle || 'Arena Competition');
+  const safeId = escapeHtml(certificateId || '');
+  const safeUrl = escapeHtml(verificationUrl || '#');
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Official Certificate: ${safeTitle}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #FFF6E5; margin: 0; padding: 24px; color: #16120E; }
+    .card { background: #FFFFFF; border: 3px solid #16120E; border-radius: 16px; box-shadow: 6px 6px 0 #16120E; max-width: 600px; margin: 0 auto; padding: 28px; }
+    .badge { display: inline-block; background: #FFC83D; color: #16120E; border: 2px solid #16120E; padding: 4px 12px; font-weight: bold; border-radius: 9999px; font-size: 12px; }
+    .btn { display: inline-block; background: #FF5A36; color: #FFFFFF !important; text-decoration: none; border: 2px solid #16120E; padding: 12px 24px; font-weight: bold; border-radius: 12px; box-shadow: 3px 3px 0 #16120E; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <span class="badge">Official Achievement Award</span>
+      <h1 style="color: #16120E; margin: 12px 0 6px 0; font-size: 24px;">Congratulations, ${safeName}!</h1>
+      <p style="margin: 0; color: #666; font-size: 14px;">You have earned an official verified certificate for completing <strong>${safeTitle}</strong>.</p>
+    </div>
+
+    <div style="background: #FFFBF0; border: 2px dashed #16120E; border-radius: 12px; padding: 20px; text-align: center; margin: 20px 0;">
+      <div style="font-size: 12px; font-weight: bold; color: #666; text-transform: uppercase;">Final Certified Score</div>
+      <div style="font-size: 32px; font-weight: 900; color: #14B8A6; margin: 6px 0;">${score.toLocaleString()} pts</div>
+      <div style="font-size: 12px; color: #888; font-family: monospace;">Certificate ID: ${safeId}</div>
+      <div style="font-size: 11px; color: #AAA; margin-top: 4px;">Issued on ${escapeHtml(issuedAt || new Date().toISOString())}</div>
+    </div>
+
+    <div style="text-align: center; margin-bottom: 24px;">
+      <a href="${safeUrl}" class="btn" target="_blank" rel="noopener noreferrer">View & Verify Certificate</a>
+    </div>
+
+    <div style="border-top: 2px solid #EEE; padding-top: 16px; font-size: 12px; color: #666; text-align: center;">
+      QuizArena Competitions • Cryptographically verifiable educational achievements
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+export interface TournamentEmailParams {
+  recipientName: string;
+  tournamentTitle: string;
+  tournamentId?: string;
+  startsAt?: string;
+  matchId?: string;
+  opponentName?: string;
+  arenaUrl?: string;
+  finalRank?: number;
+  totalParticipants?: number;
+  score?: number;
+}
+
+/**
+ * Generates tactile HTML for tournament registration confirmation
+ */
+export function generateTournamentRegisteredHtml(params: TournamentEmailParams): string {
+  const safeName = escapeHtml(params.recipientName || 'Contender');
+  const safeTitle = escapeHtml(params.tournamentTitle || 'Tournament Arena');
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registered: ${safeTitle}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #FFF6E5; margin: 0; padding: 24px; color: #16120E; }
+    .card { background: #FFFFFF; border: 3px solid #16120E; border-radius: 16px; box-shadow: 6px 6px 0 #16120E; max-width: 600px; margin: 0 auto; padding: 28px; }
+    .badge { display: inline-block; background: #14B8A6; color: #FFFFFF; border: 2px solid #16120E; padding: 4px 12px; font-weight: bold; border-radius: 9999px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <span class="badge">Registration Confirmed</span>
+      <h1 style="color: #16120E; margin: 12px 0 6px 0; font-size: 24px;">You are in, ${safeName}!</h1>
+      <p style="margin: 0; color: #666; font-size: 14px;">Your registration for <strong>${safeTitle}</strong> has been secured.</p>
+    </div>
+    <div style="background: #F0FDFA; border: 2px solid #0D9488; border-radius: 12px; padding: 16px; text-align: center; margin: 20px 0;">
+      <p style="margin: 0; font-size: 14px; color: #134E4A;">Brackets will be drawn before the opening round. Keep an eye on your email for match announcements.</p>
+    </div>
+    <div style="border-top: 2px solid #EEE; padding-top: 16px; font-size: 12px; color: #666; text-align: center;">
+      QuizArena Multiplayer Arena • Good luck on the leaderboard!
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generates tactile HTML for tournament match announcements
+ */
+export function generateTournamentMatchReadyHtml(params: TournamentEmailParams): string {
+  const safeName = escapeHtml(params.recipientName || 'Contender');
+  const safeTitle = escapeHtml(params.tournamentTitle || 'Tournament Arena');
+  const safeOpponent = escapeHtml(params.opponentName || 'Competitor');
+  const safeUrl = escapeHtml(params.arenaUrl || '#');
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Match Ready: ${safeTitle}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #FFF6E5; margin: 0; padding: 24px; color: #16120E; }
+    .card { background: #FFFFFF; border: 3px solid #16120E; border-radius: 16px; box-shadow: 6px 6px 0 #16120E; max-width: 600px; margin: 0 auto; padding: 28px; }
+    .badge { display: inline-block; background: #FF5A36; color: #FFFFFF; border: 2px solid #16120E; padding: 4px 12px; font-weight: bold; border-radius: 9999px; font-size: 12px; }
+    .btn { display: inline-block; background: #14B8A6; color: #FFFFFF !important; text-decoration: none; border: 2px solid #16120E; padding: 12px 24px; font-weight: bold; border-radius: 12px; box-shadow: 3px 3px 0 #16120E; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <span class="badge">Match Starting</span>
+      <h1 style="color: #16120E; margin: 12px 0 6px 0; font-size: 24px;">Your Next Match is Ready!</h1>
+      <p style="margin: 0; color: #666; font-size: 14px;">${safeName}, your match in <strong>${safeTitle}</strong> vs. <strong>${safeOpponent}</strong> is starting now.</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 24px;">
+      <a href="${safeUrl}" class="btn" target="_blank" rel="noopener noreferrer">Enter Arena Now</a>
+    </div>
+    <div style="border-top: 2px solid #EEE; padding-top: 16px; font-size: 12px; color: #666; text-align: center;">
+      QuizArena Live Matches • Play fairly and give it your all!
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generates tactile HTML for tournament completion with final standings
+ */
+export function generateTournamentCompletedHtml(params: TournamentEmailParams): string {
+  const safeName = escapeHtml(params.recipientName || 'Contender');
+  const safeTitle = escapeHtml(params.tournamentTitle || 'Tournament Arena');
+  const rank = params.finalRank || 1;
+  const total = params.totalParticipants || 1;
+  const score = params.score || 0;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Final Standings: ${safeTitle}</title>
+  <style>
+    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #FFF6E5; margin: 0; padding: 24px; color: #16120E; }
+    .card { background: #FFFFFF; border: 3px solid #16120E; border-radius: 16px; box-shadow: 6px 6px 0 #16120E; max-width: 600px; margin: 0 auto; padding: 28px; }
+    .badge { display: inline-block; background: #FFC83D; color: #16120E; border: 2px solid #16120E; padding: 4px 12px; font-weight: bold; border-radius: 9999px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <span class="badge">Tournament Concluded</span>
+      <h1 style="color: #16120E; margin: 12px 0 6px 0; font-size: 24px;">Results are Final: ${safeTitle}</h1>
+      <p style="margin: 0; color: #666; font-size: 14px;">Great effort, <strong>${safeName}</strong>!</p>
+    </div>
+    <div style="background: #FFFBF0; border: 2px solid #16120E; border-radius: 12px; padding: 16px; text-align: center; margin: 20px 0;">
+      <div style="font-size: 12px; font-weight: bold; color: #666;">FINAL STANDING</div>
+      <div style="font-size: 32px; font-weight: 900; color: #FF5A36; margin: 6px 0;">#${rank} <span style="font-size: 16px; color: #888;">of ${total}</span></div>
+      <div style="font-size: 16px; font-weight: bold; color: #14B8A6;">${score.toLocaleString()} total pts</div>
+    </div>
+    <div style="border-top: 2px solid #EEE; padding-top: 16px; font-size: 12px; color: #666; text-align: center;">
+      QuizArena Tournaments • View full brackets and match replays on your dashboard.
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}

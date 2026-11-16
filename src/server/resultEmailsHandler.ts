@@ -146,7 +146,7 @@ export function getSmtpTransporter(): Transporter | null {
 export type EmailProviderType = 'resend' | 'brevo' | 'smtp' | 'none';
 
 /**
- * Resolves active email provider based on configuration priority:
+ * Resolves active primary email provider based on configuration priority:
  * 1. Explicit EMAIL_PROVIDER ('resend' | 'brevo' | 'smtp' | 'none')
  * 2. Auto-detection: RESEND_API_KEY -> 'resend', BREVO_API_KEY -> 'brevo', SMTP credentials -> 'smtp'
  */
@@ -161,6 +161,36 @@ export function getResolvedEmailProvider(): EmailProviderType {
   if (process.env.BREVO_API_KEY) return 'brevo';
   if (process.env.SMTP_USER && process.env.SMTP_PASS) return 'smtp';
   if (process.env.SMTP_HOST) return 'smtp';
+
+  return 'none';
+}
+
+/**
+ * Resolves configured fallback email provider based on:
+ * 1. Explicit EMAIL_FALLBACK_PROVIDER ('resend' | 'brevo' | 'smtp' | 'none')
+ * 2. Auto-detection if different from the primary provider
+ */
+export function getResolvedEmailFallbackProvider(primary?: EmailProviderType): EmailProviderType {
+  const activePrimary = primary || getResolvedEmailProvider();
+  const explicit = (process.env.EMAIL_FALLBACK_PROVIDER || '').trim().toLowerCase();
+  if (explicit === 'resend' && activePrimary !== 'resend' && process.env.RESEND_API_KEY) return 'resend';
+  if (explicit === 'brevo' && activePrimary !== 'brevo' && process.env.BREVO_API_KEY) return 'brevo';
+  if (explicit === 'smtp' && activePrimary !== 'smtp') {
+    if (process.env.SMTP_HOST || (process.env.SMTP_USER && process.env.SMTP_PASS)) return 'smtp';
+  }
+  if (explicit === 'none') return 'none';
+
+  // Auto-detect fallback differing from primary:
+  if (activePrimary === 'resend') {
+    if (process.env.BREVO_API_KEY) return 'brevo';
+    if (process.env.SMTP_HOST || (process.env.SMTP_USER && process.env.SMTP_PASS)) return 'smtp';
+  } else if (activePrimary === 'brevo') {
+    if (process.env.RESEND_API_KEY) return 'resend';
+    if (process.env.SMTP_HOST || (process.env.SMTP_USER && process.env.SMTP_PASS)) return 'smtp';
+  } else if (activePrimary === 'smtp') {
+    if (process.env.RESEND_API_KEY) return 'resend';
+    if (process.env.BREVO_API_KEY) return 'brevo';
+  }
 
   return 'none';
 }
@@ -208,26 +238,17 @@ export interface SendResultsOptions {
   transporter?: Transporter | null;
 }
 
-export async function dispatchSingleEmail({
-  to,
-  recipientName,
-  subject,
-  html,
-  transporter,
-  fromAddress,
-  idempotencyKey,
-  timeoutMs = 8000,
-}: {
-  to: string;
-  recipientName: string;
-  subject: string;
-  html: string;
-  transporter: Transporter | null;
-  fromAddress?: string;
-  idempotencyKey?: string;
-  timeoutMs?: number;
-}): Promise<{ status: 'sent' | 'skipped'; messageId?: string; provider?: string }> {
-  const provider = getResolvedEmailProvider();
+async function executeProvider(
+  provider: EmailProviderType,
+  to: string,
+  recipientName: string,
+  subject: string,
+  html: string,
+  transporter: Transporter | null,
+  fromAddress?: string,
+  idempotencyKey?: string,
+  timeoutMs: number = 8000
+): Promise<{ status: 'sent'; messageId?: string; provider: string }> {
   const resolvedFrom = fromAddress || getResolvedFromAddress(provider);
   const timeoutSignal =
     typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).timeout === 'function'
@@ -409,7 +430,102 @@ export async function dispatchSingleEmail({
     }
   }
 
-  return { status: 'skipped' };
+  const err: any = new Error(`Email provider "${provider}" is not configured or available.`);
+  err.status = 503;
+  err.isPermanent = true;
+  throw err;
+}
+
+export async function dispatchSingleEmail({
+  to,
+  recipientName,
+  subject,
+  html,
+  transporter,
+  fromAddress,
+  idempotencyKey,
+  timeoutMs = 8000,
+  providerOverride,
+  allowFallback = true,
+}: {
+  to: string;
+  recipientName: string;
+  subject: string;
+  html: string;
+  transporter: Transporter | null;
+  fromAddress?: string;
+  idempotencyKey?: string;
+  timeoutMs?: number;
+  providerOverride?: EmailProviderType;
+  allowFallback?: boolean;
+}): Promise<{ status: 'sent' | 'skipped'; messageId?: string; provider?: string; fallbackUsed?: boolean }> {
+  const primary = providerOverride || getResolvedEmailProvider();
+  if (primary === 'none' && !transporter) {
+    return { status: 'skipped' };
+  }
+
+  try {
+    const res = await executeProvider(
+      primary,
+      to,
+      recipientName,
+      subject,
+      html,
+      transporter,
+      fromAddress,
+      idempotencyKey,
+      timeoutMs
+    );
+    return { status: 'sent', messageId: res.messageId, provider: res.provider, fallbackUsed: false };
+  } catch (primaryErr: any) {
+    // 1. Permanent non-retryable errors must NOT fall back
+    if (
+      primaryErr?.isPermanent ||
+      primaryErr?.status === 401 ||
+      primaryErr?.status === 403 ||
+      primaryErr?.status === 422 ||
+      primaryErr?.errorCategory === 'permanent'
+    ) {
+      throw primaryErr;
+    }
+
+    // 2. Ambiguous timeouts on non-idempotent providers must NOT fall back to prevent duplicate deliveries
+    if (primaryErr?.isAmbiguous) {
+      throw primaryErr;
+    }
+
+    // 3. If fallback is disabled:
+    if (!allowFallback) {
+      throw primaryErr;
+    }
+
+    const fallback = getResolvedEmailFallbackProvider(primary);
+    if (fallback === 'none' || fallback === primary) {
+      throw primaryErr;
+    }
+
+    try {
+      const fallbackRes = await executeProvider(
+        fallback,
+        to,
+        recipientName,
+        subject,
+        html,
+        transporter,
+        fromAddress,
+        idempotencyKey,
+        timeoutMs
+      );
+      return {
+        status: 'sent',
+        messageId: fallbackRes.messageId,
+        provider: fallbackRes.provider,
+        fallbackUsed: true,
+      };
+    } catch (fallbackErr: any) {
+      throw primaryErr;
+    }
+  }
 }
 
 export interface PreparedEmail {

@@ -151,9 +151,9 @@ function createMockAuth() {
   return {
     verifyIdToken: async (token: string, checkRevoked?: boolean) => {
       if (!checkRevoked) throw new Error('checkRevoked must be true');
-      if (token === 'admin_token') return { uid: 'admin_1', admin: true, firebase: { sign_in_provider: 'password' } };
-      if (token === 'host1_token') return { uid: 'host_1', email: 'host1@example.com', firebase: { sign_in_provider: 'google.com' } };
-      if (token === 'host2_token') return { uid: 'host_2', email: 'host2@example.com', firebase: { sign_in_provider: 'google.com' } };
+      if (token === 'admin_token') return { uid: 'admin_1', admin: true, email_verified: true, firebase: { sign_in_provider: 'password' } };
+      if (token === 'host1_token') return { uid: 'host_1', email: 'host1@example.com', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
+      if (token === 'host2_token') return { uid: 'host_2', email: 'host2@example.com', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
       throw new Error('Invalid token');
     },
   } as any;

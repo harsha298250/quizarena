@@ -44,4 +44,5 @@ async function testFallback() {
 await testFallback();
 
 console.log('✅ AI Model Configuration, 404 Normalization & Automatic Fallback tests passed successfully!');
+process.exit(0);
 

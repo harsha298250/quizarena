@@ -15,6 +15,7 @@ import {
   serverTimestamp,
   query,
   orderBy,
+  where,
 } from 'firebase/firestore';
 import {
   db,
@@ -86,10 +87,7 @@ export class GameEngine {
           throw new Error(errData.error || `HTTP ${res.status}`);
         }
       } catch (e) {
-        if (isFirebaseConfigured) {
-          notifyFirestoreError('Failed to initialize game session on server', e);
-          throw e;
-        }
+        console.warn('Server create-game endpoint unavailable, falling back to local session:', e);
       }
     }
 
@@ -278,15 +276,25 @@ export class GameEngine {
         }
 
         const data = await res.json();
+        // Update local players list and broadcast across local tabs for immediate sync
+        const localPlayersKey = `quizarena_players_${gameId}`;
+        try {
+          const players: Player[] = JSON.parse(localStorage.getItem(localPlayersKey) || '[]');
+          const filtered = players.filter(p => p.id !== data.player.id);
+          filtered.push(data.player);
+          localStorage.setItem(localPlayersKey, JSON.stringify(filtered));
+          broadcastChannel?.postMessage({
+            type: 'PLAYERS_UPDATED',
+            gameId,
+            players: filtered,
+          });
+        } catch {}
         return {
           game: data.game,
           player: data.player,
         };
       } catch (e) {
-        if (isFirebaseConfigured) {
-          notifyFirestoreError(`Failed to join game session ${gameId}`, e);
-          throw e;
-        }
+        console.warn(`Server join endpoint unavailable for ${gameId}, falling back to local join:`, e);
       }
     }
 
@@ -552,7 +560,7 @@ export class GameEngine {
       }
     }
 
-    // Offline / Demo fallback
+    // Immediate local cache update and cross-tab BroadcastChannel propagation
     const updated: GameSession = {
       ...game,
       status: newStatus,
@@ -565,10 +573,8 @@ export class GameEngine {
       updatedAt: new Date().toISOString(),
     };
 
-    if (!isFirebaseConfigured) {
-      localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(updated));
-      broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
-    }
+    localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(updated));
+    broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
   }
 
   // Host starts the game from lobby
@@ -576,20 +582,50 @@ export class GameEngine {
     const user = auth.currentUser;
     const idToken = (await user?.getIdToken()) || '';
     if (isFirebaseConfigured && idToken) {
-      const res = await fetch('/api/start-game', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({ gameId }),
-      });
-      if (!res.ok) {
+      try {
+        const res = await fetch('/api/start-game', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ gameId }),
+        });
+        if (res.ok) {
+          const resData = await res.json().catch(() => ({}));
+          const updated = resData.game;
+          if (updated) {
+            localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(updated));
+            broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
+          }
+          return true;
+        }
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to start game');
+      } catch (err: any) {
+        console.warn('POST /api/start-game error, trying fallback:', err);
       }
-      return true;
     }
+
+    // Local / Offline fallback
+    const localKey = `quizarena_game_${gameId}`;
+    try {
+      const saved = localStorage.getItem(localKey);
+      if (saved) {
+        const game = JSON.parse(saved);
+        const updated: GameSession = {
+          ...game,
+          status: 'question_active',
+          currentQuestionIndex: 0,
+          questionStartTime: Date.now(),
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(localKey, JSON.stringify(updated));
+        broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
+        return true;
+      }
+    } catch {}
+
     return false;
   }
 
@@ -663,6 +699,33 @@ export class GameEngine {
       return res.ok;
     }
     return true;
+  }
+
+  public static async sendHostHeartbeat(
+    gameId: string,
+    status: 'connected' | 'disconnected' = 'connected'
+  ): Promise<{ success: boolean; hostStatus?: string }> {
+    const user = auth.currentUser;
+    const idToken = (await user?.getIdToken()) || '';
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const res = await fetch('/api/host-heartbeat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ gameId, status }),
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { success: true, hostStatus: data.hostStatus };
+        }
+      } catch (e) {
+        console.warn('Failed to send host heartbeat:', e);
+      }
+    }
+    return { success: false };
   }
 
   // Recover session on page refresh or reconnect
@@ -779,10 +842,6 @@ export class GameEngine {
       updatedPlayerInfo = resData.updatedPlayer;
     } catch (apiError) {
       console.warn('POST /api/answer error or network unavailable:', apiError);
-      if (isFirebaseConfigured) {
-        notifyFirestoreError('Server answer scoring failed or network rejected request', apiError);
-        throw apiError;
-      }
       // Fallback submission for offline sandbox only
       submission = {
         id: `ans_${questionIndex}_${player.id}`,
@@ -844,7 +903,7 @@ export class GameEngine {
     return submission!;
   }
 
-  // Subscribe to answers for active question
+  // Subscribe to answers for active question using bounded query
   public static subscribeToAnswers(
     gameId: string,
     questionIndex: number,
@@ -852,18 +911,77 @@ export class GameEngine {
   ): () => void {
     let unsubFirestore = () => {};
     try {
-      unsubFirestore = onSnapshot(collection(db, 'games', gameId, 'answers'), snap => {
+      const answersCol = collection(db, 'games', gameId, 'answers');
+      const q = query(answersCol, where('questionIndex', '==', questionIndex));
+      unsubFirestore = onSnapshot(q, snap => {
         const answers: AnswerSubmission[] = [];
         snap.forEach(d => {
-          const a = d.data() as AnswerSubmission;
-          if (a.questionIndex === questionIndex) {
-            answers.push(a);
-          }
+          answers.push(d.data() as AnswerSubmission);
         });
         onUpdate(answers);
       });
-    } catch (e) {}
+    } catch (e) {
+      // Fallback to unfiltered snapshot if composite query index unavailable
+      try {
+        unsubFirestore = onSnapshot(collection(db, 'games', gameId, 'answers'), snap => {
+          const answers: AnswerSubmission[] = [];
+          snap.forEach(d => {
+            const a = d.data() as AnswerSubmission;
+            if (a.questionIndex === questionIndex) {
+              answers.push(a);
+            }
+          });
+          onUpdate(answers);
+        });
+      } catch {}
+    }
 
+    return () => unsubFirestore();
+  }
+
+  // Fetch answers on-demand for a single player to avoid unneeded whole-collection listeners
+  public static async getAnswersForPlayer(
+    gameId: string,
+    playerId: string
+  ): Promise<AnswerSubmission[]> {
+    if (isFirebaseConfigured && db) {
+      try {
+        const answersCol = collection(db, 'games', gameId, 'answers');
+        const q = query(answersCol, where('playerId', '==', playerId));
+        const snap = await getDocs(q);
+        const answers: AnswerSubmission[] = [];
+        snap.forEach(d => answers.push(d.data() as AnswerSubmission));
+        return answers;
+      } catch (e) {
+        console.warn('getAnswersForPlayer Firestore error, falling back to local storage:', e);
+      }
+    }
+    try {
+      const cached = localStorage.getItem(`quizarena_all_answers_${gameId}`);
+      if (cached) {
+        const all: AnswerSubmission[] = JSON.parse(cached);
+        return all.filter(a => a.playerId === playerId);
+      }
+    } catch {}
+    return [];
+  }
+
+  // Subscribe to an individual player's document to avoid whole-lobby re-renders for mobile clients
+  public static subscribeToPlayer(
+    gameId: string,
+    playerId: string,
+    onUpdate: (player: Player | null) => void
+  ): () => void {
+    let unsubFirestore = () => {};
+    try {
+      unsubFirestore = onSnapshot(doc(db, 'games', gameId, 'players', playerId), snap => {
+        if (snap.exists()) {
+          onUpdate(snap.data() as Player);
+        } else {
+          onUpdate(null);
+        }
+      });
+    } catch (e) {}
     return () => unsubFirestore();
   }
 

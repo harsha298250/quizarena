@@ -137,12 +137,12 @@ function createMockReqRes(options: { body?: any; params?: any; headers?: any } =
   };
   const adminAuth: any = {
     verifyIdToken: async (token: string) => {
-      if (token === 'host_token') return { uid: 'host_1', name: 'Prof. Turing', firebase: { sign_in_provider: 'password' } };
+      if (token === 'host_token') return { uid: 'host_1', name: 'Prof. Turing', email_verified: true, firebase: { sign_in_provider: 'password' } };
       if (token === 'p1_token') return { uid: 'p1', name: 'Alice', firebase: { sign_in_provider: 'google.com' } };
       if (token === 'p2_token') return { uid: 'p2', name: 'Bob', firebase: { sign_in_provider: 'google.com' } };
       if (token === 'p3_token') return { uid: 'p3', name: 'Charlie', firebase: { sign_in_provider: 'google.com' } };
       if (token === 'p4_token') return { uid: 'p4', name: 'Diana', firebase: { sign_in_provider: 'google.com' } };
-      if (token === 'admin_token') return { uid: 'admin_1', admin: true, firebase: { sign_in_provider: 'password' } };
+      if (token === 'admin_token') return { uid: 'admin_1', admin: true, email_verified: true, firebase: { sign_in_provider: 'password' } };
       if (token === 'anon_token') return { uid: 'anon_1', firebase: { sign_in_provider: 'anonymous' } };
       throw new Error('Invalid token');
     },

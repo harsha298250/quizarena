@@ -217,6 +217,25 @@ export function checkGameSessionRateLimit(uid: string, now: number = Date.now())
   return sharedRateLimiter.check(`game_sess_${uid}`, 20, 60 * 1000, now);
 }
 
+/**
+ * Rate limit checker for /api/join per IP address.
+ * Max 150 join requests per 60,000 ms per IP.
+ * Accommodates classroom/NAT environments (e.g., 30–50 concurrent student joins from the same school IP)
+ * while defending against automated PIN enumeration and join-flooding attacks.
+ * Note: SharedRateLimiter operates in-memory and is local to the active process.
+ */
+export function checkGameJoinIpRateLimit(ip: string, now: number = Date.now()): RateLimitCheckResult {
+  return sharedRateLimiter.check(`join_ip_${ip}`, 150, 60 * 1000, now);
+}
+
+export function resetGameJoinIpRateLimit(ip?: string): void {
+  if (ip) {
+    sharedRateLimiter.reset(`join_ip_${ip}`);
+  } else {
+    sharedRateLimiter.reset();
+  }
+}
+
 export function checkTournamentRateLimit(uid: string, now: number = Date.now()): RateLimitCheckResult {
   // Max 20 tournament mutation requests per minute per user
   return sharedRateLimiter.check(`tourn_${uid}`, 20, 60 * 1000, now);

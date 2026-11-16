@@ -7,11 +7,14 @@ export type OutboxJobStatus =
   | 'pending'
   | 'processing'
   | 'accepted'
+  | 'sent'
   | 'delivered'
   | 'bounced'
   | 'rejected'
   | 'retrying'
+  | 'retry_scheduled'
   | 'failed'
+  | 'permanently_failed'
   | 'cancelled'
   | 'ambiguous';
 

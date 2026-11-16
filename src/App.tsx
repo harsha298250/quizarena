@@ -15,17 +15,7 @@ import { LobbyView } from './components/arena/LobbyView';
 import { HostArena } from './components/arena/HostArena';
 import { PlayerArena } from './components/arena/PlayerArena';
 import { PodiumView } from './components/arena/PodiumView';
-import { QuizBuilder } from './components/builder/QuizBuilder';
-import { AIQuizGenerator } from './components/ai/AIQuizGenerator';
-import { AnalyticsDashboard } from './components/analytics/AnalyticsDashboard';
-import { CompetitionManager } from './components/competitions/CompetitionManager';
-import { EmailOutbox } from './components/outbox/EmailOutbox';
-import { SoloPractice } from './components/practice/SoloPractice';
-import { HostDashboard } from './components/dashboard/HostDashboard';
-import { StudentDashboard } from './components/dashboard/StudentDashboard';
-import { CertificateGallery } from './components/certificates/CertificateGallery';
 import { GameEngine } from './services/gameEngine';
-import { runSelfTests } from './tests/quizArena.test';
 import { sound } from './lib/sound';
 import { SupportedLanguage } from './lib/i18n';
 import { testConnection, ensureAnonymousAuth, auth, isFirebaseConfigured, getRedirectResult } from './lib/firebase';
@@ -33,6 +23,23 @@ import { User } from 'firebase/auth';
 import { saveQuiz, loadUserQuizzes, deleteQuiz, deleteMyData } from './services/quizService';
 import { autoSendGameResults } from './services/emailService';
 import { useTheme } from './hooks/useTheme';
+
+// Route-level code-splitting with React.lazy for non-arena views
+const QuizBuilder = React.lazy(() => import('./components/builder/QuizBuilder').then(m => ({ default: m.QuizBuilder })));
+const AIQuizGenerator = React.lazy(() => import('./components/ai/AIQuizGenerator').then(m => ({ default: m.AIQuizGenerator })));
+const AnalyticsDashboard = React.lazy(() => import('./components/analytics/AnalyticsDashboard').then(m => ({ default: m.AnalyticsDashboard })));
+const CompetitionManager = React.lazy(() => import('./components/competitions/CompetitionManager').then(m => ({ default: m.CompetitionManager })));
+const EmailOutbox = React.lazy(() => import('./components/outbox/EmailOutbox').then(m => ({ default: m.EmailOutbox })));
+const SoloPractice = React.lazy(() => import('./components/practice/SoloPractice').then(m => ({ default: m.SoloPractice })));
+const HostDashboard = React.lazy(() => import('./components/dashboard/HostDashboard').then(m => ({ default: m.HostDashboard })));
+const StudentDashboard = React.lazy(() => import('./components/dashboard/StudentDashboard').then(m => ({ default: m.StudentDashboard })));
+const CertificateGallery = React.lazy(() => import('./components/certificates/CertificateGallery').then(m => ({ default: m.CertificateGallery })));
+
+const ComponentFallback = () => (
+  <div className="paper-card p-8 text-center font-bold text-[var(--text-muted)] animate-pulse">
+    Loading module...
+  </div>
+);
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -137,8 +144,10 @@ export default function App() {
     testConnection().then(connected => {
       setIsFirebaseOnline(connected);
     });
-    // Run self-tests in background
-    runSelfTests().then(setTestResults);
+    // Run self-tests in background via dynamic import
+    import('./tests/quizArena.test')
+      .then(({ runSelfTests }) => runSelfTests().then(setTestResults))
+      .catch(err => console.warn('Background self-test loader warning:', err));
 
     // Listen for Firestore real mode errors to show visible banner
     const handleFsError = (e: Event) => {
@@ -412,6 +421,10 @@ export default function App() {
     }
   }, [activeGame?.status, activeGame?.id, gameRole, players]);
 
+  const handleUpdateActivePlayer = React.useCallback((p: Player) => {
+    setActivePlayer(p);
+  }, []);
+
   const handleStartGame = async () => {
     if (!activeGame) return;
     sound.playClick();
@@ -450,29 +463,30 @@ export default function App() {
   const mainTabsContent = (
     <>
       <div key={currentTab} className="animate-fadeIn transition-all overflow-x-clip min-w-0">
-        {/* Tab 0A: Host Dashboard */}
-        {currentTab === 'host_dashboard' && (
-          <HostDashboard
-            quizzes={quizzes}
-            onNavigateTab={handleTabChange}
-            onHostQuiz={handleHostQuiz}
-            onEditQuiz={quizId => {
-              setBuilderSelectedQuizId(quizId);
-              handleTabChange('builder');
-            }}
-          />
-        )}
+        <React.Suspense fallback={<ComponentFallback />}>
+          {/* Tab 0A: Host Dashboard */}
+          {currentTab === 'host_dashboard' && (
+            <HostDashboard
+              quizzes={quizzes}
+              onNavigateTab={handleTabChange}
+              onHostQuiz={handleHostQuiz}
+              onEditQuiz={quizId => {
+                setBuilderSelectedQuizId(quizId);
+                handleTabChange('builder');
+              }}
+            />
+          )}
 
-        {/* Tab 0B: Student Dashboard */}
-        {currentTab === 'student_dashboard' && (
-          <StudentDashboard
-            quizzes={quizzes}
-            onJoinArenaPin={() => handleTabChange('arena')}
-            onStartPractice={() => handleTabChange('practice')}
-            onViewTournaments={() => handleTabChange('competitions')}
-            onViewCertificates={() => handleTabChange('certificates')}
-          />
-        )}
+          {/* Tab 0B: Student Dashboard */}
+          {currentTab === 'student_dashboard' && (
+            <StudentDashboard
+              quizzes={quizzes}
+              onJoinArenaPin={() => handleTabChange('arena')}
+              onStartPractice={() => handleTabChange('practice')}
+              onViewTournaments={() => handleTabChange('competitions')}
+              onViewCertificates={() => handleTabChange('certificates')}
+            />
+          )}
 
         {/* Tab 1: Arena (Join, Lobby, Live Question, Results) */}
         {currentTab === 'arena' && (
@@ -552,7 +566,7 @@ export default function App() {
               <PlayerArena
                 game={activeGame}
                 player={activePlayer || players[0]}
-                onUpdatePlayer={p => setActivePlayer(p)}
+                onUpdatePlayer={handleUpdateActivePlayer}
               />
             )}
           </div>
@@ -608,6 +622,7 @@ export default function App() {
 
         {/* Tab 8: Verified Digital Certificates */}
         {currentTab === 'certificates' && <CertificateGallery />}
+        </React.Suspense>
       </div>
 
       {/* Footer & Self-Test Verifier Badge */}

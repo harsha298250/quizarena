@@ -28,6 +28,10 @@ import {
   serverMeasuredLatencyMap,
 } from './src/server/scoringHardening.ts';
 import {
+  issueLatencyNonce,
+  validateAndConsumeNonce,
+} from './src/server/timeNonceManager.ts';
+import {
   sharedRateLimiter,
   extractClientIp,
   checkWarmupRateLimit,
@@ -71,6 +75,7 @@ import {
   handleCancelGame,
   handleSessionRecovery,
   handleReconcilePlayerCount,
+  handleHostHeartbeat,
 } from './src/server/gameSessionHandler.ts';
 import {
   handlePurgeUserData,
@@ -80,6 +85,11 @@ import {
   handleAdminDeleteUser,
 } from './src/server/userDataPurgeHandler.ts';
 import { assertAccountActive } from './src/server/accountDeletionEngine.ts';
+import {
+  validateUploadFile,
+  assertUploadAuthorization,
+  AllowedUploadCategory,
+} from './src/server/uploadSecurity.ts';
 
 dotenv.config();
 
@@ -422,6 +432,26 @@ const handleHealthCheck = (_req: Request, res: Response) => {
 app.get('/health', handleHealthCheck);
 app.get('/api/health', handleHealthCheck);
 
+// Liveness probe (process is running)
+app.get('/health/liveness', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'live',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Readiness probe (can serve traffic)
+app.get('/health/readiness', (_req: Request, res: Response) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isReady = hasAdminCredentials || !isProduction;
+  res.status(isReady ? 200 : 503).json({
+    status: isReady ? 'ready' : 'not_ready',
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use(express.json({
   limit: '10mb',
   verify: (req: any, _res, buf) => {
@@ -449,22 +479,7 @@ async function authenticateUser(req: Request): Promise<{ uid: string; signInProv
   }
 }
 
-interface PendingLatencyNonce {
-  uid: string;
-  issuedAt: number;
-}
-const pendingLatencyNonces = new Map<string, PendingLatencyNonce>();
 export { serverMeasuredLatencyMap };
-
-// Clean up stale latency nonces (> 30s) every 2 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [nonce, data] of pendingLatencyNonces.entries()) {
-    if (now - data.issuedAt > 30000) {
-      pendingLatencyNonces.delete(nonce);
-    }
-  }
-}, 120000).unref();
 
 // Endpoint 0: Nonce-based high-precision server time & latency round trip
 // (Client-supplied t and uid parameters removed; server measures RTT itself)
@@ -477,12 +492,11 @@ app.get('/api/time', async (req: Request, res: Response): Promise<void> => {
 
   // Step 2: Client echoes back the server-issued nonce
   if (nonce && authUser) {
-    const pending = pendingLatencyNonces.get(nonce);
-    if (pending && pending.uid === authUser.uid) {
-      const rtt = Math.max(1, now - pending.issuedAt);
+    const validation = validateAndConsumeNonce(nonce, authUser.uid, now);
+    if (validation.valid && typeof validation.issuedAt === 'number') {
+      const rtt = Math.max(1, now - validation.issuedAt);
       const oneWayLatency = Math.min(Math.max(1, Math.round(rtt / 2)), MAX_ALLOWED_LATENCY_MS);
       serverMeasuredLatencyMap.set(authUser.uid, oneWayLatency);
-      pendingLatencyNonces.delete(nonce);
 
       res.json({
         serverTime: now,
@@ -495,11 +509,7 @@ app.get('/api/time', async (req: Request, res: Response): Promise<void> => {
 
   // Step 1: Server issues a nonce and its own timestamp to authenticated user
   if (authUser) {
-    const newNonce = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-    pendingLatencyNonces.set(newNonce, {
-      uid: authUser.uid,
-      issuedAt: now,
-    });
+    const newNonce = issueLatencyNonce(authUser.uid, now);
     res.json({
       serverTime: now,
       nonce: newNonce,
@@ -831,6 +841,11 @@ app.post('/api/session-recovery', async (req: Request, res: Response): Promise<v
   await handleSessionRecovery(req, res, { adminAuth, adminDb });
 });
 
+// POST /api/host-heartbeat - Host authoritative presence heartbeat and safe recovery tracking
+app.post('/api/host-heartbeat', async (req: Request, res: Response): Promise<void> => {
+  await handleHostHeartbeat(req, res, { adminAuth, adminDb });
+});
+
 // POST /api/reconcile-player-count - Host tool to heal diverging capacity counts
 app.post('/api/reconcile-player-count', async (req: Request, res: Response): Promise<void> => {
   await handleReconcilePlayerCount(req, res, { adminAuth, adminDb });
@@ -879,7 +894,19 @@ import {
   handleStartRound,
   handleFinalizeMatch,
   handleGetTournamentStandings,
+  handleListTournaments,
+  handleGetTournament,
 } from './src/server/tournamentHandler.ts';
+
+// GET /api/tournaments
+app.get('/api/tournaments', async (req: Request, res: Response): Promise<void> => {
+  await handleListTournaments(req, res, { adminAuth, adminDb });
+});
+
+// GET /api/tournaments/:id
+app.get('/api/tournaments/:id', async (req: Request, res: Response): Promise<void> => {
+  await handleGetTournament(req, res, { adminAuth, adminDb });
+});
 
 // POST /api/tournaments/create
 app.post('/api/tournaments/create', async (req: Request, res: Response): Promise<void> => {
@@ -918,11 +945,19 @@ import {
   handleIssueCertificate,
   handleVerifyCertificate,
   handleRevokeCertificate,
+  handleListUserCertificates,
   handleProcessOutbox,
   handleOutboxWebhook,
   handleOutboxMetrics,
   handleOutboxEnqueue,
+  handleListOutboxJobs,
+  handleRetryOutboxJob,
 } from './src/server/notificationHandler.ts';
+
+// GET /api/certificates/my-certificates - Authenticated user's certificates
+app.get('/api/certificates/my-certificates', async (req: Request, res: Response): Promise<void> => {
+  await handleListUserCertificates(req, res, { adminAuth, adminDb });
+});
 
 // POST /api/certificates/issue - Server-authoritative certificate issuance
 app.post('/api/certificates/issue', async (req: Request, res: Response): Promise<void> => {
@@ -959,6 +994,16 @@ app.post('/api/outbox/webhook', async (req: Request, res: Response): Promise<voi
   await handleOutboxWebhook(req, res, { adminDb });
 });
 
+// GET /api/outbox/jobs - Protected outbox job listing (admin: all, user: self only)
+app.get('/api/outbox/jobs', async (req: Request, res: Response): Promise<void> => {
+  await handleListOutboxJobs(req, res, { adminAuth, adminDb });
+});
+
+// POST /api/outbox/retry - Administrative outbox retry operational recovery
+app.post('/api/outbox/retry', async (req: Request, res: Response): Promise<void> => {
+  await handleRetryOutboxJob(req, res, { adminAuth, adminDb });
+});
+
 // Phase 4: Secure Account Deletion & Complete Data Purge endpoints
 app.post('/api/account/delete', async (req: Request, res: Response): Promise<void> => {
   await handleRequestAccountDeletion(req, res, { adminAuth, adminDb, adminStorage });
@@ -979,6 +1024,52 @@ app.post('/api/admin/users/:uid/delete', async (req: Request, res: Response): Pr
 // POST /api/purge-user-data - Server-authoritative GDPR/CCPA data purge (delegates to Phase 4 engine)
 app.post('/api/purge-user-data', async (req: Request, res: Response): Promise<void> => {
   await handlePurgeUserData(req, res, { adminAuth, adminDb, adminStorage });
+});
+
+// POST /api/upload/validate - Validates file binary signatures, MIME, active content, and authorization
+app.post('/api/upload/validate', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await authenticateUser(req);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized: Authentication required for upload validation.' });
+      return;
+    }
+
+    const { filename, declaredMime, category, entityId, fileBase64, resourceOwnerUid } = req.body || {};
+    if (!filename || !declaredMime || !fileBase64) {
+      res.status(400).json({ error: 'Bad Request: filename, declaredMime, and fileBase64 are required.' });
+      return;
+    }
+
+    const targetCategory: AllowedUploadCategory = (category as AllowedUploadCategory) || 'quizzes';
+    const authCheck = assertUploadAuthorization(user.uid, targetCategory, entityId || user.uid, resourceOwnerUid);
+    if (!authCheck.authorized) {
+      res.status(403).json({ error: authCheck.errorMessage, code: authCheck.errorCode });
+      return;
+    }
+
+    const buffer = Buffer.from(fileBase64, 'base64');
+    const validation = validateUploadFile(buffer, filename, declaredMime, { category: targetCategory });
+    if (!validation.valid) {
+      res.status(400).json({
+        error: validation.errorMessage,
+        code: validation.errorCode,
+        detectedMime: validation.detectedMime,
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      detectedMime: validation.detectedMime,
+      detectedExt: validation.detectedExt,
+      sanitizedFilename: validation.sanitizedFilename,
+      safeStoragePath: validation.safeStoragePath,
+    });
+  } catch (err: any) {
+    console.error('[Upload Validation Error]:', err);
+    res.status(500).json({ error: 'Internal server error validating upload.' });
+  }
 });
 
 // Serve frontend build in production

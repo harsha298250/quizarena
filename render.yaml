@@ -4,9 +4,9 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /health/liveness
     autoDeploy: true
     envVars:
       - key: NODE_ENV
@@ -14,12 +14,18 @@ services:
       - key: PORT
         value: 10000
       - key: GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-2.5-flash
+      - key: OUTBOX_WORKER_ENABLED
+        value: "true"
       - key: CORS_ALLOWED_ORIGINS
         sync: false
       - key: FIREBASE_SERVICE_ACCOUNT_KEY
         sync: false
       - key: GEMINI_API_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: XAI_MODEL
         sync: false
       - key: OUTBOX_WORKER_SECRET
         sync: false
@@ -36,5 +42,19 @@ services:
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
+        sync: false
+
+  - type: cron
+    name: quizarena-outbox-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    schedule: "*/5 * * * *"
+    buildCommand: npm install
+    startCommand: node -e "const u = (process.env.APP_URL || 'https://quizarena-backend.onrender.com') + '/api/outbox/process'; fetch(u, { method: 'POST', headers: { 'x-worker-secret': process.env.OUTBOX_WORKER_SECRET || '' } }).then(r => r.json()).then(d => console.log('Outbox cron processed:', d)).catch(console.error)"
+    envVars:
+      - key: APP_URL
+        value: https://quizarena-backend.onrender.com
+      - key: OUTBOX_WORKER_SECRET
         sync: false
 

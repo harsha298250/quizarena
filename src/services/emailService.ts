@@ -17,11 +17,21 @@ import {
   QuestionBreakdownItem,
   StudentEmailParams,
   TeacherReportParams,
+  CertificateEmailParams,
+  TournamentEmailParams,
+  generateCertificateIssuedHtml,
+  generateTournamentRegisteredHtml,
+  generateTournamentMatchReadyHtml,
+  generateTournamentCompletedHtml,
 } from '../server/emailTemplates';
 
 export {
   generateStudentEmailHtml,
   generateTeacherReportHtml,
+  generateCertificateIssuedHtml,
+  generateTournamentRegisteredHtml,
+  generateTournamentMatchReadyHtml,
+  generateTournamentCompletedHtml,
   escapeHtml,
   isValidEmail,
 };
@@ -29,6 +39,8 @@ export type {
   QuestionBreakdownItem,
   StudentEmailParams,
   TeacherReportParams,
+  CertificateEmailParams,
+  TournamentEmailParams,
 };
 
 export interface SendResultsPayload {

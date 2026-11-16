@@ -21,11 +21,14 @@ interface PlayerArenaProps {
   onUpdatePlayer: (updated: Player) => void;
 }
 
-export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdatePlayer }) => {
+export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, player, onUpdatePlayer }) => {
   const currentQuestion = game.questions[game.currentQuestionIndex];
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [textAnswer, setTextAnswer] = useState<string>('');
   const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [committedPayload, setCommittedPayload] = useState<{ selectedIndices: number[]; textAnswer?: string } | null>(null);
   const [submissionResult, setSubmissionResult] = useState<{ isCorrect: boolean; pointsAwarded: number } | null>(null);
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
 
@@ -204,6 +207,9 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
     setSelectedIndices([]);
     setTextAnswer('');
     setHasSubmitted(false);
+    setIsSubmitting(false);
+    setSubmissionError(null);
+    setCommittedPayload(null);
     setSubmissionResult(null);
     setQuestionStartTime(extractQuestionStartTimeMs(game.questionStartTime) || Date.now());
 
@@ -258,7 +264,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
 
   // Answer submission
   const handleSubmitOption = async (optIdx: number) => {
-    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
+    if (isSubmitting || hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
     sound.playClick();
 
     if (currentQuestion.type === 'multi_select') {
@@ -268,56 +274,107 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       return;
     }
 
-    // Single choice lock in
+    // Single choice lock in: do not mark hasSubmitted before server confirmation
     const rawTimeMs = Date.now() - questionStartTime;
     stopSpeech();
-    setHasSubmitted(true);
+    setIsSubmitting(true);
+    setSubmissionError(null);
+    setCommittedPayload({ selectedIndices: [optIdx], textAnswer: undefined });
     setSelectedIndices([optIdx]);
 
-    const result = await GameEngine.submitAnswer(
-      game.id,
-      player,
-      game.currentQuestionIndex,
-      [optIdx],
-      undefined,
-      currentQuestion,
-      game.settings,
-      rawTimeMs
-    );
+    try {
+      const result = await GameEngine.submitAnswer(
+        game.id,
+        player,
+        game.currentQuestionIndex,
+        [optIdx],
+        undefined,
+        currentQuestion,
+        game.settings,
+        rawTimeMs
+      );
 
-    setSubmissionResult(result);
-    if (result.isCorrect) sound.playCorrect();
-    else sound.playWrong();
+      setHasSubmitted(true);
+      setIsSubmitting(false);
+      setSubmissionResult(result);
+      if (result.isCorrect) sound.playCorrect();
+      else sound.playWrong();
+    } catch (err: any) {
+      console.warn('Answer submission failed, retry available:', err);
+      setIsSubmitting(false);
+      setSubmissionError(err?.message || 'Network failure while submitting answer. Tap Retry.');
+    }
   };
 
   const handleConfirmMultiSelectOrText = async () => {
-    if (hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
+    if (isSubmitting || hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
     sound.playClick();
     const rawTimeMs = Date.now() - questionStartTime;
     stopSpeech();
-    setHasSubmitted(true);
+    setIsSubmitting(true);
+    setSubmissionError(null);
+    setCommittedPayload({ selectedIndices: [...selectedIndices], textAnswer });
 
-    const result = await GameEngine.submitAnswer(
-      game.id,
-      player,
-      game.currentQuestionIndex,
-      selectedIndices,
-      textAnswer,
-      currentQuestion,
-      game.settings,
-      rawTimeMs
-    );
+    try {
+      const result = await GameEngine.submitAnswer(
+        game.id,
+        player,
+        game.currentQuestionIndex,
+        selectedIndices,
+        textAnswer,
+        currentQuestion,
+        game.settings,
+        rawTimeMs
+      );
 
-    setSubmissionResult(result);
-    if (result.isCorrect) sound.playCorrect();
-    else sound.playWrong();
+      setHasSubmitted(true);
+      setIsSubmitting(false);
+      setSubmissionResult(result);
+      if (result.isCorrect) sound.playCorrect();
+      else sound.playWrong();
+    } catch (err: any) {
+      console.warn('Answer submission failed, retry available:', err);
+      setIsSubmitting(false);
+      setSubmissionError(err?.message || 'Network failure while submitting answer. Tap Retry.');
+    }
+  };
+
+  const handleRetrySubmission = async () => {
+    if (isSubmitting || hasSubmitted || !committedPayload || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
+    sound.playClick();
+    const rawTimeMs = Date.now() - questionStartTime;
+    setIsSubmitting(true);
+    setSubmissionError(null);
+
+    try {
+      const result = await GameEngine.submitAnswer(
+        game.id,
+        player,
+        game.currentQuestionIndex,
+        committedPayload.selectedIndices,
+        committedPayload.textAnswer,
+        currentQuestion,
+        game.settings,
+        rawTimeMs
+      );
+
+      setHasSubmitted(true);
+      setIsSubmitting(false);
+      setSubmissionResult(result);
+      if (result.isCorrect) sound.playCorrect();
+      else sound.playWrong();
+    } catch (err: any) {
+      console.warn('Retry submission failed:', err);
+      setIsSubmitting(false);
+      setSubmissionError(err?.message || 'Retry failed. Please check network connection.');
+    }
   };
 
   // Player keyboard shortcuts (1, 2, 3, 4 for answer choices, Enter for multi-select confirmation)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
+      if (isSubmitting || hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
 
       const num = parseInt(e.key, 10);
       if (num >= 1 && num <= 4) {
@@ -334,7 +391,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasSubmitted, isQuestionLocked, game.status, playerTimeLeft, currentQuestion, selectedIndices]);
+  }, [isSubmitting, hasSubmitted, isQuestionLocked, game.status, playerTimeLeft, currentQuestion, selectedIndices]);
 
   const optionButtons = [
     { bg: 'bg-[var(--accent)] text-[var(--text-on-accent)]', icon: <ShapeTriangle className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" />, label: 'Triangle' },
@@ -451,8 +508,8 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
             questionIndex={game.currentQuestionIndex}
             totalQuestions={game.questions.length}
             selectedIndices={selectedIndices}
-            hasSubmitted={hasSubmitted}
-            isLocked={isQuestionLocked}
+            hasSubmitted={hasSubmitted || isSubmitting || Boolean(committedPayload)}
+            isLocked={isQuestionLocked || isSubmitting || Boolean(committedPayload)}
             hiddenOptions={hiddenOptions}
             isAccessibleMode={Boolean(player.accessibleApproved)}
             dyslexiaFont={Boolean(player.accommodations?.dyslexiaFont)}
@@ -467,6 +524,43 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
           </h1>
         </div>
       ) : null}
+
+      {/* Submitting in-flight status */}
+      {isSubmitting && !hasSubmitted && game.status === 'question_active' && (
+        <div className="paper-card p-5 text-center border-3 border-[var(--primary)] space-y-2 bg-blue-50/50 dark:bg-blue-950/30 animate-fadeIn">
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-2xl animate-spin">⏳</span>
+            <h3 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--primary)]">
+              Recording your answer...
+            </h3>
+          </div>
+          <p className="text-xs font-bold text-[var(--text-muted)]">
+            Transmitting to server for authoritative scoring.
+          </p>
+        </div>
+      )}
+
+      {/* Recoverable Submission Error with Safe Retry Button */}
+      {submissionError && !hasSubmitted && game.status === 'question_active' && (
+        <div className="paper-card p-5 text-center border-3 border-amber-500 space-y-3 bg-amber-50/60 dark:bg-amber-950/40 animate-fadeIn">
+          <div className="flex items-center justify-center gap-2 text-amber-700 dark:text-amber-300">
+            <span className="text-2xl">⚠️</span>
+            <h3 className="font-['Bricolage_Grotesque'] font-black text-lg">
+              {submissionError}
+            </h3>
+          </div>
+          <p className="text-xs font-semibold text-[var(--text-muted)]">
+            Your selected answer is preserved. Tap below to retry without penalty.
+          </p>
+          <button
+            onClick={handleRetrySubmission}
+            disabled={isSubmitting || playerTimeLeft <= 0}
+            className="paper-btn paper-btn-primary px-6 py-2.5 text-sm font-black shadow-[3px_3px_0px_var(--shadow)] disabled:opacity-50"
+          >
+            {isSubmitting ? 'Resubmitting...' : '🔄 Retry Submission'}
+          </button>
+        </div>
+      )}
 
       {/* Question Locked Banner if Strike 3 locked the round */}
       {isQuestionLocked && !hasSubmitted && game.status === 'question_active' && (
@@ -580,4 +674,4 @@ export const PlayerArena: React.FC<PlayerArenaProps> = ({ game, player, onUpdate
       />
     </div>
   );
-};
+});

@@ -18,7 +18,7 @@ export interface EnqueueEmailParams {
   eventType: NotificationEventType;
   subject: string;
   htmlContent: string;
-  textContent: string;
+  textContent?: string;
   maxAttempts?: number;
   metadata?: Record<string, any>;
 }
@@ -136,7 +136,7 @@ export async function processOutboxBatch(
 
     // Check lock expiration (120 seconds timeout)
     const isLockExpired = job.status === 'processing' && job.lockedUntil && new Date(job.lockedUntil).getTime() < now.getTime();
-    const isReadyForRetry = job.status === 'retrying' && job.nextRetryAt && new Date(job.nextRetryAt).getTime() <= now.getTime();
+    const isReadyForRetry = (job.status === 'retrying' || job.status === 'retry_scheduled') && job.nextRetryAt && new Date(job.nextRetryAt).getTime() <= now.getTime();
 
     if (job.status === 'pending' || isReadyForRetry || isLockExpired) {
       candidates.push(job);

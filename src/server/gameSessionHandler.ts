@@ -3,18 +3,40 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { sanitizeNickname } from '../lib/profanity.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
 import { assertAccountActive } from './accountDeletionEngine.ts';
-import { checkGameSessionRateLimit, sendRateLimitResponse } from './sharedRateLimiter.ts';
+import { clearAnswerKeyCache } from './answerSubmissionHandler.ts';
+import {
+  checkGameSessionRateLimit,
+  checkGameJoinIpRateLimit,
+  extractClientIp,
+  sendRateLimitResponse,
+} from './sharedRateLimiter.ts';
 
 export const MAX_GAME_CAPACITY = 300;
 
 export interface GameSessionHandlerOptions {
   adminAuth?: any;
   adminDb?: any;
+  generatePin?: () => string;
+}
+
+/**
+ * Asserts that a user identity has verified email ownership.
+ * Used for privileged mutation endpoints (game creation, tournament creation, outbox dispatch).
+ */
+export function assertEmailVerified(user: { email_verified?: boolean } | null | undefined): { verified: boolean; error?: string } {
+  if (!user || user.email_verified !== true) {
+    return {
+      verified: false,
+      error: 'Email verification required.',
+    };
+  }
+  return { verified: true };
 }
 
 /**
@@ -23,7 +45,7 @@ export interface GameSessionHandlerOptions {
 export async function authenticateToken(
   req: Request,
   adminAuth: any
-): Promise<{ uid: string; email?: string; isAnonymous: boolean } | null> {
+): Promise<{ uid: string; email?: string; email_verified: boolean; isAnonymous: boolean } | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -42,6 +64,7 @@ export async function authenticateToken(
     return {
       uid: decoded.uid,
       email: decoded.email,
+      email_verified: Boolean(decoded.email_verified),
       isAnonymous: Boolean(isAnonymous),
     };
   } catch (err) {
@@ -50,10 +73,10 @@ export async function authenticateToken(
 }
 
 /**
- * Generates a random 6-digit numeric game PIN.
+ * Generates a cryptographically secure random 6-digit numeric game PIN in [100000, 999999].
  */
 export function generateGamePin(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 /**
@@ -101,6 +124,15 @@ export async function handleCreateGame(
     return;
   }
 
+  // SEC-05: Server-side email verification required for game creation/hosting
+  if (authUser.email_verified !== true) {
+    res.status(403).json({
+      error: 'Email verification required to create or host games.',
+      code: 'EMAIL_NOT_VERIFIED',
+    });
+    return;
+  }
+
   const { quiz, hostName = 'Host', customSettings = {} } = req.body || {};
   if (!quiz || !quiz.title || !Array.isArray(quiz.questions)) {
     res.status(400).json({ error: 'Invalid quiz payload provided' });
@@ -109,8 +141,6 @@ export async function handleCreateGame(
 
   // Derive host identity authoritatively from verified token
   const hostId = authUser.uid;
-  const pin = generateGamePin();
-  const gameId = `game_${pin}`;
 
   const defaultSettings: GameSettings = {
     shuffleQuestions: false,
@@ -133,62 +163,97 @@ export async function handleCreateGame(
     return rest;
   });
 
-  const session: GameSession = {
-    id: gameId,
-    pin,
-    hostId,
-    hostName: String(hostName).substring(0, 50),
-    quizId: quiz.id || `quiz_${Date.now()}`,
-    quizTitle: quiz.title,
-    status: 'lobby',
-    gameMode: quiz.gameMode || 'classic',
-    currentQuestionIndex: 0,
-    questionStartTime: null,
-    timeLimit: quiz.questions[0]?.timeLimit || 20,
-    isPaused: false,
-    settings: defaultSettings,
-    questions: sanitizedQuestions,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  // Protected answer key for secrets subcollection
+  const answerKeyMap = quiz.questions.reduce((acc: any, q: any, idx: number) => {
+    acc[idx] = {
+      questionIndex: idx,
+      type: q.type || 'multiple_choice',
+      options: q.options || [],
+      correctAnswers: q.correctAnswers || [],
+      acceptedTextAnswers: q.acceptedTextAnswers || [],
+    };
+    return acc;
+  }, {});
 
-  try {
+  const pinGenerator = typeof options.generatePin === 'function' ? options.generatePin : generateGamePin;
+  const maxAttempts = 5;
+  let attempts = 0;
+  let session: GameSession | null = null;
+
+  while (attempts < maxAttempts) {
+    attempts++;
+    const pin = pinGenerator();
+    const gameId = `game_${pin}`;
     const gameDocRef = adminDb.doc(`games/${gameId}`);
     const secretsDocRef = adminDb.doc(`games/${gameId}/secrets/answerKey`);
 
-    await gameDocRef.set({
-      ...session,
-      playerCount: 0,
-      isLocked: false,
-      serverCreatedAt: FieldValue.serverTimestamp(),
-    });
-
-    // Write protected answer key to host-only secrets subcollection
-    const answerKeyMap = quiz.questions.reduce((acc: any, q: any, idx: number) => {
-      acc[idx] = {
-        questionIndex: idx,
-        type: q.type || 'multiple_choice',
-        options: q.options || [],
-        correctAnswers: q.correctAnswers || [],
-        acceptedTextAnswers: q.acceptedTextAnswers || [],
-      };
-      return acc;
-    }, {});
-
-    await secretsDocRef.set({
-      answers: answerKeyMap,
+    const candidateSession: GameSession = {
+      id: gameId,
+      pin,
       hostId,
-      createdAt: FieldValue.serverTimestamp(),
-    });
+      hostName: String(hostName).substring(0, 50),
+      quizId: quiz.id || `quiz_${Date.now()}`,
+      quizTitle: quiz.title,
+      status: 'lobby',
+      gameMode: quiz.gameMode || 'classic',
+      currentQuestionIndex: 0,
+      questionStartTime: null,
+      timeLimit: quiz.questions[0]?.timeLimit || 20,
+      isPaused: false,
+      settings: defaultSettings,
+      questions: sanitizedQuestions,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-    res.status(201).json({
-      success: true,
-      game: session,
-    });
-  } catch (err) {
-    console.error('Error creating game session:', err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create game session' });
+    try {
+      await adminDb.runTransaction(async (transaction: any) => {
+        const gameSnap = await transaction.get(gameDocRef);
+        if (gameSnap.exists) {
+          throw new Error('PIN_COLLISION');
+        }
+
+        transaction.set(gameDocRef, {
+          ...candidateSession,
+          playerCount: 0,
+          isLocked: false,
+          hostStatus: 'connected',
+          hostLastSeenMs: Date.now(),
+          serverCreatedAt: FieldValue.serverTimestamp(),
+        });
+
+        transaction.set(secretsDocRef, {
+          answers: answerKeyMap,
+          hostId,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      });
+
+      session = candidateSession;
+      break;
+    } catch (txErr: any) {
+      if (txErr && txErr.message === 'PIN_COLLISION') {
+        // Collision with existing or historical game document; retry with fresh CSPRNG PIN
+        continue;
+      }
+      console.error('Error during game session transaction:', txErr);
+      res.status(500).json({ error: txErr instanceof Error ? txErr.message : 'Failed to create game session' });
+      return;
+    }
   }
+
+  if (!session) {
+    res.status(503).json({
+      error: 'Failed to allocate a unique game PIN after multiple attempts. Please try again.',
+      code: 'PIN_ALLOCATION_FAILED',
+    });
+    return;
+  }
+
+  res.status(201).json({
+    success: true,
+    game: session,
+  });
 }
 
 /**
@@ -230,6 +295,17 @@ export async function handleJoinGame(
   if (!rateCheck.allowed) {
     sendRateLimitResponse(res, rateCheck.retryAfterSec, {
       error: `Too many game session requests. Please wait ${rateCheck.retryAfterSec}s.`,
+    });
+    return;
+  }
+
+  // SEC-03: Layered join protection - per-IP rate limit (150 req/min)
+  // Accommodates classrooms on shared NAT while mitigating brute-force/DoS swarms.
+  const clientIp = extractClientIp(req);
+  const ipRateCheck = checkGameJoinIpRateLimit(clientIp);
+  if (!ipRateCheck.allowed) {
+    sendRateLimitResponse(res, ipRateCheck.retryAfterSec, {
+      error: `Too many join requests from this IP address. Please wait ${ipRateCheck.retryAfterSec}s.`,
     });
     return;
   }
@@ -299,7 +375,41 @@ export async function handleJoinGame(
           throw new Error('PLAYER_TERMINATED');
         }
 
-        // Reconnect / refresh: return existing player state without incrementing count
+        // If player previously left via /api/leave, re-activate them if room is still open
+        if (existingData.status === 'left') {
+          if (gameData.status === 'finished' || gameData.status === 'cancelled') {
+            throw new Error('GAME_ALREADY_CLOSED');
+          }
+          if (gameData.isLocked === true || gameData.settings?.isLocked === true) {
+            throw new Error('LOBBY_LOCKED');
+          }
+          if (gameData.status !== 'lobby' && gameData.settings?.allowLateJoin === false) {
+            throw new Error('LATE_JOIN_DISABLED');
+          }
+          const currentCount = Number(gameData.playerCount || 0);
+          if (currentCount >= MAX_GAME_CAPACITY) {
+            throw new Error('GAME_CAPACITY_FULL');
+          }
+
+          transaction.update(gameDocRef, {
+            playerCount: currentCount + 1,
+            updatedAt: new Date().toISOString(),
+          });
+
+          transaction.update(playerDocRef, {
+            status: 'active',
+            rejoinedAt: FieldValue.serverTimestamp(),
+            lastSeen: new Date().toISOString(),
+          });
+
+          return {
+            player: { ...existingData, status: 'active' } as Player,
+            game: gameData as GameSession,
+            reconnected: true,
+          };
+        }
+
+        // Reconnect / refresh for already active player: return existing player state without incrementing count
         return {
           player: existingData as Player,
           game: gameData as GameSession,
@@ -307,23 +417,34 @@ export async function handleJoinGame(
         };
       }
 
-      // 4. New player joining: Verify Lobby Lock
+      // 4. New player joining: Verify game is active/in-progress and not closed
+      if (gameData.status === 'finished' || gameData.status === 'cancelled') {
+        throw new Error('GAME_ALREADY_CLOSED');
+      }
+
+      // Check if host has abandoned game (> 5m without heartbeat)
+      const hostPresence = checkHostPresence(gameData);
+      if (hostPresence.status === 'abandoned') {
+        throw new Error('HOST_ABANDONED');
+      }
+
+      // 5. New player joining: Verify Lobby Lock
       if (gameData.isLocked === true || gameData.settings?.isLocked === true) {
         throw new Error('LOBBY_LOCKED');
       }
 
-      // 5. Verify Late-Join Setting
+      // 6. Verify Late-Join Setting
       if (gameData.status !== 'lobby' && gameData.settings?.allowLateJoin === false) {
         throw new Error('LATE_JOIN_DISABLED');
       }
 
-      // 6. Enforce 300 Capacity atomically
+      // 7. Enforce 300 Capacity atomically
       const currentCount = Number(gameData.playerCount || 0);
       if (currentCount >= MAX_GAME_CAPACITY) {
         throw new Error('GAME_CAPACITY_FULL');
       }
 
-      // 7. Atomically increment capacity
+      // 8. Atomically increment capacity
       transaction.update(gameDocRef, {
         playerCount: currentCount + 1,
         updatedAt: new Date().toISOString(),
@@ -361,6 +482,7 @@ export async function handleJoinGame(
         },
         joinedAt: new Date().toISOString(),
         lastSeen: new Date().toISOString(),
+        lastAuditHash: '0000000000000000000000000000000000000000000000000000000000000000',
       };
 
       transaction.set(playerDocRef, {
@@ -397,6 +519,10 @@ export async function handleJoinGame(
       res.status(404).json({ error: 'Game session not found. Please check your PIN.' });
       return;
     }
+    if (code === 'GAME_ALREADY_CLOSED') {
+      res.status(400).json({ error: 'This game has already finished or been cancelled. You cannot join a closed game.' });
+      return;
+    }
     if (code === 'LOBBY_LOCKED') {
       res.status(403).json({ error: 'This lobby is currently locked by the host.' });
       return;
@@ -415,6 +541,10 @@ export async function handleJoinGame(
     }
     if (code === 'PLAYER_TERMINATED') {
       res.status(403).json({ error: 'Your session was terminated for integrity policy violations.' });
+      return;
+    }
+    if (code === 'HOST_ABANDONED') {
+      res.status(400).json({ error: 'HOST_ABANDONED', message: 'The host has abandoned this game session.' });
       return;
     }
 
@@ -749,6 +879,12 @@ export async function handleStartGame(
       const gameData = gameSnap.data();
       if (gameData.hostId !== hostUid) {
         throw new Error('FORBIDDEN_HOST');
+      }
+
+      if (gameData.status === 'question_active' && gameData.currentQuestionIndex === 0) {
+        // Idempotent retry: host restarted or duplicate request on Q0
+        updatedGame = gameData;
+        return;
       }
 
       if (gameData.status !== 'lobby') {
@@ -1292,6 +1428,25 @@ export async function handleEndGame(
       return;
     }
 
+    if (data?.status === 'finished') {
+      res.status(200).json({
+        success: true,
+        status: 'finished',
+        message: 'Game already finished',
+      });
+      return;
+    }
+
+    if (data?.status === 'cancelled') {
+      res.status(400).json({ error: 'Cannot finish a cancelled game' });
+      return;
+    }
+
+    if (data?.status === 'lobby') {
+      res.status(400).json({ error: 'Cannot finish a game that is still in lobby. Start or cancel the game instead.' });
+      return;
+    }
+
     // Idempotent end
     await gameDocRef.update({
       status: 'finished',
@@ -1299,6 +1454,8 @@ export async function handleEndGame(
       finishedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    clearAnswerKeyCache(gameId);
 
     res.status(200).json({
       success: true,
@@ -1361,11 +1518,22 @@ export async function handleCancelGame(
       return;
     }
 
+    if (data?.status === 'cancelled') {
+      res.status(200).json({
+        success: true,
+        status: 'cancelled',
+        message: 'Game already cancelled',
+      });
+      return;
+    }
+
     await gameDocRef.update({
       status: 'cancelled',
       isLocked: true,
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    clearAnswerKeyCache(gameId);
 
     res.status(200).json({
       success: true,
@@ -1433,10 +1601,21 @@ export async function handleSessionRecovery(
 
     // Check if requester is the game host
     if (gameData?.hostId === authUser.uid) {
+      const now = Date.now();
+      await gameDocRef.update({
+        hostStatus: 'connected',
+        hostLastSeen: FieldValue.serverTimestamp(),
+        hostLastSeenMs: now,
+      }).catch(() => {});
+
       res.status(200).json({
         success: true,
         role: 'host',
-        game: gameData,
+        game: {
+          ...gameData,
+          hostStatus: 'connected',
+          hostLastSeenMs: now,
+        },
       });
       return;
     }
@@ -1472,10 +1651,25 @@ export async function handleSessionRecovery(
       return;
     }
 
+    // Automatically check host presence and detect genuine abandonment
+    const hostPresence = checkHostPresence(gameData);
+    if (hostPresence.status === 'abandoned' && gameData.hostStatus !== 'abandoned') {
+      await gameDocRef.update({
+        hostStatus: 'abandoned',
+        isHostAbandoned: true,
+        updatedAt: FieldValue.serverTimestamp(),
+      }).catch(() => {});
+      gameData.hostStatus = 'abandoned';
+      gameData.isHostAbandoned = true;
+    }
+
     res.status(200).json({
       success: true,
       role: 'player',
-      game: gameData,
+      game: {
+        ...gameData,
+        hostStatus: hostPresence.status,
+      },
       player: playerData,
     });
   } catch (err: any) {
@@ -1558,5 +1752,101 @@ export async function handleReconcilePlayerCount(
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to reconcile player count' });
+  }
+}
+
+export const ABANDONMENT_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period
+
+/**
+ * Checks host presence and distinguishes temporary disconnection from genuine abandonment.
+ */
+export function checkHostPresence(gameData: any, nowMs = Date.now()): {
+  isConnected: boolean;
+  status: 'connected' | 'temporarily_disconnected' | 'abandoned';
+  elapsedSinceHeartbeatMs: number;
+} {
+  // If game does not track heartbeat yet or is freshly created, it is considered active
+  if (!gameData?.hostLastSeenMs && !gameData?.hostStatus) {
+    return { isConnected: true, status: 'connected', elapsedSinceHeartbeatMs: 0 };
+  }
+
+  const lastSeen = Number(gameData?.hostLastSeenMs || 0);
+  const elapsed = lastSeen > 0 ? Math.max(0, nowMs - lastSeen) : 0;
+
+  if (gameData?.hostStatus === 'connected' && (lastSeen === 0 || elapsed < 60_000)) {
+    return { isConnected: true, status: 'connected', elapsedSinceHeartbeatMs: elapsed };
+  }
+
+  // Only declare abandoned if explicitly marked abandoned or disconnected for > 5 minutes
+  if (gameData?.isHostAbandoned || (gameData?.hostStatus === 'disconnected' && lastSeen > 0 && elapsed >= ABANDONMENT_GRACE_PERIOD_MS)) {
+    return { isConnected: false, status: 'abandoned', elapsedSinceHeartbeatMs: elapsed };
+  }
+
+  return { isConnected: false, status: 'temporarily_disconnected', elapsedSinceHeartbeatMs: elapsed };
+}
+
+/**
+ * POST /api/host-heartbeat
+ * Authoritative host heartbeat maintaining host presence without arbitrary termination.
+ */
+export async function handleHostHeartbeat(
+  req: Request,
+  res: Response,
+  options: GameSessionHandlerOptions = {}
+): Promise<void> {
+  const adminAuth = options.adminAuth;
+  const adminDb = options.adminDb;
+
+  if (!adminAuth || !adminDb) {
+    res.status(500).json({ error: 'Backend auth or database service unavailable' });
+    return;
+  }
+
+  const authUser = await authenticateToken(req, adminAuth);
+  if (!authUser) {
+    res.status(401).json({ error: 'Unauthorized: Valid Firebase ID token required' });
+    return;
+  }
+
+  const { gameId, status } = req.body || {};
+  if (!gameId) {
+    res.status(400).json({ error: 'Missing gameId parameter' });
+    return;
+  }
+
+  const gameDocRef = adminDb.doc(`games/${gameId}`);
+
+  try {
+    const snap = await gameDocRef.get();
+    if (!snap.exists) {
+      res.status(404).json({ error: 'Game not found' });
+      return;
+    }
+
+    const data = snap.data();
+    if (data?.hostId !== authUser.uid) {
+      res.status(403).json({ error: 'Forbidden: Only the game host can send heartbeats' });
+      return;
+    }
+
+    const now = Date.now();
+    const newHostStatus = status === 'disconnected' ? 'disconnected' : 'connected';
+
+    await gameDocRef.update({
+      hostStatus: newHostStatus,
+      hostLastSeen: FieldValue.serverTimestamp(),
+      hostLastSeenMs: now,
+      ...(newHostStatus === 'disconnected' ? { hostDisconnectedAt: FieldValue.serverTimestamp() } : {}),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    res.status(200).json({
+      success: true,
+      hostStatus: newHostStatus,
+      hostLastSeenMs: now,
+      gameStatus: data?.status,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update host heartbeat' });
   }
 }

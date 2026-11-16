@@ -5,6 +5,9 @@
 
 import { jsPDF } from 'jspdf';
 import { NOTO_SANS_TAMIL_BASE64, NOTO_SANS_DEVANAGARI_BASE64 } from './unicodeFontData';
+import { auth, db, isFirebaseConfigured } from '../lib/firebase';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { IssuedCertificate } from '../types/certificate';
 
 export interface CertificateData {
   studentName: string;
@@ -328,4 +331,101 @@ export function exportLmsGradeCsv(rows: {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+}
+
+const API_BASE = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE_URL) || '';
+
+/**
+ * Issues a verified certificate for a finished game via backend API.
+ */
+export async function issueGameCertificate(
+  gameId: string,
+  ownerId: string
+): Promise<{ success: boolean; certificate?: IssuedCertificate; error?: string }> {
+  const user = auth.currentUser;
+  if (!user) {
+    return { success: false, error: 'Authentication required to issue certificate.' };
+  }
+
+  let token: string | null = null;
+  try {
+    token = await user.getIdToken();
+  } catch {
+    return { success: false, error: 'Failed to retrieve auth token.' };
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/certificates/issue`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ownerId,
+        assessmentType: 'quiz',
+        assessmentId: gameId,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { success: false, error: data.error || `Certificate issuance failed (HTTP ${res.status}).` };
+    }
+
+    return { success: true, certificate: data.certificate };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Network error during certificate issuance.' };
+  }
+}
+
+/**
+ * Lists user's issued certificates via backend API with Firestore fallback.
+ */
+export async function listUserCertificates(ownerId?: string): Promise<IssuedCertificate[]> {
+  const user = auth.currentUser;
+  if (!user) return [];
+  // Strictly enforce authenticated user UID to prevent unauthorized queries
+  const effectiveOwnerId = user.uid;
+
+  let token: string | null = null;
+  try {
+    token = await user.getIdToken();
+  } catch {}
+
+  if (token) {
+    try {
+      const res = await fetch(`${API_BASE}/api/certificates/my-certificates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.certificates)) {
+          return data.certificates;
+        }
+      }
+    } catch {}
+  }
+
+  // Fallback to direct client Firestore query if available
+  if (isFirebaseConfigured && db) {
+    try {
+      const q = query(
+        collection(db, 'certificates'),
+        where('ownerId', '==', effectiveOwnerId),
+        orderBy('issueDate', 'desc'),
+        limit(50)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map(d => d.data() as IssuedCertificate);
+    } catch {
+      const qSimple = query(collection(db, 'certificates'), where('ownerId', '==', effectiveOwnerId), limit(50));
+      const snap = await getDocs(qSimple);
+      return snap.docs
+        .map(d => d.data() as IssuedCertificate)
+        .sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));
+    }
+  }
+
+  return [];
 }

@@ -5,7 +5,7 @@
 
 import { Question, Player, AnswerSubmission, GameSession, Quiz } from '../types/quiz';
 import { db, isFirebaseConfigured } from '../lib/firebase';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, limit } from 'firebase/firestore';
 
 export interface QuestionAnalytics {
   questionIndex: number;
@@ -357,21 +357,55 @@ export function computeGameAnalytics(
   };
 }
 
+interface FinishedGamesCacheEntry {
+  data: FinishedGameSummary[];
+  cachedAt: number;
+}
+const finishedGamesCache = new Map<string, FinishedGamesCacheEntry>();
+export const FINISHED_GAMES_CACHE_TTL_MS = 10_000;
+
+export function clearFinishedGamesCache(hostId?: string): void {
+  if (hostId) {
+    finishedGamesCache.delete(hostId);
+  } else {
+    finishedGamesCache.clear();
+  }
+}
+
 /**
  * Fetch finished games available in Firestore and LocalStorage, strictly scoped to the authenticated host.
+ * Bounded query limits, caching, and timeouts prevent unbounded collection scans and hanging connections.
  */
-export async function getFinishedGamesList(hostId?: string): Promise<FinishedGameSummary[]> {
+export async function getFinishedGamesList(
+  hostId?: string,
+  options?: { limit?: number; timeoutMs?: number; skipCache?: boolean }
+): Promise<FinishedGameSummary[]> {
+  const cacheKey = hostId || '__all__';
+  const now = Date.now();
+  if (!options?.skipCache) {
+    const cached = finishedGamesCache.get(cacheKey);
+    if (cached && now - cached.cachedAt < FINISHED_GAMES_CACHE_TTL_MS) {
+      return [...cached.data];
+    }
+  }
+
   const gamesMap = new Map<string, FinishedGameSummary>();
+  const queryLimit = Math.max(1, Math.min(Number(options?.limit) || 50, 100));
+  const timeoutMs = Math.max(500, Math.min(Number(options?.timeoutMs) || 2500, 10000));
 
   // 1. Fetch from Firestore if configured & hostId provided
   if (isFirebaseConfigured && db) {
     try {
       const gamesCol = collection(db, 'games');
       const q = hostId
-        ? query(gamesCol, where('hostId', '==', hostId), where('status', '==', 'finished'))
-        : query(gamesCol, where('status', '==', 'finished'));
+        ? query(gamesCol, where('hostId', '==', hostId), where('status', '==', 'finished'), limit(queryLimit))
+        : query(gamesCol, where('status', '==', 'finished'), limit(queryLimit));
       
-      const snap = await getDocs(q);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Firestore finished games query timeout')), timeoutMs)
+      );
+
+      const snap = await Promise.race([getDocs(q), timeoutPromise]);
       snap.forEach(d => {
         const data = d.data() as GameSession;
         // Verify host authorization
@@ -427,9 +461,12 @@ export async function getFinishedGamesList(hostId?: string): Promise<FinishedGam
     }
   } catch (e) {}
 
-  return Array.from(gamesMap.values()).sort(
+  const sorted = Array.from(gamesMap.values()).sort(
     (a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime()
   );
+
+  finishedGamesCache.set(cacheKey, { data: sorted, cachedAt: now });
+  return sorted;
 }
 
 /**
@@ -457,14 +494,14 @@ export async function loadGameData(gameId: string, hostId?: string): Promise<{
           game = data;
           questions = game.questions || [];
 
-          // Players subcollection
-          const pSnap = await getDocs(collection(db, 'games', gameId, 'players'));
+          // Bounded Players subcollection (capped at 250)
+          const pSnap = await getDocs(query(collection(db, 'games', gameId, 'players'), limit(250)));
           pSnap.forEach(d => {
             players.push({ id: d.id, ...d.data() } as Player);
           });
 
-          // Answers subcollection
-          const aSnap = await getDocs(collection(db, 'games', gameId, 'answers'));
+          // Bounded Answers subcollection (capped at 1500)
+          const aSnap = await getDocs(query(collection(db, 'games', gameId, 'answers'), limit(1500)));
           aSnap.forEach(d => {
             answers.push({ id: d.id, ...d.data() } as AnswerSubmission);
           });

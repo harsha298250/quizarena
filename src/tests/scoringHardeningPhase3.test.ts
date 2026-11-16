@@ -508,10 +508,19 @@ async function runAllTests() {
     await handleAnswerSubmission(call1.req, call1.res, { adminAuth, adminDb });
     assert.strictEqual(call1.getStatus(), 200);
 
-    // Duplicate submission for same question: 409 Conflict
-    const call2 = mockReqRes(
+    // Duplicate submission with identical payload: 200 OK (idempotent repeat without double points)
+    const callRepeat = mockReqRes(
       { authorization: 'Bearer player_token_1' },
       { gameId: 'game_test', questionIndex: 0, selectedIndices: [1] }
+    );
+    await handleAnswerSubmission(callRepeat.req, callRepeat.res, { adminAuth, adminDb });
+    assert.strictEqual(callRepeat.getStatus(), 200);
+    assert.strictEqual(callRepeat.getData().idempotentRepeat, true);
+
+    // Duplicate submission with conflicting payload for same question: 409 Conflict
+    const call2 = mockReqRes(
+      { authorization: 'Bearer player_token_1' },
+      { gameId: 'game_test', questionIndex: 0, selectedIndices: [2] }
     );
     await handleAnswerSubmission(call2.req, call2.res, { adminAuth, adminDb });
     assert.strictEqual(call2.getStatus(), 409);
@@ -965,7 +974,11 @@ async function runAllTests() {
   console.log('========================================\n');
 }
 
-runAllTests().catch(err => {
-  console.error('Test Suite Failed:', err);
-  process.exit(1);
-});
+runAllTests()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch(err => {
+    console.error('Test Suite Failed:', err);
+    process.exit(1);
+  });

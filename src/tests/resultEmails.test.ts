@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+process.env.NODE_ENV = 'test';
+
 import assert from 'assert';
 import {
   checkHostEmailRateLimit,

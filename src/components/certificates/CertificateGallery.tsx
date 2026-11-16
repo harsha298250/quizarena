@@ -6,10 +6,9 @@
 import React, { useState, useEffect } from 'react';
 import { sound } from '../../lib/sound';
 import { EmptyState } from '../common/EmptyState';
-import { auth, db, isFirebaseConfigured } from '../../lib/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { auth } from '../../lib/firebase';
 import { IssuedCertificate, PublicVerificationResult } from '../../types/certificate';
-import { generateCertificatePdf } from '../../services/certificateService';
+import { generateCertificatePdf, listUserCertificates } from '../../services/certificateService';
 
 export const CertificateGallery: React.FC = () => {
   const [certificates, setCertificates] = useState<IssuedCertificate[]>([]);
@@ -46,14 +45,6 @@ export const CertificateGallery: React.FC = () => {
         }
         return;
       }
-      if (!isFirebaseConfigured || !db) {
-        if (!cancelled) {
-          setCertificates([]);
-          setLoadError('Certificate storage is unavailable in this environment.');
-          setIsLoading(false);
-        }
-        return;
-      }
 
       if (!cancelled) {
         setIsLoading(true);
@@ -61,11 +52,7 @@ export const CertificateGallery: React.FC = () => {
       }
 
       try {
-        const q = query(collection(db, 'certificates'), where('ownerId', '==', studentUid));
-        const snap = await getDocs(q);
-        const list = snap.docs
-          .map(d => d.data() as IssuedCertificate)
-          .sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));
+        const list = await listUserCertificates(studentUid);
         if (!cancelled) setCertificates(list);
       } catch (err: any) {
         if (!cancelled) {

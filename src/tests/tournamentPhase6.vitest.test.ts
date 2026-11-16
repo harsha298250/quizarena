@@ -68,7 +68,7 @@ function createMockReqRes(options: {
   const adminAuth: any = {
     verifyIdToken: async (token: string) => {
       if (token === 'valid_host_token') {
-        return { uid: 'host_123', name: 'Prof. Turing', email: 'turing@quizarena.io' };
+        return { uid: 'host_123', name: 'Prof. Turing', email: 'turing@quizarena.io', email_verified: true };
       }
       if (token === 'valid_player_1') {
         return { uid: 'player_1', name: 'Alice' };

@@ -20,7 +20,42 @@ interface LobbyViewProps {
   onUpdateSettings?: (settings: Partial<GameSession['settings']> & { timeLimit?: number }) => void;
 }
 
-export const LobbyView: React.FC<LobbyViewProps> = ({
+const PlayerLobbyCard = React.memo<{
+  player: Player;
+  index: number;
+  isHost: boolean;
+  onKickPlayer?: (id: string) => void;
+}>(({ player, index, isHost, onKickPlayer }) => {
+  return (
+    <div
+      style={{ animationDelay: `${Math.min(index * 35, 1200)}ms` }}
+      className="paper-card p-3 flex flex-col items-center text-center relative group hover:-translate-y-1 transition-transform animate-pop-in"
+    >
+      <Avatar config={player.avatarConfig || player.avatar} seed={player.nickname} size={46} className="mb-1" />
+      <span className="font-black text-sm text-[var(--text)] truncate max-w-full">
+        {player.nickname}
+      </span>
+      <span className="text-[10px] font-mono-code text-[var(--text-muted)] font-semibold">
+        {player.latencyMs}ms
+      </span>
+
+      {isHost && onKickPlayer && (
+        <button
+          onClick={() => {
+            sound.playClick();
+            onKickPlayer(player.id);
+          }}
+          className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full h-5 w-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-[var(--border)]"
+          title="Kick player"
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+});
+
+export const LobbyView: React.FC<LobbyViewProps> = React.memo(({
   game,
   players,
   isHost,
@@ -402,32 +437,13 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {players.map((p, idx) => (
-              <div
+              <PlayerLobbyCard
                 key={p.id || idx}
-                style={{ animationDelay: `${Math.min(idx * 35, 1200)}ms` }}
-                className="paper-card p-3 flex flex-col items-center text-center relative group hover:-translate-y-1 transition-transform animate-pop-in"
-              >
-                <Avatar config={p.avatarConfig || p.avatar} seed={p.nickname} size={46} className="mb-1" />
-                <span className="font-black text-sm text-[var(--text)] truncate max-w-full">
-                  {p.nickname}
-                </span>
-                <span className="text-[10px] font-mono-code text-[var(--text-muted)] font-semibold">
-                  {p.latencyMs}ms
-                </span>
-
-                {isHost && onKickPlayer && (
-                  <button
-                    onClick={() => {
-                      sound.playClick();
-                      onKickPlayer(p.id);
-                    }}
-                    className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full h-5 w-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-[var(--border)]"
-                    title="Kick player"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+                player={p}
+                index={idx}
+                isHost={isHost}
+                onKickPlayer={onKickPlayer}
+              />
             ))}
           </div>
         )}
@@ -457,4 +473,4 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       )}
     </div>
   );
-};
+});

@@ -18,7 +18,7 @@
 | **4** | **Multiplayer** | Atomic lobby join (300 player cap), live status sync, disconnect recovery, timer sync. | Concurrency & Recovery Test Suite (`multiplayerEnginePhase2.test.ts`) | **PASS** |
 | **5** | **Scoring** | Server-calculated fair scores, speed weighting, anti-cheat latency clamping, power-ups. | Deterministic Math Verification (`scoringHardeningPhase3.test.ts`) | **PASS** |
 | **6** | **Quiz Management** | Structural question validation, multiple question types, options integrity, author ownership. | Studio Test Suite (`quizStudioPhase4.vitest.test.ts`) | **PASS** |
-| **7** | **AI Generation** | Automatic model fallback (`gemini-3.8-flash` -> `gemini-2.0-flash`), prompt guards, error normalizer. | AI Model Suite (`aiModelConfig.test.ts`) | **PASS** |
+| **7** | **AI Generation** | Automatic model fallback (`gemini-2.5-flash` -> `gemini-2.0-flash`), prompt guards, error normalizer. | AI Model Suite (`aiModelConfig.test.ts`) | **PASS** |
 | **8** | **Analytics** | Accurate available marks denominator, completion vs accuracy, difficulty index, Bloom mastery. | Assessment Suite (`analyticsPhase5.vitest.test.ts`) | **PASS** |
 | **9** | **Tournaments** | Single-elimination brackets with byes for odd participant counts, match advancement, Elo ratings. | Tournament Suite (`tournamentPhase6.vitest.test.ts`) | **PASS** |
 | **10** | **Email Notifications** | Asynchronous outbox queue, exponential retry backoff, multi-provider dispatch (Resend/Brevo/SMTP). | Outbox Worker Suite (`notificationsPhase7.vitest.test.ts`) | **PASS** |
