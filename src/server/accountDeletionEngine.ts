@@ -898,15 +898,46 @@ export async function executeDeletionJob(
           const bucket =
             typeof adminStorage.bucket === 'function' ? adminStorage.bucket() : adminStorage;
           if (!bucket || typeof bucket.getFiles !== 'function' || typeof bucket.deleteFiles !== 'function') {
-            throw new Error('Firebase Storage bucket is unavailable for purge.');
+            console.log(`[AccountDeletion] Storage bucket is unconfigured for user ${uid}; skipping purge_storage.`);
+            break;
           }
-          const userPrefixes = [`users/${uid}/`, `avatars/${uid}/`];
-          for (const prefix of userPrefixes) {
-            const [files] = await bucket.getFiles({ prefix });
-            if (Array.isArray(files) && files.length > 0) {
-              await bucket.deleteFiles({ prefix });
-              job.counts.deletedStorageFiles += files.length;
+
+          if (bucket.isConfigured === false || bucket.name === '' || bucket.name === 'unconfigured') {
+            console.log(`[AccountDeletion] Storage bucket is unconfigured for user ${uid}; skipping purge_storage.`);
+            break;
+          }
+
+          try {
+            if (typeof bucket.exists === 'function') {
+              const existsResult = await bucket.exists();
+              const exists = Array.isArray(existsResult) ? existsResult[0] : Boolean(existsResult);
+              if (!exists) {
+                console.log(`[AccountDeletion] Storage bucket does not exist for user ${uid}; skipping purge_storage.`);
+                break;
+              }
             }
+
+            const userPrefixes = [`users/${uid}/`, `avatars/${uid}/`];
+            for (const prefix of userPrefixes) {
+              const [files] = await bucket.getFiles({ prefix });
+              if (Array.isArray(files) && files.length > 0) {
+                await bucket.deleteFiles({ prefix });
+                job.counts.deletedStorageFiles += files.length;
+              }
+            }
+          } catch (storageErr: any) {
+            const isNotFoundOrMissing =
+              storageErr?.code === 404 ||
+              storageErr?.status === 404 ||
+              /not found|does not exist|no such bucket|unconfigured/i.test(storageErr?.message || '');
+
+            if (isNotFoundOrMissing) {
+              console.log(`[AccountDeletion] Storage bucket/path returned 404/not found for user ${uid}; skipping purge_storage.`);
+              break;
+            }
+
+            // Genuine failures (e.g. 403 Forbidden, 500 Internal, network error) remain retry-safe
+            throw storageErr;
           }
           break;
         }
