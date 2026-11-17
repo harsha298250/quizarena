@@ -681,6 +681,7 @@ export default function App() {
           setTheme={setTheme}
           currentUser={currentUser}
           isLiveGame={inActivePlayerGame}
+          onNavigate={handleTabChange}
           onSwitchToHost={
             isHostEligible && userRole === 'student' && !inActivePlayerGame
               ? () => {

@@ -20,6 +20,7 @@ interface CommandPaletteProps {
   onClose: () => void;
   onNavigate: (tabId: string) => void;
   onOpenSettings?: () => void;
+  onOpenShortcuts?: () => void;
   onSwitchRole?: (role: 'host' | 'student') => void;
   userRole?: 'host' | 'student';
 }
@@ -29,6 +30,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onClose,
   onNavigate,
   onOpenSettings,
+  onOpenShortcuts,
   onSwitchRole,
   userRole = 'host',
 }) => {
@@ -110,6 +112,16 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       shortcut: ',',
       action: () => {
         if (onOpenSettings) onOpenSettings();
+      },
+    },
+    {
+      id: 'action_shortcuts',
+      title: 'Keyboard Shortcuts Help',
+      category: 'Help',
+      icon: '⌨️',
+      shortcut: '?',
+      action: () => {
+        if (onOpenShortcuts) onOpenShortcuts();
       },
     },
     {

@@ -9,6 +9,8 @@ import { sound } from '../../lib/sound';
 import { ThemeMode } from '../../hooks/useTheme';
 import { SettingsModal } from '../common/SettingsModal';
 import { CommandPalette } from '../common/CommandPalette';
+import { KeyboardShortcutsModal } from '../common/KeyboardShortcutsModal';
+import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { User } from 'firebase/auth';
 import { signOut, auth } from '../../lib/firebase';
 
@@ -31,6 +33,7 @@ interface NavItem {
   label: string;
   icon: string;
   section: 'overview' | 'create' | 'run' | 'review';
+  shortcut?: string;
 }
 
 export const HostShell: React.FC<HostShellProps> = ({
@@ -60,7 +63,23 @@ export const HostShell: React.FC<HostShellProps> = ({
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  const handleNavClick = (tabId: string) => {
+    sound.playClick();
+    setCurrentTab(tabId);
+    setMobileDrawerOpen(false);
+  };
+
+  // Resilient Global Shortcuts Hook (Handles '?', Ctrl+K/Cmd+K, and 'G then letter' sequence)
+  const { sequencePending } = useGlobalShortcuts({
+    onNavigate: handleNavClick,
+    onOpenCommandPalette: () => setCommandPaletteOpen(true),
+    onOpenShortcutsHelp: () => setShortcutsModalOpen(true),
+    userRole,
+    isLiveGame: false,
+  });
 
   // An authenticated user is one that exists and is not anonymous
   const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
@@ -76,18 +95,6 @@ export const HostShell: React.FC<HostShellProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Global Ctrl+K / Cmd+K listener
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setCommandPaletteOpen(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const toggleSidebar = () => {
     sound.playClick();
     setIsCollapsed(prev => {
@@ -99,12 +106,6 @@ export const HostShell: React.FC<HostShellProps> = ({
     });
   };
 
-  const handleNavClick = (tabId: string) => {
-    sound.playClick();
-    setCurrentTab(tabId);
-    setMobileDrawerOpen(false);
-  };
-
   const handleSignOut = async () => {
     sound.playClick();
     await signOut(auth);
@@ -112,17 +113,17 @@ export const HostShell: React.FC<HostShellProps> = ({
 
   const navItems: NavItem[] = [
     // Overview
-    { id: 'host_dashboard', label: 'Dashboard', icon: '🏠', section: 'overview' },
+    { id: 'host_dashboard', label: 'Dashboard', icon: '🏠', section: 'overview', shortcut: 'G D' },
     // Create
-    { id: 'builder', label: 'Quiz Studio', icon: '✏️', section: 'create' },
-    { id: 'ai', label: 'AI Quiz', icon: '✨', section: 'create' },
+    { id: 'builder', label: 'Quiz Studio', icon: '✏️', section: 'create', shortcut: 'G S' },
+    { id: 'ai', label: 'AI Quiz', icon: '✨', section: 'create', shortcut: 'G I' },
     // Run
-    { id: 'arena', label: 'Host Live', icon: '🎮', section: 'run' },
-    { id: 'competitions', label: 'Tournaments', icon: '🏆', section: 'run' },
+    { id: 'arena', label: 'Host Live', icon: '🎮', section: 'run', shortcut: 'G A' },
+    { id: 'competitions', label: 'Tournaments', icon: '🏆', section: 'run', shortcut: 'G T' },
     // Review
-    { id: 'analytics', label: 'Analytics', icon: '📊', section: 'review' },
-    { id: 'certificates', label: 'Certificates', icon: '🎓', section: 'review' },
-    { id: 'outbox', label: 'Outbox', icon: '📬', section: 'review' },
+    { id: 'analytics', label: 'Analytics', icon: '📊', section: 'review', shortcut: 'G L' },
+    { id: 'certificates', label: 'Certificates', icon: '🎓', section: 'review', shortcut: 'G C' },
+    { id: 'outbox', label: 'Outbox', icon: '📬', section: 'review', shortcut: 'G O' },
   ];
 
   const renderNavGroup = (section: NavItem['section'], title: string) => {
@@ -143,7 +144,7 @@ export const HostShell: React.FC<HostShellProps> = ({
               data-tab={item.id}
               onClick={() => handleNavClick(item.id)}
               aria-current={isActive ? 'page' : undefined}
-              title={isCollapsed ? item.label : undefined}
+              title={isCollapsed ? (item.shortcut ? `${item.label} (${item.shortcut})` : item.label) : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold font-['Bricolage_Grotesque'] transition-all border ${
                 isActive
                   ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)] shadow-[2px_2px_0px_var(--shadow)]'
@@ -153,7 +154,22 @@ export const HostShell: React.FC<HostShellProps> = ({
               <span className="text-base shrink-0 select-none" aria-hidden="true">
                 {item.icon}
               </span>
-              {!isCollapsed && <span className="truncate">{item.label}</span>}
+              {!isCollapsed && (
+                <div className="flex items-center justify-between flex-1 min-w-0">
+                  <span className="truncate">{item.label}</span>
+                  {item.shortcut && (
+                    <kbd
+                      className={`ml-1.5 px-1.5 py-0.5 text-[9px] font-mono-code font-bold rounded border ${
+                        isActive
+                          ? 'bg-black/20 text-white/95 border-white/30'
+                          : 'bg-[var(--surface-2)] text-[var(--text-muted)] border-[var(--border)]/40'
+                      }`}
+                    >
+                      {item.shortcut}
+                    </kbd>
+                  )}
+                </div>
+              )}
             </button>
           );
         })}
@@ -330,28 +346,40 @@ export const HostShell: React.FC<HostShellProps> = ({
               </div>
             )}
 
-            {/* Settings Trigger */}
-            <button
-              type="button"
-              onClick={() => {
-                sound.playClick();
-                setSettingsOpen(true);
-              }}
-              className={`w-full flex items-center gap-2 p-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface)] text-xs font-bold transition-colors ${
-                isCollapsed ? 'justify-center' : 'justify-between'
-              }`}
-              title="Settings & Privacy"
-            >
-              <span className="flex items-center gap-2">
+            {/* Settings & Shortcuts Trigger */}
+            <div className={`grid ${isCollapsed ? 'grid-cols-1' : 'grid-cols-2'} gap-1.5`}>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  setSettingsOpen(true);
+                }}
+                className={`flex items-center gap-1.5 p-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface)] text-xs font-bold transition-colors ${
+                  isCollapsed ? 'justify-center' : 'justify-center'
+                }`}
+                title="Settings & Privacy"
+              >
                 <span>⚙️</span>
-                {!isCollapsed && <span>Preferences</span>}
-              </span>
-              {!isCollapsed && (
-                <span className="text-[10px] font-mono-code text-[var(--text-muted)] uppercase">
-                  {theme}
-                </span>
-              )}
-            </button>
+                {!isCollapsed && <span>Settings</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  setShortcutsModalOpen(true);
+                }}
+                className="flex items-center justify-center gap-1.5 p-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--surface)] text-xs font-bold transition-colors"
+                title="Keyboard Shortcuts (?)"
+              >
+                <span>⌨️</span>
+                {!isCollapsed && (
+                  <span className="flex items-center gap-1">
+                    <span>Keys</span>
+                    <kbd className="px-1 text-[9px] font-mono-code bg-[var(--surface)] border border-[var(--border)] rounded">?</kbd>
+                  </span>
+                )}
+              </button>
+            </div>
 
             {/* Profile Card & Prominent Sign Out (ONLY for authenticated hosts) */}
             {isAuthenticated ? (
@@ -403,7 +431,16 @@ export const HostShell: React.FC<HostShellProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShortcutsModalOpen(true)}
+              className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
+              title="Keyboard Shortcuts (?)"
+              aria-label="Keyboard Shortcuts"
+            >
+              ⌨️
+            </button>
             <button
               type="button"
               onClick={() => setCommandPaletteOpen(true)}
@@ -629,9 +666,24 @@ export const HostShell: React.FC<HostShellProps> = ({
         onClose={() => setCommandPaletteOpen(false)}
         onNavigate={handleNavClick}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenShortcuts={() => setShortcutsModalOpen(true)}
         onSwitchRole={r => setUserRole(r)}
         userRole={userRole}
       />
+      <KeyboardShortcutsModal
+        isOpen={shortcutsModalOpen}
+        onClose={() => setShortcutsModalOpen(false)}
+      />
+      {sequencePending && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 right-4 z-50 bg-[var(--accent)] text-[var(--text-on-accent)] px-3 py-1.5 rounded-xl border-2 border-[var(--border)] shadow-[4px_4px_0px_var(--shadow)] text-xs font-bold font-mono-code flex items-center gap-2 animate-bounce"
+        >
+          <span>🧭</span>
+          <span>Press D, A, S, I, T, L, C, or O...</span>
+        </div>
+      )}
     </div>
   );
 };

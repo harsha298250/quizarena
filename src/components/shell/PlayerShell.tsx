@@ -10,6 +10,8 @@ import { ThemeToggle } from '../common/ThemeToggle';
 import { ThemeMode } from '../../hooks/useTheme';
 import { AuthModal } from '../common/AuthModal';
 import { SettingsModal } from '../common/SettingsModal';
+import { KeyboardShortcutsModal } from '../common/KeyboardShortcutsModal';
+import { useGlobalShortcuts } from '../../hooks/useGlobalShortcuts';
 import { User } from 'firebase/auth';
 
 interface PlayerShellProps {
@@ -21,6 +23,7 @@ interface PlayerShellProps {
   currentUser: User | null;
   onSwitchToHost?: () => void;
   onDeleteMyData?: () => void;
+  onNavigate?: (tabId: string) => void;
   isLiveGame?: boolean;
 }
 
@@ -33,10 +36,22 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
   currentUser,
   onSwitchToHost,
   onDeleteMyData,
+  onNavigate,
   isLiveGame = false,
 }) => {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+
+  // Global shortcuts handler respecting active gameplay isolation
+  useGlobalShortcuts({
+    onNavigate: tab => onNavigate && onNavigate(tab),
+    onOpenCommandPalette: () => {},
+    onOpenShortcutsHelp: () => setShortcutsModalOpen(true),
+    userRole: 'student',
+    isLiveGame,
+    enabled: true,
+  });
 
   // An authenticated user is one that exists and is not anonymous
   const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
@@ -97,6 +112,22 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
               <ThemeToggle theme={theme} setTheme={t => setTheme && setTheme(t)} />
             </div>
 
+            {/* Keyboard Shortcuts button (Hidden during live quiz) */}
+            {!isLiveGame && (
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  setShortcutsModalOpen(true);
+                }}
+                className="p-1.5 rounded-lg border-2 border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] shadow-xs transition-transform active:translate-y-0.5 shrink-0"
+                title="Keyboard Shortcuts (?)"
+                aria-label="Keyboard Shortcuts"
+              >
+                <span aria-hidden="true">⌨️</span>
+              </button>
+            )}
+
             {/* Settings button - Always visible on all screens */}
             <button
               type="button"
@@ -143,6 +174,10 @@ export const PlayerShell: React.FC<PlayerShellProps> = ({
         onDeleteMyData={onDeleteMyData}
         currentUserEmail={isAuthenticated ? currentUser?.email : null}
         currentUserName={isAuthenticated ? currentUser?.displayName : null}
+      />
+      <KeyboardShortcutsModal
+        isOpen={shortcutsModalOpen}
+        onClose={() => setShortcutsModalOpen(false)}
       />
     </div>
   );
