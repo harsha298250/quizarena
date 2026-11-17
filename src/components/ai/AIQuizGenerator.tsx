@@ -727,8 +727,6 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
                 className="w-full rounded-xl border-2 border-[var(--border)] p-2 text-xs font-bold bg-[var(--surface)] text-[var(--text)] shadow-[2px_2px_0px_var(--shadow)]"
               >
                 <option value="en">English</option>
-                <option value="ta">Tamil (தமிழ்)</option>
-                <option value="hi">Hindi (हिन्दी)</option>
               </select>
             </div>
 

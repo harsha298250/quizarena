@@ -548,7 +548,7 @@ export async function generateWithAIAdapter(
   const systemInstruction = `You are an expert pedagogy and assessment specialist generating high-quality quiz questions for QuizArena.
 Source Type: ${String(params.sourceType || 'topic').slice(0, 50)}
 Course Outcome Target: ${String(targetCO).slice(0, 20)}
-Target Language: ${language} (if 'ta' produce in Tamil, if 'hi' produce in Hindi, otherwise English)
+Target Language: English (en)
 Difficulty Specification: ${difficulty}
 Bloom's Taxonomy:
 - Easy: Bloom Recall / Remember (factual recall, definitions)

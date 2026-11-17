@@ -44,9 +44,9 @@
     --color-teal: var(--ok);
     --color-sky: var(--info);
 
-    /* Typography stacks with complete locale fallbacks */
-    --font-body: 'DM Sans', 'Noto Sans Tamil', 'Noto Sans Devanagari', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-heading: 'Bricolage Grotesque', 'DM Sans', 'Noto Sans Tamil', 'Noto Sans Devanagari', sans-serif;
+    /* Typography stacks */
+    --font-body: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-heading: 'Bricolage Grotesque', 'DM Sans', sans-serif;
     --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 
