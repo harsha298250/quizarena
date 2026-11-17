@@ -164,35 +164,7 @@ export default function App() {
     };
     window.addEventListener('quizarena_firestore_error', handleFsError);
 
-    // Authoritative session recovery on page reload/refresh
-    try {
-      const savedSession = sessionStorage.getItem('quizarena_active_session');
-      if (savedSession) {
-        const { gameId } = JSON.parse(savedSession);
-        if (gameId) {
-          GameEngine.recoverSession(gameId)
-            .then(recovery => {
-              if (recovery && recovery.game) {
-                setActiveGame(recovery.game);
-                if (recovery.role === 'player' && recovery.player) {
-                  setActivePlayer(recovery.player);
-                  setGameRole('player');
-                } else if (recovery.role === 'host') {
-                  setGameRole('host');
-                }
-                setCurrentTab('arena');
-              } else {
-                sessionStorage.removeItem('quizarena_active_session');
-              }
-            })
-            .catch(() => {
-              sessionStorage.removeItem('quizarena_active_session');
-            });
-        }
-      }
-    } catch (e) { }
-
-    // Load teacher's quizzes from Firestore after login
+    // Load teacher's quizzes from Firestore after login and recover active session safely
     const unsubAuth = auth.onAuthStateChanged(async user => {
       setCurrentUser(user);
       setAuthLoading(false);
@@ -208,6 +180,31 @@ export default function App() {
         }
       } else {
         setUserRole('student');
+      }
+
+      // Safe session recovery on page reload/refresh once auth state is initialized
+      try {
+        const savedSession = sessionStorage.getItem('quizarena_active_session');
+        if (savedSession) {
+          const { gameId } = JSON.parse(savedSession);
+          if (gameId) {
+            const recovery = await GameEngine.recoverSession(gameId);
+            if (recovery && recovery.game) {
+              setActiveGame(recovery.game);
+              if (recovery.role === 'player' && recovery.player) {
+                setActivePlayer(recovery.player);
+                setGameRole('player');
+              } else if (recovery.role === 'host') {
+                setGameRole('host');
+              }
+              setCurrentTab('arena');
+            } else {
+              sessionStorage.removeItem('quizarena_active_session');
+            }
+          }
+        }
+      } catch (e) {
+        sessionStorage.removeItem('quizarena_active_session');
       }
     });
 
@@ -349,65 +346,35 @@ export default function App() {
     }
     const gameId = `game_${pin}`;
 
-    // Load or create game session reference
-    let gameSession: GameSession | null = null;
     try {
-      const saved = localStorage.getItem(`quizarena_game_${gameId}`);
-      if (saved) gameSession = JSON.parse(saved);
-    } catch (e) { }
-
-    if (!gameSession) {
-      // Create guest game session on the fly matching the PIN if not pre-cached
-      const defaultQuiz = quizzes[0] || SAMPLE_QUIZZES[0];
-      const sanitizedQuestions = defaultQuiz.questions.map(({ correctAnswers, acceptedTextAnswers, ...rest }) => rest as any);
-      gameSession = {
-        id: gameId,
-        pin,
-        hostId: 'host_auto',
-        hostName: 'Arena Master',
-        quizId: defaultQuiz.id,
-        quizTitle: defaultQuiz.title,
-        status: 'lobby',
-        gameMode: 'classic',
-        currentQuestionIndex: 0,
-        questionStartTime: null,
-        timeLimit: defaultQuiz.questions[0]?.timeLimit || 20,
-        isPaused: false,
-        settings: {
-          shuffleQuestions: false,
-          shuffleOptions: false,
-          allowLateJoin: true,
-          enablePowerUps: true,
-          antiCheatDetection: true,
-          showLeaderboardBetween: true,
-          autoEmailResults: true,
-          scoringProfile: 'speed_weighted',
-          requireApprovalToJoin: false,
-          teamMode: false,
-        },
-        questions: sanitizedQuestions,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(gameSession));
-    }
-
-    try {
-      const joinRes = await GameEngine.joinGame(gameSession.id, newPlayer);
+      const joinRes = await GameEngine.joinGame(gameId, newPlayer);
       const resolvedPlayer = joinRes.player;
-      const resolvedGame = joinRes.game || gameSession;
+      const resolvedGame = joinRes.game;
+
+      if (!resolvedGame) {
+        throw new Error('Game session not found. Please check your PIN.');
+      }
 
       setActiveGame(resolvedGame);
       setActivePlayer(resolvedPlayer);
       setGameRole('player');
+      setPendingJoinPin('');
+
       try {
         sessionStorage.setItem(
           'quizarena_active_session',
           JSON.stringify({ gameId: resolvedGame.id, playerId: resolvedPlayer.id, role: 'player', pin })
         );
       } catch (e) { }
-    } catch (joinErr: any) {
-      alert(joinErr.message || 'Failed to join game');
+    } catch (err: any) {
+      sound.playWrong();
+      const message = err.message || 'Game session not found. Please check your PIN.';
+      addToast({
+        type: 'error',
+        title: 'Unable to Join Arena',
+        message,
+      });
+      throw err;
     }
   };
 

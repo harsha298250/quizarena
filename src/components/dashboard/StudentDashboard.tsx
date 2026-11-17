@@ -99,12 +99,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <div className="flex items-center gap-2">
               <input
                 type="text"
-                maxLength={6}
+                maxLength={8}
                 value={quickPin}
                 onChange={e => setQuickPin(e.target.value.replace(/\D/g, ''))}
                 placeholder="000000"
                 className="w-28 text-center font-mono-code font-black text-lg py-1.5 px-2 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-2)] text-[var(--text)]"
-                aria-label="Enter 6-digit Game PIN"
+                aria-label="Enter Game PIN"
               />
               <button
                 type="submit"

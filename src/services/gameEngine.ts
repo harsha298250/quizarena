@@ -254,8 +254,9 @@ export class GameEngine {
     const idToken = (await user?.getIdToken()) || '';
 
     if (isFirebaseConfigured && idToken) {
+      let res: Response | null = null;
       try {
-        const res = await fetch('/api/join', {
+        res = await fetch('/api/join', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -269,10 +270,19 @@ export class GameEngine {
             emailConsent: player.emailConsent,
           }),
         });
+      } catch (fetchErr: any) {
+        console.warn(`Server join network error for ${gameId}:`, fetchErr);
+      }
 
+      if (res) {
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `Failed to join game (HTTP ${res.status})`);
+          const errMsg =
+            errData.error ||
+            (res.status === 404
+              ? 'Game session not found. Please check your PIN.'
+              : `Failed to join game (HTTP ${res.status})`);
+          throw new Error(errMsg);
         }
 
         const data = await res.json();
@@ -293,12 +303,21 @@ export class GameEngine {
           game: data.game,
           player: data.player,
         };
-      } catch (e) {
-        console.warn(`Server join endpoint unavailable for ${gameId}, falling back to local join:`, e);
       }
     }
 
-    // Offline / Demo fallback
+    // Offline / Demo fallback: Only if a game was actually created in this browser
+    const localGameStr = localStorage.getItem(`quizarena_game_${gameId}`);
+    if (!localGameStr) {
+      throw new Error('Game session not found. Please check your PIN.');
+    }
+    let localGame: GameSession;
+    try {
+      localGame = JSON.parse(localGameStr);
+    } catch {
+      throw new Error('Game session not found. Please check your PIN.');
+    }
+
     if (user && player.id !== user.uid) {
       player.id = user.uid;
     }
@@ -317,7 +336,7 @@ export class GameEngine {
       players: filtered,
     });
 
-    return { player };
+    return { game: localGame, player };
   }
 
   // Host kicks a player via server-controlled endpoint POST /api/kick-player
@@ -734,7 +753,7 @@ export class GameEngine {
     game: GameSession;
     player?: Player;
   } | null> {
-    const user = auth.currentUser;
+    const user = auth.currentUser || (await ensureAnonymousAuth());
     const idToken = (await user?.getIdToken()) || '';
     if (isFirebaseConfigured && idToken) {
       try {

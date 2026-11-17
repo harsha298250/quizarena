@@ -16,7 +16,7 @@ import { measureServerTimeMetrics, NetworkMetrics } from '../../services/network
 interface JoinViewProps {
   initialPin?: string;
   isHostEligible?: boolean;
-  onJoinSuccess: (pin: string, player: Player) => void;
+  onJoinSuccess: (pin: string, player: Player) => Promise<void> | void;
   onHostNewGame: () => void;
 }
 
@@ -71,6 +71,12 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', isHostEligi
       if (u?.email) {
         setEmail(prev => prev || u.email || '');
         setEmailConsent(true);
+      }
+      if (u?.displayName) {
+        setNickname(prev => prev || u.displayName || '');
+        if (!hasManuallyEditedAvatar) {
+          setAvatarConfig(getDeterministicAvatar(u.displayName));
+        }
       }
     });
 
@@ -164,7 +170,11 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', isHostEligi
       lastSeen: new Date().toISOString(),
     };
 
-    onJoinSuccess(cleanPin, newPlayer);
+    try {
+      await onJoinSuccess(cleanPin, newPlayer);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Game session not found. Please check your PIN.');
+    }
   };
 
   return (
