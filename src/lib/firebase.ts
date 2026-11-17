@@ -6,6 +6,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
+  connectAuthEmulator,
   signInAnonymously,
   signInWithPopup,
   signInWithRedirect,
@@ -21,6 +22,7 @@ import {
 } from 'firebase/auth';
 import {
   getFirestore,
+  connectFirestoreEmulator,
   doc,
   getDocFromServer,
   Firestore,
@@ -80,6 +82,23 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Connect to local Firebase Emulators when running in local development/test environments
+if (typeof window !== 'undefined') {
+  const isLocalHost = Boolean(window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
+  const useEmulator = isLocalHost && (
+    metaEnv.VITE_USE_FIREBASE_EMULATOR === 'true' ||
+    (window as any).__USE_FIREBASE_EMULATOR__ === true
+  );
+  if (useEmulator) {
+    try {
+      connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    } catch {}
+    try {
+      connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    } catch {}
+  }
+}
 export {
   signInWithPopup,
   signInWithRedirect,

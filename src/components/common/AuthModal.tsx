@@ -178,7 +178,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 animate-fade-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Authentication"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 animate-fade-in"
+    >
       <div className="relative w-full max-w-md paper-modal p-4 sm:p-6 shadow-[8px_8px_0px_var(--shadow)]">
         {/* Close button */}
         <button

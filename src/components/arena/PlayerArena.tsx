@@ -442,6 +442,17 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     { bg: 'bg-[var(--info)] text-[var(--text-on-accent)]', icon: <ShapeSquare className="w-8 h-8 text-[var(--text-on-accent)]" fill="currentColor" />, label: 'Square' },
   ];
 
+  // Controlled test-only error injection strictly confined to local test executions (Task 3)
+  if (
+    typeof window !== 'undefined' &&
+    (window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1') &&
+    (window as any).__QUIZARENA_E2E_TEST__ === true &&
+    (window as any).__QUIZARENA_TEST_INJECT_ERROR__ === true
+  ) {
+    (window as any).__QUIZARENA_TEST_INJECT_ERROR__ = false;
+    throw new Error('Test-Injected Live Screen Render Crash for Error Boundary Verification');
+  }
+
   return (
     <div className={`mx-auto max-w-xl p-3 sm:p-4 space-y-4 ${player.accommodations.dyslexiaFont ? 'dyslexia-font' : ''} ${player.accommodations.largeText ? 'text-base sm:text-lg' : ''}`}>
       {/* Player Header: Avatar, Nickname, Streak Flame, Score & Accommodations button */}
