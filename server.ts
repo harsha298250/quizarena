@@ -77,14 +77,8 @@ import {
   handleReconcilePlayerCount,
   handleHostHeartbeat,
 } from './src/server/gameSessionHandler.ts';
-import {
-  handlePurgeUserData,
-  handleRequestAccountDeletion,
-  handleGetDeletionStatus,
-  handleRetryAccountDeletion,
-  handleAdminDeleteUser,
-} from './src/server/userDataPurgeHandler.ts';
 import { assertAccountActive } from './src/server/accountDeletionEngine.ts';
+import { startGameProgressionLoop } from './src/server/gameProgressionEngine.ts';
 import {
   validateUploadFile,
   assertUploadAuthorization,
@@ -1004,27 +998,7 @@ app.post('/api/outbox/retry', async (req: Request, res: Response): Promise<void>
   await handleRetryOutboxJob(req, res, { adminAuth, adminDb });
 });
 
-// Phase 4: Secure Account Deletion & Complete Data Purge endpoints
-app.post('/api/account/delete', async (req: Request, res: Response): Promise<void> => {
-  await handleRequestAccountDeletion(req, res, { adminAuth, adminDb, adminStorage });
-});
 
-app.get('/api/account/delete/status', async (req: Request, res: Response): Promise<void> => {
-  await handleGetDeletionStatus(req, res, { adminAuth, adminDb, adminStorage });
-});
-
-app.post('/api/account/delete/retry', async (req: Request, res: Response): Promise<void> => {
-  await handleRetryAccountDeletion(req, res, { adminAuth, adminDb, adminStorage });
-});
-
-app.post('/api/admin/users/:uid/delete', async (req: Request, res: Response): Promise<void> => {
-  await handleAdminDeleteUser(req, res, { adminAuth, adminDb, adminStorage });
-});
-
-// POST /api/purge-user-data - Server-authoritative GDPR/CCPA data purge (delegates to Phase 4 engine)
-app.post('/api/purge-user-data', async (req: Request, res: Response): Promise<void> => {
-  await handlePurgeUserData(req, res, { adminAuth, adminDb, adminStorage });
-});
 
 // POST /api/upload/validate - Validates file binary signatures, MIME, active content, and authorization
 app.post('/api/upload/validate', async (req: Request, res: Response): Promise<void> => {
@@ -1098,11 +1072,16 @@ const isMain = Boolean(
 );
 
 let server: any;
+let stopProgressionLoop: (() => void) | null = null;
 if (process.env.NODE_ENV !== 'test' && isMain) {
   server = app.listen(PORT, HOST, () => {
     assertAdminCredentialsPresent();
     console.log(`QuizArena Server running on http://${HOST}:${PORT}`);
     console.log(`[QuizArena] Gemini Model in use: ${GEMINI_MODEL}`);
+    if (adminDb) {
+      stopProgressionLoop = startGameProgressionLoop({ adminDb, intervalMs: 1000 });
+      console.log('[QuizArena] Server-authoritative game progression loop started.');
+    }
   });
 
   // Render & Production HTTP reverse-proxy keep-alive and request timeout alignment
@@ -1113,6 +1092,9 @@ if (process.env.NODE_ENV !== 'test' && isMain) {
 
     const gracefulShutdown = (signal: string) => {
       console.log(`[QuizArena] Received ${signal}, initiating graceful shutdown...`);
+      if (stopProgressionLoop) {
+        stopProgressionLoop();
+      }
       server.close(() => {
         console.log('[QuizArena] HTTP server closed gracefully.');
         process.exit(0);

@@ -157,7 +157,7 @@ export async function handleCreateGame(
     showLeaderboardBetween: true,
     autoEmailResults: true,
     scoringProfile: quiz.gameMode === 'accuracy' ? 'accuracy_only' : 'speed_weighted',
-    progressionMode: customSettings.progressionMode === 'automatic' ? 'automatic' : 'manual',
+    progressionMode: customSettings.progressionMode === 'manual' ? 'manual' : 'automatic',
     requireApprovalToJoin: false,
     teamMode: quiz.gameMode === 'team',
     ...customSettings,
@@ -1147,12 +1147,50 @@ export async function handleRevealAnswer(
       return;
     }
 
+    // Retrieve authoritative answer key to safely expose correct answers upon reveal
+    const currentQuestionIndex = data.currentQuestionIndex || 0;
+    let correctAnswers: number[] = [];
+    let acceptedTextAnswers: string[] = [];
+
+    try {
+      const secretsSnap = await adminDb.doc(`games/${gameId}/secrets/answerKey`).get();
+      if (secretsSnap.exists) {
+        const secretsData = secretsSnap.data() || {};
+        const qSecret = secretsData[currentQuestionIndex];
+        if (qSecret) {
+          correctAnswers = Array.isArray(qSecret.correctAnswers) ? qSecret.correctAnswers : [];
+          acceptedTextAnswers = Array.isArray(qSecret.acceptedTextAnswers) ? qSecret.acceptedTextAnswers : [];
+        }
+      }
+    } catch (secretErr) {
+      console.warn('Could not retrieve answer key secret for reveal:', secretErr);
+    }
+
+    const questions = Array.isArray(data.questions) ? [...data.questions] : [];
+    if (questions[currentQuestionIndex]) {
+      questions[currentQuestionIndex] = {
+        ...questions[currentQuestionIndex],
+        correctAnswers,
+        acceptedTextAnswers,
+      };
+    }
+
+    const revealDeadlineTimestampMs = Date.now() + 5000;
+
     await gameDocRef.update({
       status: 'reveal',
+      questions,
+      revealDeadlineTimestampMs,
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    res.status(200).json({ success: true, status: 'reveal' });
+    res.status(200).json({
+      success: true,
+      status: 'reveal',
+      currentQuestionIndex,
+      correctAnswers,
+      revealDeadlineTimestampMs,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Failed to reveal answer' });
   }

@@ -84,29 +84,40 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
 
   // Automatic progression: countdown during reveal state
   useEffect(() => {
-    if (game.settings?.progressionMode !== 'automatic') {
+    if (game.settings?.progressionMode === 'manual') {
       setAutoAdvanceCountdown(null);
       return;
     }
 
     if (game.status === 'reveal' && !game.isPaused) {
-      setAutoAdvanceCountdown(5);
-      const timer = setInterval(() => {
-        setAutoAdvanceCountdown(prev => {
-          if (prev === null || prev <= 1) {
-            clearInterval(timer);
-            handleNextQuestion();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+      const revealDeadline = Number((game as any).revealDeadlineTimestampMs || 0);
 
+      const updateRevealCountdown = () => {
+        if (revealDeadline > 0) {
+          const rem = Math.max(0, Math.ceil((revealDeadline - Date.now()) / 1000));
+          setAutoAdvanceCountdown(rem);
+          if (rem <= 0 && !advancingRef.current) {
+            handleNextQuestion();
+          }
+        } else {
+          setAutoAdvanceCountdown(prev => {
+            if (prev === null) return 5;
+            if (prev <= 1) {
+              if (!advancingRef.current) handleNextQuestion();
+              return 0;
+            }
+            return prev - 1;
+          });
+        }
+      };
+
+      updateRevealCountdown();
+      const timer = setInterval(updateRevealCountdown, 500);
       return () => clearInterval(timer);
     } else if (game.status !== 'reveal') {
       setAutoAdvanceCountdown(null);
     }
-  }, [game.status, game.isPaused, game.settings?.progressionMode, game.currentQuestionIndex]);
+  }, [game.status, game.isPaused, game.settings?.progressionMode, (game as any).revealDeadlineTimestampMs, game.currentQuestionIndex]);
 
   // Early reveal in automatic mode if all active players have submitted
   useEffect(() => {

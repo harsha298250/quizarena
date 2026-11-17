@@ -550,8 +550,8 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
         />
       </div>
 
-      {/* Anti-Scraping Canvas (or Accessible Mode Fallback) */}
-      {game.status === 'question_active' && currentQuestion.type !== 'type_answer' ? (
+      {/* Anti-Scraping Canvas (or Accessible Mode Fallback) - Kept visible during reveal and active */}
+      {(game.status === 'question_active' || game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type !== 'type_answer' ? (
         <div className="space-y-3">
           <WatermarkedQuestionCanvas
             questionText={currentQuestion.text}
@@ -561,8 +561,12 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
             questionIndex={game.currentQuestionIndex}
             totalQuestions={game.questions.length}
             selectedIndices={selectedIndices}
-            hasSubmitted={hasSubmitted || isSubmitting || Boolean(committedPayload)}
-            isLocked={isQuestionLocked || isSubmitting || Boolean(committedPayload)}
+            hasSubmitted={hasSubmitted || Boolean(committedPayload)}
+            isSubmitting={isSubmitting}
+            isLocked={isQuestionLocked || Boolean(committedPayload)}
+            isExpired={playerTimeLeft <= 0}
+            isRevealed={game.status === 'reveal' || game.status === 'leaderboard'}
+            correctAnswers={currentQuestion.correctAnswers || []}
             hiddenOptions={hiddenOptions}
             isAccessibleMode={Boolean(player.accessibleApproved)}
             dyslexiaFont={Boolean(player.accommodations?.dyslexiaFont)}
@@ -570,13 +574,35 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
             onSelectOption={handleSubmitOption}
           />
         </div>
-      ) : game.status !== 'question_active' ? (
+      ) : (game.status !== 'question_active' && currentQuestion.type !== 'type_answer') ? (
         <div className="paper-card p-5 border-3 text-center space-y-2">
           <h1 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)]">
             {currentQuestion.text}
           </h1>
         </div>
       ) : null}
+
+      {/* Type Answer in Reveal */}
+      {(game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type === 'type_answer' && (
+        <div className="paper-card p-5 border-3 space-y-3 bg-[var(--surface)] shadow-[3px_3px_0px_var(--shadow)]">
+          <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
+            {currentQuestion.text}
+          </h2>
+          <div className="text-xs font-bold uppercase text-[var(--text-muted)]">Your Submitted Answer:</div>
+          <div className={`p-3 rounded-xl border-2 font-mono-code font-bold text-sm ${
+            submissionResult?.isCorrect
+              ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300'
+              : 'border-rose-500 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300'
+          }`}>
+            {textAnswer || committedPayload?.textAnswer || '(No answer provided)'}
+          </div>
+          {currentQuestion.acceptedTextAnswers && currentQuestion.acceptedTextAnswers.length > 0 && (
+            <div className="text-xs font-bold text-[var(--ok)]">
+              ✓ Accepted Answer(s): {currentQuestion.acceptedTextAnswers.join(', ')}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Submitting in-flight status */}
       {isSubmitting && !hasSubmitted && game.status === 'question_active' && (

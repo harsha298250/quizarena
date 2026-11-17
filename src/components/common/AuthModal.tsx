@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   auth,
   googleProvider,
@@ -56,6 +56,19 @@ export function getAuthErrorMessage(code: string, fallbackMessage?: string): str
   }
 }
 
+const EyeIcon: React.FC = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+  </svg>
+);
+
+const EyeOffIcon: React.FC = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+  </svg>
+);
+
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -68,12 +81,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
   const [selectedRole, setSelectedRole] = useState<'host' | 'student'>(initialRole);
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
 
-  React.useEffect(() => {
+  // Email verification dedicated screen states
+  const [verificationScreen, setVerificationScreen] = useState<boolean>(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string>('');
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const [checkingVerification, setCheckingVerification] = useState<boolean>(false);
+
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
         onClose();
@@ -82,6 +103,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   if (!isOpen) return null;
 
@@ -126,27 +156,42 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
     setErrorMsg(null);
     setInfoMsg(null);
 
-    if (!email || !password) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
       setErrorMsg('Please enter both email and password.');
       return;
+    }
+
+    if (isRegister) {
+      if (password.length < 6) {
+        setErrorMsg('Password must be at least 6 characters long.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setErrorMsg('Passwords do not match. Please re-enter.');
+        return;
+      }
     }
 
     setLoading(true);
     try {
       if (isRegister) {
-        const userCred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const userCred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
         if (userCred?.user) {
           try {
             await sendEmailVerification(userCred.user);
-            setInfoMsg('Account created! A verification email has been dispatched to your inbox.');
           } catch (verifErr) {
             console.warn('Could not dispatch verification email:', verifErr);
           }
+          setRegisteredEmail(trimmedEmail);
+          setVerificationScreen(true);
+          setResendCooldown(60);
+          setInfoMsg(`Verification email dispatched to ${trimmedEmail}. Please check your inbox.`);
         }
       } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
+        await signInWithEmailAndPassword(auth, trimmedEmail, password);
+        onClose();
       }
-      onClose();
     } catch (e: any) {
       const code = e?.code || '';
       setErrorMsg(getAuthErrorMessage(code, e?.message));
@@ -176,6 +221,138 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
       setLoading(false);
     }
   };
+
+  const handleResendVerification = async () => {
+    if (resendCooldown > 0) return;
+    sound.playClick();
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setLoading(true);
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await sendEmailVerification(currentUser);
+        setInfoMsg(`✓ Verification email resent to ${currentUser.email}! Please check your inbox/spam folder.`);
+        setResendCooldown(60);
+      } else {
+        setErrorMsg('No active user session. Please sign in to resend verification.');
+      }
+    } catch (err: any) {
+      setErrorMsg(getAuthErrorMessage(err?.code, err?.message || 'Failed to resend verification email.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefreshVerificationStatus = async () => {
+    sound.playClick();
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setCheckingVerification(true);
+    try {
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        await currentUser.reload();
+        if (currentUser.emailVerified) {
+          setInfoMsg('🎉 Email verified successfully! Welcome to QuizArena.');
+          sound.playCorrect();
+          setTimeout(() => {
+            onClose();
+          }, 1200);
+        } else {
+          setInfoMsg('Email is not verified yet. Please click the link in your email and tap refresh.');
+        }
+      } else {
+        setErrorMsg('No active session found. Please sign in.');
+      }
+    } catch (err: any) {
+      setErrorMsg('Could not refresh status: ' + (err?.message || 'network error'));
+    } finally {
+      setCheckingVerification(false);
+    }
+  };
+
+  // Dedicated "Check Your Email" Post-Registration Screen
+  if (verificationScreen) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Email Verification"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 animate-fade-in"
+      >
+        <div className="relative w-full max-w-md paper-modal p-6 shadow-[8px_8px_0px_var(--shadow)] text-center space-y-4">
+          <button
+            onClick={onClose}
+            aria-label="Close verification modal"
+            className="absolute top-4 right-4 h-8 w-8 rounded-full border-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] font-bold flex items-center justify-center hover:bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]"
+          >
+            ✕
+          </button>
+
+          <div className="text-4xl animate-bounce">📬</div>
+
+          <h2 className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--text)]">
+            Check Your Email
+          </h2>
+
+          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+            We sent a verification link to{' '}
+            <strong className="text-[var(--text)] font-mono-code">{registeredEmail || email}</strong>.
+            Please verify your address to access host privileges and official tournament records.
+          </p>
+
+          {errorMsg && (
+            <div role="alert" className="rounded-xl border border-red-500 bg-red-50 dark:bg-red-950/40 p-2.5 text-xs font-bold text-red-700 dark:text-red-300 break-words">
+              ⚠️ {errorMsg}
+            </div>
+          )}
+          {infoMsg && (
+            <div role="status" className="rounded-xl border border-[var(--ok)] bg-emerald-50 dark:bg-emerald-950/40 p-2.5 text-xs font-bold text-emerald-800 dark:text-emerald-300 break-words">
+              {infoMsg}
+            </div>
+          )}
+
+          <div className="space-y-2 pt-2">
+            <button
+              type="button"
+              onClick={handleRefreshVerificationStatus}
+              disabled={checkingVerification}
+              className="w-full paper-btn paper-btn-primary font-black text-sm py-2.5 flex items-center justify-center gap-2"
+            >
+              {checkingVerification ? 'Checking Status...' : "🔄 I've Verified My Email — Refresh"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resendCooldown > 0 || loading}
+              className="w-full paper-btn bg-[var(--surface)] text-[var(--text)] text-xs font-bold py-2 border-2 border-[var(--border)] disabled:opacity-50"
+            >
+              {resendCooldown > 0
+                ? `Resend Email in ${resendCooldown}s`
+                : '📩 Resend Verification Email'}
+            </button>
+          </div>
+
+          <div className="pt-2 border-t border-[var(--border)]/20">
+            <button
+              type="button"
+              onClick={() => {
+                setVerificationScreen(false);
+                setIsRegister(false);
+                setErrorMsg(null);
+                setInfoMsg(null);
+              }}
+              className="text-xs font-bold text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline cursor-pointer"
+            >
+              ← Back to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -291,6 +468,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
             <input
               id="auth-email-input"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder={selectedRole === 'host' ? 'teacher@school.edu' : 'student@school.edu'}
@@ -318,6 +496,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
               <input
                 id="auth-password-input"
                 type={showPassword ? 'text' : 'password'}
+                autoComplete={isRegister ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -328,12 +507,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-[var(--text-muted)] hover:text-[var(--text)] text-xs font-bold"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-[var(--text-muted)] hover:text-[var(--text)]"
               >
-                {showPassword ? 'Hide' : 'Show'}
+                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
               </button>
             </div>
           </div>
+
+          {/* Confirm Password field in Registration mode */}
+          {isRegister && (
+            <div>
+              <label htmlFor="auth-confirm-password-input" className="block text-xs font-black uppercase text-[var(--text)] mb-1">
+                Confirm Password
+              </label>
+              <div className="relative">
+                <input
+                  id="auth-confirm-password-input"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 pr-10 text-sm font-medium text-[var(--text)] shadow-xs focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-[var(--text-muted)] hover:text-[var(--text)]"
+                >
+                  {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
+            </div>
+          )}
 
           <button
             type="submit"
@@ -365,6 +573,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialRo
               setIsRegister(!isRegister);
               setErrorMsg(null);
               setInfoMsg(null);
+              setConfirmPassword('');
             }}
             className="text-xs font-bold text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline cursor-pointer"
           >

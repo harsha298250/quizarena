@@ -344,7 +344,7 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
   // PART 5: SETTINGS MODAL WITHOUT LANGUAGE SECTION
   // ==========================================
   describe('Settings Modal Cleanup', () => {
-    it('[LANG-01] SettingsModal omits language selection and retains Theme, Sound, and GDPR sections', () => {
+    it('[LANG-01] SettingsModal omits language selection and account deletion, retaining Theme and Sound', () => {
       const doc = renderToDoc(
         React.createElement(SettingsModal, {
           isOpen: true,
@@ -359,9 +359,10 @@ describe('QuizArena — Final UX Polish, Performance, Firebase Audit & Reliabili
       expect(text).not.toContain('LANGUAGE');
       expect(text).not.toContain('தமிழ்');
       expect(text).not.toContain('हिन्दी');
+      expect(text).not.toContain('Delete Account');
+      expect(text).not.toContain('Irreversible Account Deletion');
       expect(text).toContain('Color Theme & Appearance');
       expect(text).toContain('Sound Effects & Auditory Feedback');
-      expect(text).toContain('Data Privacy & GDPR');
     });
   });
 
