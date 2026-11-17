@@ -23,6 +23,8 @@ import { User } from 'firebase/auth';
 import { saveQuiz, loadUserQuizzes, deleteQuiz, deleteMyData } from './services/quizService';
 import { autoSendGameResults } from './services/emailService';
 import { useTheme } from './hooks/useTheme';
+import { AuthModal } from './components/common/AuthModal';
+import { validateQuizForHosting } from './lib/quizValidation';
 
 // Route-level code-splitting with React.lazy for non-arena views
 const QuizBuilder = React.lazy(() => import('./components/builder/QuizBuilder').then(m => ({ default: m.QuizBuilder })));
@@ -44,7 +46,11 @@ const ComponentFallback = () => (
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [pendingJoinPin, setPendingJoinPin] = useState<string>('');
+
   const isAuthenticated = Boolean(currentUser && !currentUser.isAnonymous);
+  const isHostEligible = Boolean(currentUser && !currentUser.isAnonymous && currentUser.emailVerified);
 
   const [currentTab, setCurrentTabState] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -190,7 +196,7 @@ export default function App() {
     const unsubAuth = auth.onAuthStateChanged(async user => {
       setCurrentUser(user);
       setAuthLoading(false);
-      if (user && !user.isAnonymous) {
+      if (user && !user.isAnonymous && user.emailVerified) {
         setUserRole('host');
         try {
           const userQuizzes = await loadUserQuizzes(user.uid);
@@ -200,6 +206,8 @@ export default function App() {
         } catch (e) {
           console.warn('Failed to load user quizzes from Firestore:', e);
         }
+      } else {
+        setUserRole('student');
       }
     });
 
@@ -280,12 +288,43 @@ export default function App() {
   // Host launches a quiz
   const handleHostQuiz = async (quizToHost: Quiz) => {
     sound.playClick();
-    let user = auth.currentUser;
-    if (!user) {
-      user = await ensureAnonymousAuth();
+    const user = auth.currentUser;
+    if (!user || user.isAnonymous || !user.emailVerified) {
+      setAuthModalOpen(true);
+      if (!user) {
+        addToast({
+          type: 'warning',
+          title: 'Sign In Required',
+          message: 'You must sign in with a verified teacher or host account to launch a live arena.',
+        });
+      } else if (user.isAnonymous) {
+        addToast({
+          type: 'warning',
+          title: 'Registered Account Required',
+          message: 'Guest/anonymous accounts cannot host games. Please sign in with a permanent verified account.',
+        });
+      } else if (!user.emailVerified) {
+        addToast({
+          type: 'warning',
+          title: 'Email Verification Required',
+          message: 'Please verify your email address before creating or hosting live games.',
+        });
+      }
+      return;
     }
-    const hostId = user?.uid || 'host_active';
-    const hostName = user?.displayName || 'Host Teacher';
+
+    const validation = validateQuizForHosting(quizToHost);
+    if (!validation.valid) {
+      addToast({
+        type: 'error',
+        title: 'Quiz Validation Failed',
+        message: validation.errors[0] || 'Quiz cannot be hosted due to validation errors.',
+      });
+      return;
+    }
+
+    const hostId = user.uid;
+    const hostName = user.displayName || user.email?.split('@')[0] || 'Host Teacher';
     const game = await GameEngine.createGame(quizToHost, hostId, hostName);
     setActiveGame(game);
     setGameRole('host');
@@ -458,7 +497,7 @@ export default function App() {
   };
 
   const inActivePlayerGame = Boolean(activeGame && gameRole === 'player');
-  const showPlayerShell = inActivePlayerGame || !isAuthenticated || userRole === 'student';
+  const showPlayerShell = inActivePlayerGame || !isHostEligible || userRole === 'student';
 
   const mainTabsContent = (
     <>
@@ -481,7 +520,10 @@ export default function App() {
           {currentTab === 'student_dashboard' && (
             <StudentDashboard
               quizzes={quizzes}
-              onJoinArenaPin={() => handleTabChange('arena')}
+              onJoinArenaPin={pin => {
+                setPendingJoinPin(pin);
+                handleTabChange('arena');
+              }}
               onStartPractice={() => handleTabChange('practice')}
               onViewTournaments={() => handleTabChange('competitions')}
               onViewCertificates={() => handleTabChange('certificates')}
@@ -493,8 +535,16 @@ export default function App() {
           <div>
             {!activeGame ? (
               <JoinView
+                initialPin={pendingJoinPin}
+                isHostEligible={isHostEligible}
                 onJoinSuccess={handlePlayerJoin}
-                onHostNewGame={() => handleHostQuiz(quizzes[0] || SAMPLE_QUIZZES[0])}
+                onHostNewGame={() => {
+                  if (!isHostEligible) {
+                    setAuthModalOpen(true);
+                    return;
+                  }
+                  handleTabChange('host_dashboard');
+                }}
               />
             ) : activeGame.status === 'lobby' ? (
               <LobbyView
@@ -662,7 +712,7 @@ export default function App() {
           currentUser={currentUser}
           isLiveGame={inActivePlayerGame}
           onSwitchToHost={
-            isAuthenticated && userRole === 'student' && !inActivePlayerGame
+            isHostEligible && userRole === 'student' && !inActivePlayerGame
               ? () => {
                   setUserRole('host');
                   handleTabChange('host_dashboard');
@@ -731,6 +781,9 @@ export default function App() {
         isFirebaseOnline={isFirebaseOnline}
         isSignedIn={isAuthenticated}
       />
+
+      {/* Auth Modal for Host Sign-In / Verification */}
+      <AuthModal isOpen={authModalOpen} onClose={() => setAuthModalOpen(false)} />
 
       {/* Global Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />

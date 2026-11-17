@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import type { Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { sanitizeNickname } from '../lib/profanity.ts';
+import { validateQuizForHosting } from '../lib/quizValidation.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
 import { assertAccountActive } from './accountDeletionEngine.ts';
 import { clearAnswerKeyCache } from './answerSubmissionHandler.ts';
@@ -59,7 +60,8 @@ export async function authenticateToken(
 
     const isAnonymous =
       decoded.firebase?.sign_in_provider === 'anonymous' ||
-      decoded.provider_id === 'anonymous';
+      decoded.provider_id === 'anonymous' ||
+      decoded.isAnonymous === true;
 
     return {
       uid: decoded.uid,
@@ -134,8 +136,12 @@ export async function handleCreateGame(
   }
 
   const { quiz, hostName = 'Host', customSettings = {} } = req.body || {};
-  if (!quiz || !quiz.title || !Array.isArray(quiz.questions)) {
-    res.status(400).json({ error: 'Invalid quiz payload provided' });
+  const validation = validateQuizForHosting(quiz);
+  if (!validation.valid) {
+    res.status(400).json({
+      error: `Invalid quiz payload: ${validation.errors.join('; ')}`,
+      details: validation.errors,
+    });
     return;
   }
 

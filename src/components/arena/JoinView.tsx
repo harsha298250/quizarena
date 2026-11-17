@@ -15,13 +15,22 @@ import { measureServerTimeMetrics, NetworkMetrics } from '../../services/network
 
 interface JoinViewProps {
   initialPin?: string;
+  isHostEligible?: boolean;
   onJoinSuccess: (pin: string, player: Player) => void;
   onHostNewGame: () => void;
 }
 
-export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSuccess, onHostNewGame }) => {
+export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', isHostEligible = false, onJoinSuccess, onHostNewGame }) => {
   const [pin, setPin] = useState<string>(initialPin);
-  const [nickname, setNickname] = useState<string>('');
+  const [nickname, setNickname] = useState<string>(() => {
+    return auth.currentUser?.displayName || '';
+  });
+
+  useEffect(() => {
+    if (initialPin) {
+      setPin(initialPin);
+    }
+  }, [initialPin]);
   const [hasManuallyEditedAvatar, setHasManuallyEditedAvatar] = useState<boolean>(() => {
     return Boolean(localStorage.getItem('quizarena_avatar_config'));
   });
@@ -367,18 +376,20 @@ export const JoinView: React.FC<JoinViewProps> = ({ initialPin = '', onJoinSucce
           )}
         </button>
 
-        {/* Or Host button */}
-        <div className="text-center pt-2 border-t-2 border-[var(--border)]/20">
-          <button
-            onClick={() => {
-              sound.playClick();
-              onHostNewGame();
-            }}
-            className="text-xs font-bold text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline"
-          >
-            Are you a Teacher or Host? <strong>Launch a Live Quiz ➔</strong>
-          </button>
-        </div>
+        {/* Or Host button - hidden from signed-out/ineligible users */}
+        {isHostEligible && (
+          <div className="text-center pt-2 border-t-2 border-[var(--border)]/20">
+            <button
+              onClick={() => {
+                sound.playClick();
+                onHostNewGame();
+              }}
+              className="text-xs font-bold text-[var(--ok)] dark:text-[var(--accent-2)] hover:underline"
+            >
+              Are you a Teacher or Host? <strong>Launch a Live Quiz ➔</strong>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

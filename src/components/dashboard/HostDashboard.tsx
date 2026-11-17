@@ -11,6 +11,7 @@ import { Skeleton } from '../common/Skeleton';
 import { auth } from '../../lib/firebase';
 import { getFinishedGamesList, FinishedGameSummary } from '../../services/analyticsService';
 import { getLocalOutboxEmails } from '../../services/emailService';
+import { validateQuizForHosting } from '../../lib/quizValidation';
 
 interface HostDashboardProps {
   quizzes: Quiz[];
@@ -188,12 +189,26 @@ export const HostDashboard: React.FC<HostDashboardProps> = ({
                     >
                       Edit
                     </button>
-                    <button
-                      onClick={() => onHostQuiz(quiz)}
-                      className="paper-btn paper-btn-sm paper-btn-primary text-xs font-bold flex-1 sm:flex-initial"
-                    >
-                      Host Live Arena
-                    </button>
+                    {(() => {
+                      const qv = validateQuizForHosting(quiz);
+                      return (
+                        <button
+                          onClick={() => {
+                            if (!qv.valid) return;
+                            onHostQuiz(quiz);
+                          }}
+                          disabled={!qv.valid}
+                          className={`paper-btn paper-btn-sm text-xs font-bold flex-1 sm:flex-initial ${
+                            qv.valid
+                              ? 'paper-btn-primary'
+                              : 'opacity-50 cursor-not-allowed bg-[var(--surface-3)] text-[var(--text-muted)]'
+                          }`}
+                          title={qv.valid ? 'Host Live Arena' : qv.errors.join('\n')}
+                        >
+                          Host Live Arena
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}

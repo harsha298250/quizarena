@@ -8,6 +8,7 @@ import { Quiz, Question, QuestionType, BloomLevel } from '../../types/quiz';
 import { SAMPLE_QUIZZES } from '../../data/sampleQuizzes';
 import { sound } from '../../lib/sound';
 import { ShapeTriangle, ShapeDiamond, ShapeCircle, ShapeSquare } from '../common/CustomIcons';
+import { validateQuizForHosting } from '../../lib/quizValidation';
 
 interface QuizBuilderProps {
   quizzes: Quiz[];
@@ -35,6 +36,8 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
   const [previewMode, setPreviewMode] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string>('Just now');
+
+  const validation = validateQuizForHosting(selectedQuiz);
 
   React.useEffect(() => {
     if (initialSelectedQuizId) {
@@ -438,16 +441,40 @@ export const QuizBuilder: React.FC<QuizBuilderProps> = ({
 
           <button
             id="btnHostLiveNow"
+            disabled={!validation.valid}
             onClick={() => {
+              if (!validation.valid) return;
               sound.playClick();
               onSelectForHost(selectedQuiz);
             }}
-            className="paper-btn paper-btn-sm paper-btn-primary font-extrabold px-4"
+            className={`paper-btn paper-btn-sm font-extrabold px-4 ${
+              validation.valid
+                ? 'paper-btn-primary'
+                : 'opacity-50 cursor-not-allowed bg-[var(--surface-3)] text-[var(--text-muted)]'
+            }`}
+            title={validation.valid ? '🚀 Launch live arena' : validation.errors.join('\n')}
           >
             🚀 Host Live Now
           </button>
         </div>
       </div>
+
+      {/* Quiz Validation Issues Notice */}
+      {!validation.valid && (
+        <div
+          data-testid="quiz-validation-alert"
+          className="p-3 bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-500 rounded-xl text-xs font-semibold text-amber-900 dark:text-amber-200"
+        >
+          <div className="font-bold flex items-center gap-1.5 mb-1 text-amber-800 dark:text-amber-300">
+            <span>⚠️ Quiz cannot be hosted until requirements are met:</span>
+          </div>
+          <ul className="list-disc pl-5 space-y-0.5">
+            {validation.errors.map((err, i) => (
+              <li key={i}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Preview Mode Container */}
       {previewMode && activeQuestion && (
