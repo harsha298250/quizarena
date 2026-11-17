@@ -87,6 +87,18 @@ import {
 
 dotenv.config();
 
+// Ensure local Firebase emulator connections are never routed through shell proxy environments
+if (process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST) {
+  delete process.env.http_proxy;
+  delete process.env.HTTP_PROXY;
+  delete process.env.https_proxy;
+  delete process.env.HTTPS_PROXY;
+  delete process.env.grpc_proxy;
+  delete process.env.GRPC_PROXY;
+  delete process.env.all_proxy;
+  delete process.env.ALL_PROXY;
+}
+
 // Exception guards to log and keep server alive
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[QuizArena] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -111,6 +123,12 @@ try {
 }
 
 const firebaseProjectId = process.env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId;
+if (firebaseProjectId && !process.env.GCLOUD_PROJECT) {
+  process.env.GCLOUD_PROJECT = firebaseProjectId;
+}
+if (firebaseProjectId && !process.env.GOOGLE_CLOUD_PROJECT) {
+  process.env.GOOGLE_CLOUD_PROJECT = firebaseProjectId;
+}
 const firestoreDbId = process.env.VITE_FIREBASE_DATABASE_ID || rawFirebaseConfig.firestoreDatabaseId || '(default)';
 
 let adminCredential: any = undefined;
