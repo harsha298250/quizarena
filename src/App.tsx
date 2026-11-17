@@ -25,6 +25,7 @@ import { autoSendGameResults } from './services/emailService';
 import { useTheme } from './hooks/useTheme';
 import { AuthModal } from './components/common/AuthModal';
 import { validateQuizForHosting } from './lib/quizValidation';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 // Route-level code-splitting with React.lazy for non-arena views
 const QuizBuilder = React.lazy(() => import('./components/builder/QuizBuilder').then(m => ({ default: m.QuizBuilder })));
@@ -467,7 +468,7 @@ export default function App() {
   const showPlayerShell = inActivePlayerGame || !isHostEligible || userRole === 'student';
 
   const mainTabsContent = (
-    <>
+    <ErrorBoundary fallbackTitle="Application Interrupted — Auto Reconnecting...">
       <div key={currentTab} className="animate-fadeIn transition-all overflow-x-clip min-w-0">
         <React.Suspense fallback={<ComponentFallback />}>
           {/* Tab 0A: Host Dashboard */}
@@ -499,94 +500,96 @@ export default function App() {
 
         {/* Tab 1: Arena (Join, Lobby, Live Question, Results) */}
         {currentTab === 'arena' && (
-          <div>
-            {!activeGame ? (
-              <JoinView
-                initialPin={pendingJoinPin}
-                isHostEligible={isHostEligible}
-                onJoinSuccess={handlePlayerJoin}
-                onHostNewGame={() => {
-                  if (!isHostEligible) {
-                    setAuthModalOpen(true);
-                    return;
-                  }
-                  handleTabChange('host_dashboard');
-                }}
-              />
-            ) : activeGame.status === 'lobby' ? (
-              <LobbyView
-                game={activeGame}
-                players={players}
-                isHost={gameRole === 'host'}
-                onStartGame={handleStartGame}
-                onKickPlayer={async id => {
-                  try {
-                    if (activeGame) {
-                      await GameEngine.kickPlayer(activeGame.id, id);
+          <ErrorBoundary fallbackTitle="Multiplayer Arena Interrupted — Reconnecting...">
+            <div>
+              {!activeGame ? (
+                <JoinView
+                  initialPin={pendingJoinPin}
+                  isHostEligible={isHostEligible}
+                  onJoinSuccess={handlePlayerJoin}
+                  onHostNewGame={() => {
+                    if (!isHostEligible) {
+                      setAuthModalOpen(true);
+                      return;
                     }
-                    const updated = players.filter(p => p.id !== id);
-                    setPlayers(updated);
-                  } catch (err: any) {
-                    alert(err.message || 'Failed to kick player');
-                  }
-                }}
-                onUpdateSettings={settings => {
-                  if (!activeGame) return;
-                  const newTimeLimit = (settings as any).timeLimit;
-                  const updatedQuestions =
-                    newTimeLimit !== undefined
-                      ? activeGame.questions.map(q => ({
-                          ...q,
-                          timeLimit: q.type === 'info_slide' ? 0 : newTimeLimit,
-                        }))
-                      : activeGame.questions;
-                  const updated = {
-                    ...activeGame,
-                    settings: { ...activeGame.settings, ...settings },
-                    timeLimit: newTimeLimit !== undefined ? newTimeLimit : activeGame.timeLimit,
-                    questions: updatedQuestions,
-                  };
-                  setActiveGame(updated);
-                  GameEngine.updateGameSettings(
-                    activeGame.id,
-                    newTimeLimit !== undefined ? { ...settings, questions: updatedQuestions } : settings
-                  ).catch(err => {
-                    console.warn('Failed to persist settings update:', err);
-                  });
-                }}
-              />
-            ) : activeGame.status === 'finished' ? (
-              <PodiumView
-                game={activeGame}
-                players={players}
-                activePlayerId={gameRole === 'player' ? activePlayer?.id : undefined}
-                isHost={gameRole === 'host'}
-                onPlayAgain={handleLeaveGame}
-                onReviewAnalytics={() => {
-                  handleLeaveGame();
-                  handleTabChange('analytics');
-                }}
-              />
-            ) : gameRole === 'host' ? (
-              <HostArena
-                game={activeGame}
-                players={players}
-                onFinishGame={() => {
-                  GameEngine.updateGameStatus(activeGame, 'finished');
-                  if (gameRole === 'host' && !sentEmailsGameIds.current.has(activeGame.id)) {
-                    sentEmailsGameIds.current.add(activeGame.id);
-                    autoSendGameResults(activeGame, players);
-                  }
-                }}
-              />
-            ) : (
-              <PlayerArena
-                game={activeGame}
-                player={activePlayer || players[0]}
-                onUpdatePlayer={handleUpdateActivePlayer}
-              />
-            )}
-          </div>
+                    handleTabChange('host_dashboard');
+                  }}
+                />
+              ) : activeGame.status === 'lobby' ? (
+                <LobbyView
+                  game={activeGame}
+                  players={players}
+                  isHost={gameRole === 'host'}
+                  onStartGame={handleStartGame}
+                  onKickPlayer={async id => {
+                    try {
+                      if (activeGame) {
+                        await GameEngine.kickPlayer(activeGame.id, id);
+                      }
+                      const updated = players.filter(p => p.id !== id);
+                      setPlayers(updated);
+                    } catch (err: any) {
+                      alert(err.message || 'Failed to kick player');
+                    }
+                  }}
+                  onUpdateSettings={settings => {
+                    if (!activeGame) return;
+                    const newTimeLimit = (settings as any).timeLimit;
+                    const updatedQuestions =
+                      newTimeLimit !== undefined
+                        ? activeGame.questions.map(q => ({
+                            ...q,
+                            timeLimit: q.type === 'info_slide' ? 0 : newTimeLimit,
+                          }))
+                        : activeGame.questions;
+                    const updated = {
+                      ...activeGame,
+                      settings: { ...activeGame.settings, ...settings },
+                      timeLimit: newTimeLimit !== undefined ? newTimeLimit : activeGame.timeLimit,
+                      questions: updatedQuestions,
+                    };
+                    setActiveGame(updated);
+                    GameEngine.updateGameSettings(
+                      activeGame.id,
+                      newTimeLimit !== undefined ? { ...settings, questions: updatedQuestions } : settings
+                    ).catch(err => {
+                      console.warn('Failed to persist settings update:', err);
+                    });
+                  }}
+                />
+              ) : activeGame.status === 'finished' ? (
+                <PodiumView
+                  game={activeGame}
+                  players={players}
+                  activePlayerId={gameRole === 'player' ? activePlayer?.id : undefined}
+                  isHost={gameRole === 'host'}
+                  onPlayAgain={handleLeaveGame}
+                  onReviewAnalytics={() => {
+                    handleLeaveGame();
+                    handleTabChange('analytics');
+                  }}
+                />
+              ) : gameRole === 'host' ? (
+                <HostArena
+                  game={activeGame}
+                  players={players}
+                  onFinishGame={() => {
+                    GameEngine.updateGameStatus(activeGame, 'finished');
+                    if (gameRole === 'host' && !sentEmailsGameIds.current.has(activeGame.id)) {
+                      sentEmailsGameIds.current.add(activeGame.id);
+                      autoSendGameResults(activeGame, players);
+                    }
+                  }}
+                />
+              ) : (
+                <PlayerArena
+                  game={activeGame}
+                  player={activePlayer || players[0]}
+                  onUpdatePlayer={handleUpdateActivePlayer}
+                />
+              )}
+            </div>
+          </ErrorBoundary>
         )}
 
         {/* Tab 2: Quiz Builder */}
@@ -665,7 +668,7 @@ export default function App() {
           </div>
         </div>
       </footer>
-    </>
+    </ErrorBoundary>
   );
 
   return (

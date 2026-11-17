@@ -202,15 +202,31 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     totalTimeLimit,
   ]);
 
-  // Reset state when new question begins
+  // Reset state or restore submitted answer when question begins
   useEffect(() => {
-    setSelectedIndices([]);
-    setTextAnswer('');
-    setHasSubmitted(false);
-    setIsSubmitting(false);
-    setSubmissionError(null);
-    setCommittedPayload(null);
-    setSubmissionResult(null);
+    const subKey = `quizarena_submitted_${game.id}_${game.currentQuestionIndex}`;
+    let restored = false;
+    try {
+      const savedSub = sessionStorage.getItem(subKey);
+      if (savedSub) {
+        const parsed = JSON.parse(savedSub);
+        setHasSubmitted(true);
+        if (parsed.result) setSubmissionResult(parsed.result);
+        if (parsed.selectedIndices) setSelectedIndices(parsed.selectedIndices);
+        if (parsed.textAnswer) setTextAnswer(parsed.textAnswer);
+        restored = true;
+      }
+    } catch {}
+
+    if (!restored) {
+      setSelectedIndices([]);
+      setTextAnswer('');
+      setHasSubmitted(false);
+      setIsSubmitting(false);
+      setSubmissionError(null);
+      setCommittedPayload(null);
+      setSubmissionResult(null);
+    }
     setQuestionStartTime(extractQuestionStartTimeMs(game.questionStartTime) || Date.now());
 
     // Fewer options accommodation
@@ -221,7 +237,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     }
 
     // Read-aloud TTS if enabled (auto-read once per question at configured speed)
-    if (player.accommodations.readAloud && currentQuestion?.text) {
+    if (player.accommodations.readAloud && currentQuestion?.text && !restored) {
       startReadAloud(player.accommodations.speechRate || speechRate);
     } else {
       stopSpeech();
@@ -297,6 +313,12 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
       setHasSubmitted(true);
       setIsSubmitting(false);
       setSubmissionResult(result);
+      try {
+        sessionStorage.setItem(
+          `quizarena_submitted_${game.id}_${game.currentQuestionIndex}`,
+          JSON.stringify({ result, selectedIndices: [optIdx] })
+        );
+      } catch {}
       if (result.isCorrect) sound.playCorrect();
       else sound.playWrong();
     } catch (err: any) {
@@ -330,6 +352,16 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
       setHasSubmitted(true);
       setIsSubmitting(false);
       setSubmissionResult(result);
+      try {
+        sessionStorage.setItem(
+          `quizarena_submitted_${game.id}_${game.currentQuestionIndex}`,
+          JSON.stringify({
+            result,
+            selectedIndices: [...selectedIndices],
+            textAnswer,
+          })
+        );
+      } catch {}
       if (result.isCorrect) sound.playCorrect();
       else sound.playWrong();
     } catch (err: any) {
@@ -361,6 +393,16 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
       setHasSubmitted(true);
       setIsSubmitting(false);
       setSubmissionResult(result);
+      try {
+        sessionStorage.setItem(
+          `quizarena_submitted_${game.id}_${game.currentQuestionIndex}`,
+          JSON.stringify({
+            result,
+            selectedIndices: committedPayload.selectedIndices,
+            textAnswer: committedPayload.textAnswer,
+          })
+        );
+      } catch {}
       if (result.isCorrect) sound.playCorrect();
       else sound.playWrong();
     } catch (err: any) {

@@ -142,32 +142,98 @@ export class GameEngine {
     return hostSession;
   }
 
-  // Subscribe to live game session state
-  public static subscribeToGame(gameId: string, onUpdate: (game: GameSession | null) => void): () => void {
-    // 1. Listen via Firestore snapshot
-    let unsubFirestore = () => {};
-    try {
-      unsubFirestore = onSnapshot(
-        doc(db, 'games', gameId),
-        snap => {
-          if (snap.exists()) {
-            onUpdate(snap.data() as GameSession);
-          }
-        },
-        error => {
-          if (isFirebaseConfigured) {
-            notifyFirestoreError(`Lost real-time sync with game session ${gameId}`, error);
-          } else {
-            console.warn('Firestore onSnapshot error, falling back to BroadcastChannel:', error);
-          }
-        }
-      );
-    } catch (e) {
-      if (isFirebaseConfigured) {
-        notifyFirestoreError(`Unable to subscribe to game session ${gameId}`, e);
-      } else {
-        console.warn('Firestore subscription unavailable:', e);
+  // Subscribe to live game session state with resilient recovery and fallback polling
+  public static subscribeToGame(
+    gameId: string,
+    onUpdate: (game: GameSession | null) => void,
+    onStatusChange?: (status: 'connected' | 'reconnecting' | 'failed') => void
+  ): () => void {
+    let unsubFirestore: (() => void) | null = null;
+    let isDisposed = false;
+    let reconnectTimer: any = null;
+    let pollingInterval: any = null;
+    let backoffDelayMs = 1000;
+    const MAX_BACKOFF_MS = 16000;
+    let isConnected = false;
+
+    const stopPolling = () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
       }
+    };
+
+    const startPollingFallback = () => {
+      if (pollingInterval || isDisposed) return;
+      pollingInterval = setInterval(async () => {
+        if (isConnected || isDisposed) {
+          stopPolling();
+          return;
+        }
+        try {
+          const game = await GameEngine.getGame(gameId);
+          if (game && !isDisposed) {
+            onUpdate(game);
+          }
+        } catch (e) {
+          console.warn(`Polling fallback error for game ${gameId}:`, e);
+        }
+      }, 4000);
+    };
+
+    const setupListener = () => {
+      if (isDisposed) return;
+      if (unsubFirestore) {
+        try { unsubFirestore(); } catch {}
+        unsubFirestore = null;
+      }
+
+      try {
+        unsubFirestore = onSnapshot(
+          doc(db, 'games', gameId),
+          snap => {
+            if (isDisposed) return;
+            isConnected = true;
+            backoffDelayMs = 1000; // Reset backoff on successful connect
+            stopPolling();
+            onStatusChange?.('connected');
+
+            if (snap.exists()) {
+              onUpdate(snap.data() as GameSession);
+            }
+          },
+          error => {
+            if (isDisposed) return;
+            isConnected = false;
+            onStatusChange?.('reconnecting');
+            if (isFirebaseConfigured) {
+              notifyFirestoreError(`Lost real-time sync with game session ${gameId}`, error);
+            }
+
+            // Fallback polling while disconnected
+            startPollingFallback();
+
+            // Schedule exponential backoff reconnect
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            const jitter = Math.floor(Math.random() * 500);
+            reconnectTimer = setTimeout(() => {
+              if (!isDisposed && !isConnected) {
+                setupListener();
+              }
+            }, backoffDelayMs + jitter);
+
+            backoffDelayMs = Math.min(MAX_BACKOFF_MS, backoffDelayMs * 2);
+          }
+        );
+      } catch (e) {
+        isConnected = false;
+        onStatusChange?.('reconnecting');
+        startPollingFallback();
+      }
+    };
+
+    if (isFirebaseConfigured) {
+      setupListener();
     }
 
     // 2. Listen via BroadcastChannel for instant local updates
@@ -183,43 +249,117 @@ export class GameEngine {
 
     broadcastChannel?.addEventListener('message', handleBroadcast);
 
-    // Initial check from localStorage (only as offline cache)
-    const saved = localStorage.getItem(`quizarena_game_${gameId}`);
-    if (saved && !isFirebaseConfigured) {
-      try {
-        onUpdate(JSON.parse(saved));
-      } catch (e) {}
+    // Initial check from localStorage (offline cache)
+    if (!isFirebaseConfigured) {
+      const saved = localStorage.getItem(`quizarena_game_${gameId}`);
+      if (saved) {
+        try {
+          onUpdate(JSON.parse(saved));
+        } catch (e) {}
+      }
     }
 
     return () => {
-      unsubFirestore();
+      isDisposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      stopPolling();
+      if (unsubFirestore) {
+        try { unsubFirestore(); } catch {}
+      }
       broadcastChannel?.removeEventListener('message', handleBroadcast);
     };
   }
 
-  // Subscribe to players list in a game
-  public static subscribeToPlayers(gameId: string, onUpdate: (players: Player[]) => void): () => void {
-    let unsubFirestore = () => {};
-    try {
-      unsubFirestore = onSnapshot(
-        collection(db, 'games', gameId, 'players'),
-        snapshot => {
-          const players: Player[] = [];
-          snapshot.forEach(d => players.push(d.data() as Player));
-          onUpdate(players);
-        },
-        err => {
-          if (isFirebaseConfigured) {
-            notifyFirestoreError(`Failed to sync player list for game ${gameId}`, err);
-          } else {
-            console.warn('Players onSnapshot warning:', err);
-          }
-        }
-      );
-    } catch (e) {
-      if (isFirebaseConfigured) {
-        notifyFirestoreError(`Unable to subscribe to players for ${gameId}`, e);
+  // Subscribe to players list in a game with resilient recovery and fallback polling
+  public static subscribeToPlayers(
+    gameId: string,
+    onUpdate: (players: Player[]) => void,
+    onStatusChange?: (status: 'connected' | 'reconnecting' | 'failed') => void
+  ): () => void {
+    let unsubFirestore: (() => void) | null = null;
+    let isDisposed = false;
+    let reconnectTimer: any = null;
+    let pollingInterval: any = null;
+    let backoffDelayMs = 1000;
+    const MAX_BACKOFF_MS = 16000;
+    let isConnected = false;
+
+    const stopPolling = () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
       }
+    };
+
+    const startPollingFallback = () => {
+      if (pollingInterval || isDisposed) return;
+      pollingInterval = setInterval(async () => {
+        if (isConnected || isDisposed) {
+          stopPolling();
+          return;
+        }
+        try {
+          const players = await GameEngine.getPlayers(gameId);
+          if (players && !isDisposed) {
+            onUpdate(players);
+          }
+        } catch (e) {
+          console.warn(`Polling fallback error for players in ${gameId}:`, e);
+        }
+      }, 4000);
+    };
+
+    const setupListener = () => {
+      if (isDisposed) return;
+      if (unsubFirestore) {
+        try { unsubFirestore(); } catch {}
+        unsubFirestore = null;
+      }
+
+      try {
+        unsubFirestore = onSnapshot(
+          collection(db, 'games', gameId, 'players'),
+          snapshot => {
+            if (isDisposed) return;
+            isConnected = true;
+            backoffDelayMs = 1000;
+            stopPolling();
+            onStatusChange?.('connected');
+
+            const players: Player[] = [];
+            snapshot.forEach(d => players.push(d.data() as Player));
+            onUpdate(players);
+          },
+          err => {
+            if (isDisposed) return;
+            isConnected = false;
+            onStatusChange?.('reconnecting');
+            if (isFirebaseConfigured) {
+              notifyFirestoreError(`Failed to sync player list for game ${gameId}`, err);
+            }
+
+            startPollingFallback();
+
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            const jitter = Math.floor(Math.random() * 500);
+            reconnectTimer = setTimeout(() => {
+              if (!isDisposed && !isConnected) {
+                setupListener();
+              }
+            }, backoffDelayMs + jitter);
+
+            backoffDelayMs = Math.min(MAX_BACKOFF_MS, backoffDelayMs * 2);
+          }
+        );
+      } catch (e) {
+        isConnected = false;
+        onStatusChange?.('reconnecting');
+        startPollingFallback();
+      }
+    };
+
+    if (isFirebaseConfigured) {
+      setupListener();
     }
 
     const handleBroadcast = (evt: MessageEvent) => {
@@ -239,7 +379,12 @@ export class GameEngine {
     }
 
     return () => {
-      unsubFirestore();
+      isDisposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      stopPolling();
+      if (unsubFirestore) {
+        try { unsubFirestore(); } catch {}
+      }
       broadcastChannel?.removeEventListener('message', handleBroadcast);
     };
   }
@@ -1370,6 +1515,24 @@ export class GameEngine {
     } catch (err: any) {
       console.warn('POST /api/use-powerup error:', err);
       return { success: false, error: err.message || 'Network error activating power-up' };
+    }
+  }
+
+  // Get all players for a game from Firestore with local fallback
+  public static async getPlayers(gameId: string): Promise<Player[]> {
+    try {
+      const snap = await getDocs(collection(db, 'games', gameId, 'players'));
+      const players: Player[] = [];
+      snap.forEach(d => players.push(d.data() as Player));
+      if (players.length > 0) return players;
+    } catch (e) {
+      console.warn('Could not get players from Firestore:', e);
+    }
+    const localKey = `quizarena_players_${gameId}`;
+    try {
+      return JSON.parse(localStorage.getItem(localKey) || '[]');
+    } catch {
+      return [];
     }
   }
 
