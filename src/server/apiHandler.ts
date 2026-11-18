@@ -21,6 +21,7 @@ import {
   validateAndTrackPowerUp,
   globalTimingAnomalyDetector,
   MAX_ALLOWED_LATENCY_MS,
+  resolveQuestionDuration,
 } from './scoringHardening.ts';
 
 let rawFirebaseConfig: any = {};
@@ -350,16 +351,20 @@ export async function handleAdvanceQuestion(req: IncomingMessage, res: ServerRes
       return;
     }
 
-    const durationSec = timeLimit || gameData.questions?.[questionIndex]?.timeLimit || gameData.timeLimit || 20;
+    const durationSec = resolveQuestionDuration(gameData, questionIndex, timeLimit);
     const now = Date.now();
+    const deadlineTimestampMs = now + (durationSec * 1000);
 
     await gameDocRef.update({
       status: 'question_active',
       currentQuestionIndex: questionIndex,
       questionStartTime: FieldValue.serverTimestamp(),
       questionStartTimeMs: now,
+      deadlineTimestampMs,
+      revealDeadlineTimestampMs: null,
       timeLimit: durationSec,
       isPaused: false,
+      pauseRemainingMs: null,
       updatedAt: FieldValue.serverTimestamp(),
     });
 

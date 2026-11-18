@@ -11,7 +11,7 @@ import { validateQuizForHosting } from '../lib/quizValidation.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
 import { assertAccountActive } from './accountDeletionEngine.ts';
 import { clearAnswerKeyCache } from './answerSubmissionHandler.ts';
-import { extractSecretAnswerForQuestion } from './scoringHardening.ts';
+import { extractSecretAnswerForQuestion, resolveQuestionDuration } from './scoringHardening.ts';
 import {
   checkGameSessionRateLimit,
   checkGameJoinIpRateLimit,
@@ -902,7 +902,7 @@ export async function handleStartGame(
         throw new Error('CANNOT_START_EMPTY_QUIZ: Quiz must contain at least one question');
       }
 
-      const timeLimit = gameData.questions[0]?.timeLimit || gameData.timeLimit || 20;
+      const timeLimit = resolveQuestionDuration(gameData, 0);
       const deadlineTimestampMs = now + (timeLimit * 1000);
 
       transaction.update(gameDocRef, {
@@ -1047,7 +1047,7 @@ export async function handleAdvanceQuestion(
         throw new Error(`INVALID_SEQUENCE: Cannot skip from question ${currentIndex} to question ${targetIndex}`);
       }
 
-      const duration = timeLimit || gameData.questions?.[targetIndex]?.timeLimit || gameData.timeLimit || 20;
+      const duration = resolveQuestionDuration(gameData, targetIndex, timeLimit);
       const deadlineTimestampMs = now + (duration * 1000);
 
       transaction.update(gameDocRef, {
@@ -1326,8 +1326,10 @@ export async function handlePauseGame(
     const now = Date.now();
     const startMs = data?.questionStartTimeMs || now;
     const totalMs = (data?.timeLimit || 20) * 1000;
-    const elapsedMs = now - startMs;
-    const remainingMs = Math.max(0, totalMs - elapsedMs);
+    const remainingMs =
+      typeof data?.deadlineTimestampMs === 'number' && data.deadlineTimestampMs > 0
+        ? Math.max(0, data.deadlineTimestampMs - now)
+        : Math.max(0, totalMs - (now - startMs));
 
     await gameDocRef.update({
       isPaused: true,

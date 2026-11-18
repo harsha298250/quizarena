@@ -77,6 +77,38 @@ export function extractQuestionStartTimeMs(questionStartTime: unknown): number {
 }
 
 /**
+ * Authoritatively resolves the active question duration in seconds.
+ * If per-question timing is not explicitly enabled in game settings,
+ * the session's configured default duration (gameData.timeLimit || 20) governs all questions.
+ */
+export function resolveQuestionDuration(
+  gameData: {
+    timeLimit?: number;
+    settings?: { perQuestionTimer?: boolean };
+    questions?: Array<{ timeLimit?: number }>;
+  } | null | undefined,
+  questionIndex: number = 0,
+  explicitTimeLimit?: number
+): number {
+  if (typeof explicitTimeLimit === 'number' && explicitTimeLimit > 0) {
+    return explicitTimeLimit;
+  }
+  const defaultDuration =
+    typeof gameData?.timeLimit === 'number' && gameData.timeLimit > 0
+      ? gameData.timeLimit
+      : 20;
+
+  if (gameData?.settings?.perQuestionTimer === true) {
+    const questionLimit = gameData?.questions?.[questionIndex]?.timeLimit;
+    if (typeof questionLimit === 'number' && questionLimit > 0) {
+      return questionLimit;
+    }
+  }
+
+  return defaultDuration;
+}
+
+/**
  * Extracts and normalizes secret answer key for a given question index.
  * Robust against schema variation:
  * - Array schema: `[ { questionIndex: 0, ... } ]`

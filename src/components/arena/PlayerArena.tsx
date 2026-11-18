@@ -14,6 +14,8 @@ import { useIntegrityGuard } from '../../hooks/useIntegrityGuard';
 import { IntegrityModal } from '../common/IntegrityModal';
 import { extractQuestionStartTimeMs } from '../../server/scoringHardening';
 import { WatermarkedQuestionCanvas } from './WatermarkedQuestionCanvas';
+import { getEstimatedServerTimeMs } from '../../lib/clockSync';
+import { useQuestionSpeech } from '../../hooks/useQuestionSpeech';
 
 interface PlayerArenaProps {
   game: GameSession;
@@ -32,18 +34,35 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
   const [submissionResult, setSubmissionResult] = useState<{ isCorrect: boolean; pointsAwarded: number } | null>(null);
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
 
-  // Read-Aloud (TTS) state
-  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-  const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [speechRate, setSpeechRate] = useState<number>(1.0);
-
   // Time tracking & Local Countdown Ring
-  const baseTime = currentQuestion?.timeLimit || game.timeLimit || 20;
+  const baseTime = game.settings?.perQuestionTimer
+    ? (currentQuestion?.timeLimit || game.timeLimit || 20)
+    : (game.timeLimit || 20);
   const extraTimeMultiplier = Number(player.accommodations?.extraTimeMultiplier) || 1;
   const totalTimeLimit = Math.round(baseTime * extraTimeMultiplier);
   const [playerTimeLeft, setPlayerTimeLeft] = useState<number>(totalTimeLimit);
   const [questionStartTime, setQuestionStartTime] = useState<number>(() => {
     return extractQuestionStartTimeMs(game.questionStartTime) || Date.now();
+  });
+
+  // Accessible Question Speech Synthesis (TTS)
+  const {
+    isSpeaking,
+    isPaused: isSpeechPaused,
+    speechRate,
+    setSpeechRate,
+    speakCurrentQuestion,
+    pause: pauseSpeech,
+    resume: resumeSpeech,
+    stop: stopSpeech,
+    supported: speechSupported,
+  } = useQuestionSpeech({
+    question: currentQuestion,
+    questionIndex: game.currentQuestionIndex,
+    gameStatus: game.status,
+    autoRead: Boolean(player.accommodations?.readAloud),
+    hiddenOptionIndices: hiddenOptions,
+    initialRate: player.accommodations?.speechRate,
   });
 
   // Advanced Integrity Guard (Always-On Strict Integrity)
@@ -85,75 +104,9 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     return wrongOptions.slice(0, 2);
   };
 
-  // Stop TTS speech
-  const stopSpeech = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    setIsSpeaking(false);
-    setIsPaused(false);
-  };
-
-  // Read-Aloud TTS with letter, shape, and color matching English interface
-  const startReadAloud = (customRate?: number) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window) || !currentQuestion) return;
-    window.speechSynthesis.cancel();
-    if (sound.getMuted()) return;
-
-    const rate = customRate || speechRate;
-    let script = `Question: ${currentQuestion.text}. `;
-    if (currentQuestion.options && currentQuestion.type !== 'type_answer') {
-      const labels = [
-        'Option A, red triangle',
-        'Option B, yellow diamond',
-        'Option C, teal circle',
-        'Option D, blue square',
-      ];
-      currentQuestion.options.forEach((opt: string, i: number) => {
-        if (!hiddenOptions.includes(i)) {
-          script += `${labels[i % 4]}: ${opt}. `;
-        }
-      });
-    }
-
-    const utterance = new SpeechSynthesisUtterance(script);
-    utterance.rate = rate;
-
-    const voices = window.speechSynthesis.getVoices();
-    const matchedVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
-    if (matchedVoice) utterance.voice = matchedVoice;
-
-    utterance.onstart = () => {
-      setIsSpeaking(true);
-      setIsPaused(false);
-    };
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-    };
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-    };
-
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const handleTogglePauseSpeech = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    if (window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
-      setIsPaused(false);
-    } else {
-      window.speechSynthesis.pause();
-      setIsPaused(true);
-    }
-  };
-
   // Continuous countdown timer computed from server question start time until round ends
   useEffect(() => {
     if (game.status !== 'question_active') {
-      stopSpeech();
       return;
     }
 
@@ -173,11 +126,17 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
         ? (game as any).deadlineTimestampMs
         : (startMs > 0 ? startMs + (totalTimeLimit * 1000) : 0);
 
+    // If player has accommodation multiplier > 1, their personal deadline extends past the standard match deadline
+    const effectiveDeadlineMs =
+      extraTimeMultiplier > 1 && startMs > 0
+        ? startMs + (totalTimeLimit * 1000)
+        : (deadlineMs > 0 ? deadlineMs : (startMs > 0 ? startMs + (totalTimeLimit * 1000) : 0));
+
     const updateCountdown = () => {
-      const now = Date.now();
+      const now = getEstimatedServerTimeMs();
       let remaining = 0;
-      if (deadlineMs > 0) {
-        remaining = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+      if (effectiveDeadlineMs > 0) {
+        remaining = Math.max(0, Math.ceil((effectiveDeadlineMs - now) / 1000));
       } else if (startMs > 0) {
         const elapsedSec = Math.floor((now - startMs) / 1000);
         remaining = Math.max(0, totalTimeLimit - elapsedSec);
@@ -235,18 +194,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     } else {
       setHiddenOptions([]);
     }
-
-    // Read-aloud TTS if enabled (auto-read once per question at configured speed)
-    if (player.accommodations.readAloud && currentQuestion?.text && !restored) {
-      startReadAloud(player.accommodations.speechRate || speechRate);
-    } else {
-      stopSpeech();
-    }
-
-    return () => {
-      stopSpeech();
-    };
-  }, [game.currentQuestionIndex, player.accommodations.readAloud, player.accommodations.fewerOptions]);
+  }, [game.currentQuestionIndex, player.accommodations.fewerOptions]);
 
   if (isTerminated) {
     return (
@@ -549,6 +497,87 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
           strokeWidth={5}
         />
       </div>
+
+      {/* Accessible Read-Aloud (TTS) Controls */}
+      {speechSupported && game.status === 'question_active' && (
+        <div
+          role="region"
+          aria-label="Question audio assistance"
+          className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-xl bg-[var(--surface-2)] border border-[var(--border)] text-xs font-semibold text-[var(--text)]"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-base" aria-hidden="true">🔊</span>
+            <span className="font-bold text-[11px] sm:text-xs">Read Aloud:</span>
+            {!isSpeaking && !isSpeechPaused ? (
+              <button
+                type="button"
+                onClick={speakCurrentQuestion}
+                aria-label="Read question and options aloud"
+                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[var(--accent)] text-[var(--text-on-accent)] border border-[var(--border)] hover:opacity-90 shadow-[1px_1px_0px_var(--shadow)] active:translate-y-0.5 transition-all"
+              >
+                ▶ Play
+              </button>
+            ) : isSpeaking ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={pauseSpeech}
+                  aria-label="Pause speech audio"
+                  className="px-2 py-1 rounded-lg text-xs font-bold bg-amber-500 text-white border border-[var(--border)] hover:bg-amber-600 transition-all"
+                >
+                  ⏸ Pause
+                </button>
+                <button
+                  type="button"
+                  onClick={stopSpeech}
+                  aria-label="Stop speech audio"
+                  className="px-2 py-1 rounded-lg text-xs font-bold bg-rose-500 text-white border border-[var(--border)] hover:bg-rose-600 transition-all"
+                >
+                  ⏹ Stop
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={resumeSpeech}
+                  aria-label="Resume speech audio"
+                  className="px-2 py-1 rounded-lg text-xs font-bold bg-emerald-500 text-white border border-[var(--border)] hover:bg-emerald-600 transition-all"
+                >
+                  ▶ Resume
+                </button>
+                <button
+                  type="button"
+                  onClick={stopSpeech}
+                  aria-label="Stop speech audio"
+                  className="px-2 py-1 rounded-lg text-xs font-bold bg-rose-500 text-white border border-[var(--border)] hover:bg-rose-600 transition-all"
+                >
+                  ⏹ Stop
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-[var(--text-muted)] font-mono-code mr-1">Speed:</span>
+            {[0.75, 1.0, 1.25].map(rate => (
+              <button
+                key={rate}
+                type="button"
+                aria-pressed={speechRate === rate}
+                onClick={() => setSpeechRate(rate)}
+                className={`px-1.5 py-0.5 rounded text-[11px] font-mono-code font-bold border ${
+                  speechRate === rate
+                    ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)]'
+                    : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text)]'
+                }`}
+              >
+                {rate}x
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Anti-Scraping Canvas (or Accessible Mode Fallback) - Kept visible during reveal and active */}
       {(game.status === 'question_active' || game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type !== 'type_answer' ? (

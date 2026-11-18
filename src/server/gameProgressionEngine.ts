@@ -5,7 +5,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
-import { extractSecretAnswerForQuestion } from './scoringHardening.ts';
+import { extractSecretAnswerForQuestion, resolveQuestionDuration } from './scoringHardening.ts';
 
 export interface GameProgressionOptions {
   adminDb: Firestore;
@@ -120,7 +120,7 @@ export async function progressActiveGames(adminDb: Firestore): Promise<void> {
               const nextIndex = currentIndex + 1;
 
               if (nextIndex < totalQuestions) {
-                const duration = freshData.questions?.[nextIndex]?.timeLimit || freshData.timeLimit || 20;
+                const duration = resolveQuestionDuration(freshData, nextIndex);
                 const deadlineTimestampMs = now + duration * 1000;
 
                 tx.update(doc.ref, {

@@ -14,6 +14,7 @@ import {
   validateAndTrackPowerUp,
   globalTimingAnomalyDetector,
   serverMeasuredLatencyMap,
+  resolveQuestionDuration,
 } from './scoringHardening.ts';
 import { checkAnswerRateLimit } from './sharedRateLimiter.ts';
 import { assertAccountActive } from './accountDeletionEngine.ts';
@@ -316,7 +317,7 @@ export async function handleAnswerSubmission(
       return;
     }
 
-    const baseDurationSec = secretQuestion.timeLimit || gameData.timeLimit || 20;
+    const baseDurationSec = resolveQuestionDuration(gameData, questionIndex);
 
     // Compute correctness on server
     const isCorrect = evaluateAnswer(

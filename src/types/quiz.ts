@@ -91,6 +91,7 @@ export interface GameSettings {
   autoEmailResults: boolean;
   scoringProfile: 'speed_weighted' | 'accuracy_only';
   progressionMode?: 'manual' | 'automatic';
+  perQuestionTimer?: boolean;
   requireApprovalToJoin: boolean;
   teamMode: boolean;
 }

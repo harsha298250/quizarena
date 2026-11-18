@@ -11,6 +11,7 @@ import { ShapeTriangle, ShapeDiamond, ShapeCircle, ShapeSquare, ShieldIcon } fro
 import { TimerRing } from '../common/TimerRing';
 import { Avatar } from '../common/Avatar';
 import { extractQuestionStartTimeMs } from '../../server/scoringHardening';
+import { getEstimatedServerTimeMs } from '../../lib/clockSync';
 
 interface HostArenaProps {
   game: GameSession;
@@ -20,7 +21,9 @@ interface HostArenaProps {
 
 export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, onFinishGame }) => {
   const currentQuestion: Question | undefined = game.questions[game.currentQuestionIndex];
-  const questionTimeLimit = currentQuestion?.timeLimit || game.timeLimit || 20;
+  const questionTimeLimit = game.settings?.perQuestionTimer
+    ? (currentQuestion?.timeLimit || game.timeLimit || 20)
+    : (game.timeLimit || 20);
   const [timeLeft, setTimeLeft] = useState<number>(questionTimeLimit);
   const [answers, setAnswers] = useState<AnswerSubmission[]>([]);
   const [allAnswers, setAllAnswers] = useState<AnswerSubmission[]>([]);
@@ -119,18 +122,6 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
     }
   }, [game.status, game.isPaused, game.settings?.progressionMode, (game as any).revealDeadlineTimestampMs, game.currentQuestionIndex]);
 
-  // Early reveal in automatic mode if all active players have submitted
-  useEffect(() => {
-    if (game.settings?.progressionMode === 'automatic' && game.status === 'question_active' && !game.isPaused) {
-      if (players.length > 0 && answers.length >= players.length) {
-        if (!hasRevealedRef.current) {
-          hasRevealedRef.current = true;
-          handleReveal();
-        }
-      }
-    }
-  }, [answers.length, players.length, game.status, game.isPaused, game.settings?.progressionMode]);
-
   // Authoritative server-synced countdown timer
   useEffect(() => {
     if (game.status !== 'question_active') return;
@@ -152,7 +143,7 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
         : (startMs > 0 ? startMs + (questionTimeLimit * 1000) : 0);
 
     const updateCountdown = () => {
-      const now = Date.now();
+      const now = getEstimatedServerTimeMs();
       let remaining = 0;
       if (deadlineMs > 0) {
         remaining = Math.max(0, Math.ceil((deadlineMs - now) / 1000));
@@ -168,7 +159,11 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
       if (remaining <= 0) {
         if (!hasRevealedRef.current) {
           hasRevealedRef.current = true;
-          handleReveal();
+          // In manual mode: host triggers reveal when countdown ends
+          // In automatic mode: server progression engine handles reveal authoritatively
+          if (game.settings?.progressionMode === 'manual') {
+            handleReveal();
+          }
         }
       } else if (remaining !== lastTickedSecRef.current) {
         lastTickedSecRef.current = remaining;
