@@ -1,0 +1,142 @@
+[
+  {
+    "testName": "Two Students PIN Joining & Host Lobby Synchronization",
+    "procedure": "Host launched live arena with 6-digit PIN; Alice and Bob joined concurrently from distinct browser contexts",
+    "result": "VERIFIED",
+    "evidence": "Both \"Alice_Student\" and \"Bob_Student\" visible in Host live lobby for PIN 349766",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q1 Multiple Choice Synchronization & Answer Lock",
+    "procedure": "Host projects QuickSort question; Alice chooses O(n²) and Bob chooses O(n log n)",
+    "result": "VERIFIED",
+    "evidence": "Host text: \"What is the tight worst-case time comple...\". Both students locked in answer.",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q2 True/False Dual Option Presentation & Submission",
+    "procedure": "Host projects True/False Min-Heap question; Student renders True/False binary options",
+    "result": "VERIFIED",
+    "evidence": "Alice successfully submitted True option",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q3 Multi-Select Toggle and Explicit Confirmation",
+    "procedure": "Student toggled multiple selections and clicked \"Confirm Selected Answers (2)\"",
+    "result": "VERIFIED",
+    "evidence": "Multi-select locked in successfully without premature single-click lock",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q4 Type Answer Host Polymorphism & Student Text Entry",
+    "procedure": "Host projects text-entry question; inspected Host DOM for absence of geometric multiple-choice cards and student text input",
+    "result": "VERIFIED",
+    "evidence": "Host geometric cards count: 0 (expected 0). Student typed \"SHA-256\" and locked in.",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q5 Ordering Sequence Interface & Reordering Controls",
+    "procedure": "Student renders sequential items with ▲/▼ reorder controls; clicks \"Lock In Sequence!\"",
+    "result": "VERIFIED",
+    "evidence": "Found 4 Up buttons and 4 Down buttons. Sequence locked in successfully.",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q6 Live Poll Unscored Group Survey Feedback",
+    "procedure": "Student votes on poll option; host reveals poll; student receives unranked feedback without wrong-answer penalty",
+    "result": "VERIFIED",
+    "evidence": "Student reveal screen displayed \"Poll Response Recorded! Thank you for participating!\"",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Q7 Information Slide Presentation Card",
+    "procedure": "Host presents summary slide; verified student view contains slide content and no answer inputs or score penalties",
+    "result": "VERIFIED",
+    "evidence": "Student screen displayed \"📖 Information Slide\" with no submission required banner.",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Player Session Reload / Reconnection Integrity",
+    "procedure": "Alice refreshed her browser tab during active match; session recovery restored game without crashing",
+    "result": "VERIFIED",
+    "evidence": "Player page cleanly restored active session upon reload",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Larger Text Size Relative Scaling (130%)",
+    "procedure": "Set data-text-size=\"xlarge\" on document.documentElement; inspected computed root font-size",
+    "result": "VERIFIED",
+    "evidence": "Root font size evaluated to: 20.8px (scaled 130% from base 16px)",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Dyslexia-Friendly Font & Font Asset Audit",
+    "procedure": "Inspected computed font-family with .dyslexia-font active, verified bundled font binaries in dist/fonts/, and validated document.fonts.check() in Chromium",
+    "result": "VERIFIED",
+    "evidence": "Bundled font binaries: [LICENSE.txt, OpenDyslexic-Bold.woff2, OpenDyslexic-Regular.woff2]. Regular: true, Bold: true, OFL License: true. Browser font loaded: 1 font(s). document.fonts.check('16px OpenDyslexic'): true. Applied font-family: \"OpenDyslexic, Lexend, \"Comic Sans MS\", sans-serif\".",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Settings Modal Accessibility Section & Persistence",
+    "procedure": "Opened SettingsModal; verified presence of Text Size, Dyslexia Font, Read Aloud, and Reset to Defaults",
+    "result": "VERIFIED",
+    "evidence": "Settings modal renders Accessibility section with interactive controls and reset button",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Protected Host Route Guard (Unauthenticated Access Barrier)",
+    "procedure": "Student navigated to /?tab=host_dashboard; verified App.tsx intercepted and blocked unauthorized dashboard access",
+    "result": "VERIFIED",
+    "evidence": "Displayed \"Instructor Sign-In Required\" barrier card with \"Return to Arena\" button.",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Host Sign-Out & Immediate Arena Redirect",
+    "procedure": "Sign-out handler in Navbar and HostShell clears storage and redirects to ?tab=arena",
+    "result": "VERIFIED",
+    "evidence": "Verified in Navbar.tsx line 75 and HostShell.tsx line 117",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Analytics Zero-Attempt Course Outcome Representation",
+    "procedure": "Inspected Analytics CO attainment cards when no student attempts exist",
+    "result": "VERIFIED",
+    "evidence": "Rendered neutral badge with N/A / ○ No Data: PASS",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Responsive Layout: Desktop Wide (1920x1080)",
+    "procedure": "Rendered Arena interface at 1920x1080; measured horizontal overflow",
+    "result": "VERIFIED",
+    "evidence": "scrollWidth: 1920px, clientWidth: 1920px (Overflow: false)",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Responsive Layout: Desktop Standard (1366x768)",
+    "procedure": "Rendered Arena interface at 1366x768; measured horizontal overflow",
+    "result": "VERIFIED",
+    "evidence": "scrollWidth: 1366px, clientWidth: 1366px (Overflow: false)",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Responsive Layout: Tablet (768x1024)",
+    "procedure": "Rendered Arena interface at 768x1024; measured horizontal overflow",
+    "result": "VERIFIED",
+    "evidence": "scrollWidth: 768px, clientWidth: 768px (Overflow: false)",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Responsive Layout: Mobile Standard (390x844)",
+    "procedure": "Rendered Arena interface at 390x844; measured horizontal overflow",
+    "result": "VERIFIED",
+    "evidence": "scrollWidth: 390px, clientWidth: 390px (Overflow: false)",
+    "remainingIssue": "None"
+  },
+  {
+    "testName": "Responsive Layout: Mobile Compact (360x740)",
+    "procedure": "Rendered Arena interface at 360x740; measured horizontal overflow",
+    "result": "VERIFIED",
+    "evidence": "scrollWidth: 360px, clientWidth: 360px (Overflow: false)",
+    "remainingIssue": "None"
+  }
+]

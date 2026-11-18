@@ -108,7 +108,19 @@ export const HostShell: React.FC<HostShellProps> = ({
 
   const handleSignOut = async () => {
     sound.playClick();
-    await signOut(auth);
+    try {
+      sessionStorage.removeItem('quizarena_active_session');
+      sessionStorage.removeItem('quizarena_game_id');
+      localStorage.removeItem('quizarena_saved_tab');
+      await signOut(auth);
+    } finally {
+      setCurrentTab('arena');
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', 'arena');
+        window.history.replaceState({ tab: 'arena' }, '', url.toString());
+      }
+    }
   };
 
   const navItems: NavItem[] = [
@@ -187,11 +199,11 @@ export const HostShell: React.FC<HostShellProps> = ({
         Skip to main content
       </a>
 
-      {/* Desktop Shell Grid: Sidebar + Flexible Main Content */}
-      <div className="hidden md:grid min-h-screen" style={{ gridTemplateColumns: isCollapsed ? '72px 1fr' : '260px 1fr' }}>
+      {/* Unified Shell Grid: Sidebar (desktop) + Main Column (mobile header, single main, mobile nav) */}
+      <div className="min-h-screen flex flex-col md:grid" style={{ gridTemplateColumns: isCollapsed ? '72px 1fr' : '260px 1fr' }}>
         {/* Host Desktop Sidebar */}
         <aside
-          className="sticky top-0 h-screen border-r-3 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] flex flex-col justify-between p-3 overflow-y-auto select-none transition-all duration-200 z-30"
+          className="hidden md:flex sticky top-0 h-screen border-r-3 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] flex-col justify-between p-3 overflow-y-auto select-none transition-all duration-200 z-30"
           aria-label="Host Management Navigation"
         >
           {/* Top: Brand Header & Collapse Toggle */}
@@ -407,71 +419,63 @@ export const HostShell: React.FC<HostShellProps> = ({
           </div>
         </aside>
 
-        {/* Desktop Main Content Area */}
-        <div className="flex flex-col min-w-0 overflow-x-clip">
+        {/* Content Column: Mobile Header, Unified Single Main Content, and Mobile Navigation */}
+        <div className="flex flex-col min-w-0 min-h-screen overflow-x-clip pb-16 md:pb-0">
+          {/* Mobile Slim Header */}
+          <header className="md:hidden sticky top-0 z-40 border-b-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-4 py-2.5 flex items-center justify-between shadow-xs">
+            <div
+              onClick={() => handleNavClick('host_dashboard')}
+              className="flex items-center gap-2 cursor-pointer select-none min-w-0"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl border-2 border-[var(--border)] bg-[var(--accent)] shadow-[2px_2px_0px_var(--shadow)] shrink-0">
+                <span className="font-['Bricolage_Grotesque'] font-black text-base text-[var(--text-on-accent)]">Q</span>
+              </div>
+              <span className="font-['Bricolage_Grotesque'] text-lg font-black tracking-tight text-[var(--text)] truncate">
+                Quiz<span className="text-[var(--accent)]">Arena</span>
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setShortcutsModalOpen(true)}
+                className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
+                title="Keyboard Shortcuts (?)"
+                aria-label="Keyboard Shortcuts"
+              >
+                ⌨️
+              </button>
+              <button
+                type="button"
+                onClick={() => setCommandPaletteOpen(true)}
+                className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
+                title="Search commands"
+                aria-label="Search commands"
+              >
+                🔍
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsOpen(true)}
+                className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
+                title="Settings"
+                aria-label="Settings"
+              >
+                ⚙️
+              </button>
+            </div>
+          </header>
+
+          {/* Unified Single Main Content Area */}
           <main id="main-content" className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0">
             {children}
           </main>
-        </div>
-      </div>
 
-      {/* Mobile Shell Layout (below 768px): Top Bar + Content + Bottom Tabs */}
-      <div className="md:hidden flex flex-col min-h-screen pb-16">
-        {/* Mobile Slim Header */}
-        <header className="sticky top-0 z-40 border-b-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] px-4 py-2.5 flex items-center justify-between shadow-xs">
-          <div
-            onClick={() => handleNavClick('host_dashboard')}
-            className="flex items-center gap-2 cursor-pointer select-none min-w-0"
+          {/* Mobile Bottom Navigation Tabs: Dashboard, Studio, AI Quiz, Analytics, More */}
+          <nav
+            className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] flex items-center justify-around py-1.5 px-2 shadow-lg"
+            aria-label="Mobile Navigation"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl border-2 border-[var(--border)] bg-[var(--accent)] shadow-[2px_2px_0px_var(--shadow)] shrink-0">
-              <span className="font-['Bricolage_Grotesque'] font-black text-base text-[var(--text-on-accent)]">Q</span>
-            </div>
-            <span className="font-['Bricolage_Grotesque'] text-lg font-black tracking-tight text-[var(--text)] truncate">
-              Quiz<span className="text-[var(--accent)]">Arena</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setShortcutsModalOpen(true)}
-              className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
-              title="Keyboard Shortcuts (?)"
-              aria-label="Keyboard Shortcuts"
-            >
-              ⌨️
-            </button>
-            <button
-              type="button"
-              onClick={() => setCommandPaletteOpen(true)}
-              className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
-              title="Search commands"
-              aria-label="Search commands"
-            >
-              🔍
-            </button>
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-xs"
-              title="Settings"
-              aria-label="Settings"
-            >
-              ⚙️
-            </button>
-          </div>
-        </header>
-
-        {/* Mobile Main Content */}
-        <main id="main-content" className="flex-1 p-4 min-w-0 overflow-x-clip">
-          {children}
-        </main>
-
-        {/* Mobile Bottom Navigation Tabs: Dashboard, Studio, AI Quiz, Analytics, More */}
-        <nav
-          className="fixed bottom-0 left-0 right-0 z-40 border-t-2 border-[var(--border)] bg-[var(--surface)] text-[var(--text)] flex items-center justify-around py-1.5 px-2 shadow-lg"
-          aria-label="Mobile Navigation"
-        >
           <button
             type="button"
             onClick={() => handleNavClick('host_dashboard')}
@@ -649,6 +653,7 @@ export const HostShell: React.FC<HostShellProps> = ({
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* Modals & Command Palette */}

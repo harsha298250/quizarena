@@ -8,6 +8,7 @@ import { sound } from '../../lib/sound';
 import { useSoundMuted } from '../../hooks/useSoundMuted';
 import { ThemeMode } from '../../hooks/useTheme';
 import { ThemeToggle } from './ThemeToggle';
+import { useAccessibilitySettings, TextSizeMode } from '../../hooks/useAccessibilitySettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -28,6 +29,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   currentUserName,
 }) => {
   const [isMuted, handleToggleSound] = useSoundMuted();
+  const {
+    textSize,
+    dyslexiaFont,
+    readAloud,
+    speechRate,
+    setTextSize,
+    setDyslexiaFont,
+    setReadAloud,
+    setSpeechRate,
+    resetAccessibilitySettings,
+  } = useAccessibilitySettings();
 
   if (!isOpen) return null;
 
@@ -43,7 +55,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       aria-modal="true"
       aria-labelledby="settings-dialog-title"
     >
-      <div className="paper-card p-6 max-w-md w-full space-y-5 bg-[var(--surface)] border-3 border-[var(--border)] shadow-[6px_6px_0px_var(--shadow)] text-[var(--text)]">
+      <div className="paper-card p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-5 bg-[var(--surface)] border-3 border-[var(--border)] shadow-[6px_6px_0px_var(--shadow)] text-[var(--text)]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border)]/20 pb-3">
           <div className="flex items-center gap-2">
@@ -115,6 +127,127 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {isMuted ? 'Muted' : 'Sound Enabled'}
             </span>
           </button>
+        </div>
+
+        {/* Setting 3: Accessibility Section */}
+        <div className="space-y-3 pt-2 border-t border-[var(--border)]/20">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+              <span>♿</span> Accessibility & Reading
+            </label>
+            <button
+              type="button"
+              onClick={resetAccessibilitySettings}
+              className="text-[11px] font-bold text-[var(--accent)] hover:underline"
+            >
+              Reset to Defaults
+            </button>
+          </div>
+
+          {/* Text Size Controls (Normal 100%, Large 115%, Extra Large 130%) */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-bold text-[var(--text)]">Text Size</div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'normal' as TextSizeMode, label: 'Normal (100%)' },
+                { id: 'large' as TextSizeMode, label: 'Large (115%)' },
+                { id: 'xlarge' as TextSizeMode, label: 'Extra (130%)' },
+              ].map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={textSize === opt.id}
+                  onClick={() => {
+                    sound.playClick();
+                    setTextSize(opt.id);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-xl border-2 text-xs font-bold text-center transition-all ${
+                    textSize === opt.id
+                      ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--text-on-accent)] shadow-xs'
+                      : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:border-[var(--border-strong)]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dyslexia-Friendly Font Toggle */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+            <div>
+              <div className="text-xs font-bold text-[var(--text)]">Dyslexia-Friendly Font</div>
+              <div className="text-[11px] text-[var(--text-muted)]">OpenDyslexic with accessible weighted glyphs</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={dyslexiaFont}
+              onClick={() => {
+                sound.playClick();
+                setDyslexiaFont(!dyslexiaFont);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
+                dyslexiaFont
+                  ? 'bg-emerald-600 text-white border-emerald-700'
+                  : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)]'
+              }`}
+            >
+              {dyslexiaFont ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          {/* Read Aloud (TTS) Auto-Read */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+            <div>
+              <div className="text-xs font-bold text-[var(--text)]">Read Aloud (TTS)</div>
+              <div className="text-[11px] text-[var(--text-muted)]">Automatic speech reading on new question rounds</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={readAloud}
+              onClick={() => {
+                sound.playClick();
+                setReadAloud(!readAloud);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
+                readAloud
+                  ? 'bg-indigo-600 text-white border-indigo-700'
+                  : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)]'
+              }`}
+            >
+              {readAloud ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          {/* Speech Rate Controls */}
+          <div className="flex items-center justify-between p-2.5 rounded-xl bg-[var(--surface-2)] border border-[var(--border)]">
+            <div>
+              <div className="text-xs font-bold text-[var(--text)]">Speech Speed</div>
+              <div className="text-[11px] text-[var(--text-muted)]">TTS playback rate multiplier</div>
+            </div>
+            <div className="flex items-center gap-1">
+              {[0.75, 1.0, 1.25, 1.5].map(rate => (
+                <button
+                  key={rate}
+                  type="button"
+                  aria-pressed={speechRate === rate}
+                  onClick={() => {
+                    sound.playClick();
+                    setSpeechRate(rate);
+                  }}
+                  className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${
+                    speechRate === rate
+                      ? 'bg-[var(--accent)] text-[var(--text-on-accent)] border-[var(--border)]'
+                      : 'bg-[var(--surface)] text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {rate}x
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

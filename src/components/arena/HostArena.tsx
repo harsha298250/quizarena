@@ -267,9 +267,22 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
   }
 
   // Calculate live distribution of answers
-  const optionCounts = currentQuestion.options.map((_, idx) => {
-    return answers.filter(a => a.selectedIndices.includes(idx)).length;
+  const optionCounts = (currentQuestion.options || []).map((_, idx) => {
+    return answers.filter(a => Array.isArray(a.selectedIndices) && a.selectedIndices.includes(idx)).length;
   });
+
+  const getQuestionTypeLabel = (type: string) => {
+    switch (type) {
+      case 'type_answer': return '⌨️ Type Answer';
+      case 'ordering': return '🔢 Ordering Sequence';
+      case 'true_false': return '⚖️ True / False';
+      case 'multi_select': return '☑️ Multi-Select';
+      case 'poll': return '📊 Live Poll (Unscored)';
+      case 'info_slide': return 'ℹ️ Info Slide';
+      case 'multiple_choice':
+      default: return '🔘 Multiple Choice';
+    }
+  };
 
   const totalAnswered = answers.length;
   const answerPercentage = players.length > 0 ? Math.round((totalAnswered / players.length) * 100) : 0;
@@ -309,6 +322,9 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
           </span>
           <span className="sticker-badge bg-[var(--ok)] text-[var(--text-on-accent)] text-xs">
             {currentQuestion.courseOutcomeTag}
+          </span>
+          <span className="sticker-badge bg-[var(--surface-2)] text-[var(--text)] border border-[var(--border)] text-xs font-bold font-mono-code">
+            {getQuestionTypeLabel(currentQuestion.type)}
           </span>
         </div>
 
@@ -397,62 +413,187 @@ export const HostArena: React.FC<HostArenaProps> = React.memo(({ game, players, 
         )}
       </div>
 
-      {/* Answer Cards Grid with Live Distribution Bars */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {currentQuestion.options.map((opt, idx) => {
-          const style = optionStyles[idx % 4];
-          const isCorrect = currentQuestion.correctAnswers?.includes(idx) ?? false;
-          const count = optionCounts[idx] || 0;
-          const pct = totalAnswered > 0 ? Math.round((count / totalAnswered) * 100) : 0;
-          const isRevealed = game.status === 'reveal' || game.status === 'leaderboard';
+      {/* Response Display Area based on Question Type */}
+      {currentQuestion.type === 'type_answer' ? (
+        <div className="paper-card p-6 bg-[var(--surface)] border-3 border-[var(--border)] space-y-4">
+          <div className="flex items-center justify-between border-b pb-3 border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">⌨️</span>
+              <span className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
+                Text Entry Submissions ({answers.length} / {players.length} answered)
+              </span>
+            </div>
+            <span className="sticker-badge bg-[var(--accent)] text-white text-xs">
+              Type-In Question
+            </span>
+          </div>
 
-          return (
-            <div
-              key={idx}
-              className={`paper-card p-5 relative overflow-hidden border-3 shadow-[4px_4px_0px_var(--shadow)] transition-all ${
-                isRevealed && isCorrect
-                  ? 'ring-4 ring-green-500 scale-[1.02]'
-                  : isRevealed && !isCorrect
-                  ? 'opacity-40 grayscale-[50%]'
-                  : ''
-              } bg-[var(--surface)]`}
-            >
-              {/* Distribution Bar (revealed or live) */}
-              {isRevealed && (
-                <div
-                  className="absolute bottom-0 left-0 top-0 bg-[var(--surface-2)] -z-10 transition-all duration-700"
-                  style={{ width: `${pct}%` }}
-                />
-              )}
-
-              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                <div className={`p-2.5 rounded-xl border-2 border-[var(--border)] ${style.bg} shrink-0`}>
-                  {style.shape}
-                </div>
-                <div className="flex-1 text-left min-w-0">
-                  <span className="font-['Bricolage_Grotesque'] font-bold text-base sm:text-xl text-[var(--text)] block break-words">
-                    {opt}
-                  </span>
-                </div>
-
-                {isRevealed && (
-                  <div className="text-right shrink-0">
-                    <span className="font-mono-code font-black text-xl text-[var(--text)]">
-                      {count}
+          {game.status === 'question_active' ? (
+            <div className="py-8 text-center space-y-3">
+              <div className="text-4xl animate-bounce">💬</div>
+              <p className="font-['Bricolage_Grotesque'] text-xl font-bold text-[var(--text)]">
+                Students are typing their responses...
+              </p>
+              <p className="text-xs text-[var(--text-muted)]">
+                Submitted text is protected and will be revealed when the countdown reaches zero.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Accepted correct answers */}
+              <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500">
+                <span className="text-xs font-black uppercase text-emerald-800 dark:text-emerald-300 block mb-1">
+                  ✓ Accepted Correct Answer(s):
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {(currentQuestion.acceptedTextAnswers || currentQuestion.options || []).map((ans, i) => (
+                    <span key={i} className="sticker-badge bg-emerald-600 text-white font-mono-code text-sm px-3 py-1">
+                      {ans}
                     </span>
-                    <span className="text-xs font-bold text-[var(--text-muted)] block">({pct}%)</span>
-                    {isCorrect && (
-                      <span className="sticker-badge bg-[var(--ok)] text-[var(--text-on-accent)] text-[10px] mt-1">
-                        ✓ Correct
-                      </span>
-                    )}
+                  ))}
+                </div>
+              </div>
+
+              {/* Student submissions list */}
+              {answers.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-[var(--text-muted)] uppercase">
+                    Student Submissions ({answers.length}):
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto">
+                    {answers.map((a, i) => (
+                      <div
+                        key={i}
+                        className={`p-2.5 rounded-lg border-2 text-xs font-bold flex items-center justify-between ${
+                          a.isCorrect
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-500 text-emerald-950 dark:text-emerald-200'
+                            : 'bg-rose-50 dark:bg-rose-950/30 border-rose-500 text-rose-950 dark:text-rose-200'
+                        }`}
+                      >
+                        <span className="truncate mr-2 font-mono-code">{a.playerNickname}: &quot;{a.textAnswer || '—'}&quot;</span>
+                        <span className="shrink-0 font-black">{a.isCorrect ? '✓' : '✕'}</span>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : currentQuestion.type === 'ordering' ? (
+        <div className="paper-card p-6 bg-[var(--surface)] border-3 border-[var(--border)] space-y-4">
+          <div className="flex items-center justify-between border-b pb-3 border-[var(--border)]">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🔢</span>
+              <span className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
+                Sequence Ordering ({answers.length} / {players.length} locked in)
+              </span>
+            </div>
+            <span className="sticker-badge bg-[var(--accent)] text-white text-xs">
+              Arrange in Correct Order
+            </span>
+          </div>
+
+          {game.status === 'question_active' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {(currentQuestion.options || []).map((item, idx) => (
+                <div key={idx} className="p-4 rounded-xl border-2 border-[var(--border)] bg-[var(--surface-2)] flex items-center gap-3">
+                  <span className="w-7 h-7 rounded-full bg-[var(--accent)] text-white flex items-center justify-center font-bold text-xs">
+                    {idx + 1}
+                  </span>
+                  <span className="font-bold text-sm text-[var(--text)]">{item}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4 animate-fadeIn">
+              <span className="text-xs font-black uppercase text-emerald-800 dark:text-emerald-300 block">
+                ✓ Authoritative Correct Sequence:
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(currentQuestion.correctAnswers || [0, 1, 2, 3]).map((targetIdx, orderPos) => {
+                  const itemText = (currentQuestion.options || [])[targetIdx] || `Item ${targetIdx + 1}`;
+                  return (
+                    <div key={orderPos} className="p-4 rounded-xl border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-sm shrink-0">
+                        {orderPos + 1}
+                      </span>
+                      <span className="font-bold text-sm sm:text-base text-emerald-950 dark:text-emerald-100">{itemText}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      ) : currentQuestion.type === 'info_slide' ? (
+        <div className="paper-card p-6 bg-[var(--surface-2)] border-3 border-[var(--border)] text-center space-y-3">
+          <span className="sticker-badge bg-[var(--info)] text-white text-xs">
+            ℹ️ Information Presentation Slide (0 Points)
+          </span>
+          <p className="text-sm font-semibold text-[var(--text)]">
+            This slide presents instructional content. Students are viewing this material simultaneously.
+          </p>
+        </div>
+      ) : (
+        /* Standard Options Grid (Multiple Choice, Multi-Select, True/False, Poll) */
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {(currentQuestion.options || []).map((opt, idx) => {
+            const style = optionStyles[idx % 4];
+            const isPoll = currentQuestion.type === 'poll';
+            const isCorrect = !isPoll && (currentQuestion.correctAnswers?.includes(idx) ?? false);
+            const count = optionCounts[idx] || 0;
+            const pct = totalAnswered > 0 ? Math.round((count / totalAnswered) * 100) : 0;
+            const isRevealed = game.status === 'reveal' || game.status === 'leaderboard';
+
+            return (
+              <div
+                key={idx}
+                className={`paper-card p-5 relative overflow-hidden border-3 shadow-[4px_4px_0px_var(--shadow)] transition-all ${
+                  isRevealed && isCorrect
+                    ? 'ring-4 ring-green-500 scale-[1.02]'
+                    : isRevealed && !isCorrect && !isPoll
+                    ? 'opacity-40 grayscale-[50%]'
+                    : ''
+                } bg-[var(--surface)]`}
+              >
+                {/* Distribution Bar (revealed or live) */}
+                {isRevealed && (
+                  <div
+                    className="absolute bottom-0 left-0 top-0 bg-[var(--surface-2)] -z-10 transition-all duration-700"
+                    style={{ width: `${pct}%` }}
+                  />
+                )}
+
+                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                  <div className={`p-2.5 rounded-xl border-2 border-[var(--border)] ${style.bg} shrink-0`}>
+                    {style.shape}
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <span className="font-['Bricolage_Grotesque'] font-bold text-base sm:text-xl text-[var(--text)] block break-words">
+                      {opt}
+                    </span>
+                  </div>
+
+                  {isRevealed && (
+                    <div className="text-right shrink-0">
+                      <span className="font-mono-code font-black text-xl text-[var(--text)]">
+                        {count}
+                      </span>
+                      <span className="text-xs font-bold text-[var(--text-muted)] block">({pct}%)</span>
+                      {isCorrect && (
+                        <span className="sticker-badge bg-[var(--ok)] text-[var(--text-on-accent)] text-[10px] mt-1">
+                          ✓ Correct
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Explanation Banner when Revealed */}
       {(game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.explanation && (

@@ -113,9 +113,8 @@ export function evaluateAnswer(
   }
 
   if (type === 'ordering') {
-    // Indices must be in strictly increasing order (0, 1, 2, 3...)
     if (selectedIndices.length !== correctIndices.length) return false;
-    return selectedIndices.every((val, idx) => val === idx);
+    return selectedIndices.every((val, idx) => val === correctIndices[idx]);
   }
 
   // Single choice / true_false / image_based

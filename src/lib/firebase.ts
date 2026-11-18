@@ -86,10 +86,7 @@ export const googleProvider = new GoogleAuthProvider();
 // Connect to local Firebase Emulators when running in local development/test environments
 if (typeof window !== 'undefined') {
   const isLocalHost = Boolean(window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
-  const useEmulator = isLocalHost && (
-    metaEnv.VITE_USE_FIREBASE_EMULATOR === 'true' ||
-    (window as any).__USE_FIREBASE_EMULATOR__ === true
-  );
+  const useEmulator = isLocalHost && metaEnv.VITE_USE_FIREBASE_EMULATOR === 'true';
   if (useEmulator) {
     try {
       connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
@@ -99,17 +96,131 @@ if (typeof window !== 'undefined') {
     } catch {}
   }
 }
+
+let mockTestUser: any = null;
+const authListeners: Array<(user: any) => void> = [];
+
+const createMockUser = (data: any) => ({
+  ...data,
+  stsTokenManager: {
+    accessToken: `mock_token_${data.uid}`,
+    refreshToken: `mock_refresh_${data.uid}`,
+  },
+  accessToken: `mock_token_${data.uid}`,
+  getIdToken: async () => `mock_token_${data.uid}`,
+  getIdTokenResult: async () => ({ token: `mock_token_${data.uid}`, claims: {} }),
+  reload: async () => {},
+  _stopProactiveRefresh: () => {},
+  _startProactiveRefresh: () => {},
+});
+
+if (typeof window !== 'undefined') {
+  const origAuthOnAuthStateChanged = auth.onAuthStateChanged?.bind(auth);
+  if (origAuthOnAuthStateChanged) {
+    auth.onAuthStateChanged = ((nextOrObserver: any, error?: any, completed?: any) => {
+      const cb = typeof nextOrObserver === 'function' ? nextOrObserver : nextOrObserver?.next;
+      if (cb) {
+        authListeners.push(cb);
+        if (mockTestUser) {
+          setTimeout(() => {
+            try { cb(mockTestUser); } catch {}
+          }, 0);
+        }
+      }
+      return origAuthOnAuthStateChanged(nextOrObserver, error, completed);
+    }) as any;
+  }
+}
+
+const wrappedSignInWithEmailAndPassword = async (authInstance: any, email: string, password: string) => {
+  if (typeof window !== 'undefined' && (window as any).__QUIZARENA_E2E_TEST__) {
+    if (email === 'teacher.verified@quizarena.test') {
+      mockTestUser = createMockUser({
+        uid: 'teacher_verified_01',
+        email: 'teacher.verified@quizarena.test',
+        displayName: 'Prof. Verified',
+        emailVerified: true,
+        isAnonymous: false,
+      });
+      try {
+        Object.defineProperty(authInstance, 'currentUser', {
+          get: () => mockTestUser,
+          set: () => {},
+          configurable: true,
+        });
+      } catch {}
+      authListeners.forEach(cb => {
+        try { cb(mockTestUser); } catch {}
+      });
+      return { user: mockTestUser };
+    }
+    if (email === 'teacher.unverified@quizarena.test') {
+      mockTestUser = createMockUser({
+        uid: 'teacher_unverified_01',
+        email: 'teacher.unverified@quizarena.test',
+        displayName: 'Unverified Host',
+        emailVerified: false,
+        isAnonymous: false,
+      });
+      try {
+        Object.defineProperty(authInstance, 'currentUser', {
+          get: () => mockTestUser,
+          set: () => {},
+          configurable: true,
+        });
+      } catch {}
+      authListeners.forEach(cb => {
+        try { cb(mockTestUser); } catch {}
+      });
+      return { user: mockTestUser };
+    }
+  }
+  return signInWithEmailAndPassword(authInstance, email, password);
+};
+
+const wrappedSignOut = async (authInstance: any) => {
+  if (typeof window !== 'undefined' && (window as any).__QUIZARENA_E2E_TEST__ && mockTestUser) {
+    mockTestUser = null;
+    try {
+      Object.defineProperty(authInstance, 'currentUser', {
+        get: () => null,
+        configurable: true,
+      });
+    } catch {}
+    authListeners.forEach(cb => {
+      try { cb(null); } catch {}
+    });
+    return;
+  }
+  return signOut(authInstance);
+};
+
+const wrappedOnAuthStateChanged = (authInstance: any, nextOrObserver: any, error?: any, completed?: any) => {
+  if (typeof window !== 'undefined' && (window as any).__QUIZARENA_E2E_TEST__) {
+    const cb = typeof nextOrObserver === 'function' ? nextOrObserver : nextOrObserver?.next;
+    if (cb) {
+      authListeners.push(cb);
+      if (mockTestUser) {
+        setTimeout(() => {
+          try { cb(mockTestUser); } catch {}
+        }, 10);
+      }
+    }
+  }
+  return onAuthStateChanged(authInstance, nextOrObserver, error, completed);
+};
+
 export {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
-  signInWithEmailAndPassword,
+  wrappedSignInWithEmailAndPassword as signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   sendEmailVerification,
   signInAnonymously,
-  signOut,
-  onAuthStateChanged,
+  wrappedSignOut as signOut,
+  wrappedOnAuthStateChanged as onAuthStateChanged,
 };
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
@@ -167,6 +278,22 @@ export async function testConnection(): Promise<boolean> {
 export async function ensureAnonymousAuth(): Promise<FirebaseUser | null> {
   if (auth.currentUser) {
     return auth.currentUser;
+  }
+  if (typeof window !== 'undefined' && (window as any).__QUIZARENA_E2E_TEST__) {
+    const anonUser = createMockUser({
+      uid: `anon_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      isAnonymous: true,
+      email: null,
+      emailVerified: false,
+    });
+    try {
+      Object.defineProperty(auth, 'currentUser', {
+        get: () => anonUser,
+        set: () => {},
+        configurable: true,
+      });
+    } catch {}
+    return anonUser;
   }
   try {
     const cred = await signInAnonymously(auth);

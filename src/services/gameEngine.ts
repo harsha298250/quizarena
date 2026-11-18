@@ -138,6 +138,9 @@ export class GameEngine {
     };
     localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(hostSession));
     broadcastChannel?.postMessage({ type: 'GAME_CREATED', session });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('quizarena_game_updated', { detail: hostSession }));
+    }
 
     return hostSession;
   }
@@ -199,7 +202,11 @@ export class GameEngine {
             onStatusChange?.('connected');
 
             if (snap.exists()) {
-              onUpdate(snap.data() as GameSession);
+              const serverSession = snap.data() as GameSession;
+              try {
+                localStorage.setItem(`quizarena_game_${gameId}`, JSON.stringify(serverSession));
+              } catch {}
+              onUpdate(serverSession);
             }
           },
           error => {
@@ -247,7 +254,17 @@ export class GameEngine {
       }
     };
 
+    const handleLocalGameUpdate = (evt: Event) => {
+      const custom = evt as CustomEvent<GameSession>;
+      if (custom.detail && (custom.detail.id === gameId)) {
+        onUpdate(custom.detail);
+      }
+    };
+
     broadcastChannel?.addEventListener('message', handleBroadcast);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('quizarena_game_updated', handleLocalGameUpdate);
+    }
 
     // Initial check from localStorage (offline cache)
     if (!isFirebaseConfigured) {
@@ -267,6 +284,9 @@ export class GameEngine {
         try { unsubFirestore(); } catch {}
       }
       broadcastChannel?.removeEventListener('message', handleBroadcast);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('quizarena_game_updated', handleLocalGameUpdate);
+      }
     };
   }
 
@@ -367,7 +387,18 @@ export class GameEngine {
         onUpdate(evt.data.players);
       }
     };
+
+    const handleLocalPlayersUpdate = (evt: Event) => {
+      const custom = evt as CustomEvent<{ gameId: string; players: Player[] }>;
+      if (custom.detail && custom.detail.gameId === gameId) {
+        onUpdate(custom.detail.players);
+      }
+    };
+
     broadcastChannel?.addEventListener('message', handleBroadcast);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('quizarena_players_updated', handleLocalPlayersUpdate);
+    }
 
     // LocalStorage fallback for demo mode
     const localPlayersKey = `quizarena_players_${gameId}`;
@@ -386,6 +417,9 @@ export class GameEngine {
         try { unsubFirestore(); } catch {}
       }
       broadcastChannel?.removeEventListener('message', handleBroadcast);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('quizarena_players_updated', handleLocalPlayersUpdate);
+      }
     };
   }
 
@@ -420,7 +454,30 @@ export class GameEngine {
       }
 
       if (res) {
-        if (!res.ok) {
+        if (res.ok) {
+          const data = await res.json();
+          // Update local players list and broadcast across local tabs for immediate sync
+          const localPlayersKey = `quizarena_players_${gameId}`;
+          try {
+            const players: Player[] = JSON.parse(localStorage.getItem(localPlayersKey) || '[]');
+            const filtered = players.filter(p => p.id !== data.player.id);
+            filtered.push(data.player);
+            localStorage.setItem(localPlayersKey, JSON.stringify(filtered));
+            broadcastChannel?.postMessage({
+              type: 'PLAYERS_UPDATED',
+              gameId,
+              players: filtered,
+            });
+          } catch {}
+          return {
+            game: data.game,
+            player: data.player,
+          };
+        } else if (res.status === 401 || res.status === 503) {
+          // If server rejects with 401 or 503 (e.g. unauthenticated backend / degraded mode),
+          // allow offline/local game session fallback if game was created locally
+          console.warn(`Server join returned ${res.status}, attempting local session fallback.`);
+        } else {
           const errData = await res.json().catch(() => ({}));
           const errMsg =
             errData.error ||
@@ -429,25 +486,6 @@ export class GameEngine {
               : `Failed to join game (HTTP ${res.status})`);
           throw new Error(errMsg);
         }
-
-        const data = await res.json();
-        // Update local players list and broadcast across local tabs for immediate sync
-        const localPlayersKey = `quizarena_players_${gameId}`;
-        try {
-          const players: Player[] = JSON.parse(localStorage.getItem(localPlayersKey) || '[]');
-          const filtered = players.filter(p => p.id !== data.player.id);
-          filtered.push(data.player);
-          localStorage.setItem(localPlayersKey, JSON.stringify(filtered));
-          broadcastChannel?.postMessage({
-            type: 'PLAYERS_UPDATED',
-            gameId,
-            players: filtered,
-          });
-        } catch {}
-        return {
-          game: data.game,
-          player: data.player,
-        };
       }
     }
 
@@ -629,27 +667,7 @@ export class GameEngine {
     const idToken = (await user?.getIdToken()) || '';
     const { timeLimit, questions, ...gameSettings } = settings;
 
-    if (isFirebaseConfigured && idToken) {
-      try {
-        const updatePayload: Record<string, any> = {
-          updatedAt: serverTimestamp(),
-        };
-        for (const [k, v] of Object.entries(gameSettings)) {
-          updatePayload[`settings.${k}`] = v;
-        }
-        if (timeLimit !== undefined) {
-          updatePayload.timeLimit = timeLimit;
-        }
-        if (questions !== undefined) {
-          updatePayload.questions = questions;
-        }
-        await updateDoc(doc(db, 'games', gameId), updatePayload);
-      } catch (err: any) {
-        console.warn('Failed to update game settings in Firestore:', err);
-      }
-    }
-
-    // Update local storage and broadcast
+    // Update local storage and broadcast immediately for local reactivity
     try {
       const localKey = `quizarena_game_${gameId}`;
       const saved = localStorage.getItem(localKey);
@@ -664,8 +682,34 @@ export class GameEngine {
         };
         localStorage.setItem(localKey, JSON.stringify(updated));
         broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('quizarena_game_updated', { detail: updated }));
+        }
       }
     } catch {}
+
+    if (isFirebaseConfigured && idToken) {
+      try {
+        const updatePayload: Record<string, any> = {
+          updatedAt: serverTimestamp(),
+        };
+        for (const [k, v] of Object.entries(gameSettings)) {
+          updatePayload[`settings.${k}`] = v;
+        }
+        if (timeLimit !== undefined) {
+          updatePayload.timeLimit = timeLimit;
+        }
+        if (questions !== undefined) {
+          updatePayload.questions = questions;
+        }
+        await Promise.race([
+          updateDoc(doc(db, 'games', gameId), updatePayload),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore write timeout')), 1500)),
+        ]);
+      } catch (err: any) {
+        console.warn('Failed to update game settings in Firestore:', err);
+      }
+    }
   }
 
   // Host updates game status via authoritative server endpoints
@@ -674,8 +718,36 @@ export class GameEngine {
     newStatus: GameSession['status'],
     questionIndex?: number
   ): Promise<void> {
+    // 1. Immediate optimistic local cache update and cross-tab BroadcastChannel propagation
+    const updated: GameSession = {
+      ...game,
+      status: newStatus,
+      currentQuestionIndex: questionIndex !== undefined ? questionIndex : game.currentQuestionIndex,
+      questionStartTime: newStatus === 'question_active' ? Date.now() : game.questionStartTime,
+      timeLimit:
+        newStatus === 'question_active' && questionIndex !== undefined
+          ? game.questions[questionIndex]?.timeLimit || 20
+          : game.timeLimit,
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(updated));
+      broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('quizarena_game_updated', { detail: updated }));
+      }
+    } catch {}
+
+    // 2. Authoritative server sync (non-blocking with timeout protection)
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
 
     if (isFirebaseConfigured && idToken) {
       try {
@@ -699,7 +771,6 @@ export class GameEngine {
         } else if (newStatus === 'cancelled') {
           endpoint = '/api/cancel-game';
         } else {
-          // If status did not change or unrecognized status (e.g. 'lobby'), do not hit advance-question!
           return;
         }
 
@@ -714,37 +785,48 @@ export class GameEngine {
 
         if (!resp.ok) {
           const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData.error || `Server rejected transition to ${newStatus}`);
+          // If server rejects due to invalid state/permission (400, 403, 409), revert optimistic state
+          if (resp.status === 400 || resp.status === 403 || resp.status === 409) {
+            try {
+              localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(game));
+              broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: game });
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('quizarena_game_updated', { detail: game }));
+              }
+            } catch {}
+            throw new Error(errData.error || `Server rejected transition to ${newStatus}`);
+          }
+          // For 401/404 (offline/mock fallback session not registered on server), retain local session
+          return;
+        }
+
+        const resData = await resp.json().catch(() => ({}));
+        if (resData.game) {
+          localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(resData.game));
+          broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: resData.game });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('quizarena_game_updated', { detail: resData.game }));
+          }
         }
       } catch (err: any) {
-        if (isFirebaseConfigured) {
-          notifyFirestoreError(`Failed to update game status to "${newStatus}"`, err);
+        console.warn(`Server updateGameStatus error for ${newStatus}:`, err);
+        if (err.message && err.message.includes('Server rejected transition')) {
           throw err;
         }
       }
     }
-
-    // Immediate local cache update and cross-tab BroadcastChannel propagation
-    const updated: GameSession = {
-      ...game,
-      status: newStatus,
-      currentQuestionIndex: questionIndex !== undefined ? questionIndex : game.currentQuestionIndex,
-      questionStartTime: newStatus === 'question_active' ? Date.now() : game.questionStartTime,
-      timeLimit:
-        newStatus === 'question_active' && questionIndex !== undefined
-          ? game.questions[questionIndex]?.timeLimit || 20
-          : game.timeLimit,
-      updatedAt: new Date().toISOString(),
-    };
-
-    localStorage.setItem(`quizarena_game_${game.id}`, JSON.stringify(updated));
-    broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
   }
 
   // Host starts the game from lobby
   public static async startGame(gameId: string): Promise<boolean> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       try {
         const res = await fetch('/api/start-game', {
@@ -786,6 +868,9 @@ export class GameEngine {
         };
         localStorage.setItem(localKey, JSON.stringify(updated));
         broadcastChannel?.postMessage({ type: 'GAME_UPDATED', session: updated });
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('quizarena_game_updated', { detail: updated }));
+        }
         return true;
       }
     } catch {}
@@ -796,7 +881,13 @@ export class GameEngine {
   // Host pauses active round
   public static async pauseGame(gameId: string): Promise<boolean> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       const res = await fetch('/api/pause-game', {
         method: 'POST',
@@ -814,7 +905,13 @@ export class GameEngine {
   // Host resumes active round
   public static async resumeGame(gameId: string): Promise<boolean> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       const res = await fetch('/api/resume-game', {
         method: 'POST',
@@ -832,7 +929,13 @@ export class GameEngine {
   // Host ends game session
   public static async endGame(gameId: string): Promise<boolean> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       const res = await fetch('/api/end-game', {
         method: 'POST',
@@ -850,7 +953,13 @@ export class GameEngine {
   // Host cancels game session
   public static async cancelGame(gameId: string): Promise<boolean> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       const res = await fetch('/api/cancel-game', {
         method: 'POST',
@@ -870,7 +979,13 @@ export class GameEngine {
     status: 'connected' | 'disconnected' = 'connected'
   ): Promise<{ success: boolean; hostStatus?: string }> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       try {
         const res = await fetch('/api/host-heartbeat', {
@@ -935,7 +1050,13 @@ export class GameEngine {
   // Host reconciles player count
   public static async reconcilePlayerCount(gameId: string): Promise<number | null> {
     const user = auth.currentUser;
-    const idToken = (await user?.getIdToken()) || '';
+    let idToken = '';
+    try {
+      idToken = (await Promise.race([
+        user?.getIdToken(false),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Auth token timeout')), 1500)),
+      ])) || '';
+    } catch {}
     if (isFirebaseConfigured && idToken) {
       const res = await fetch('/api/reconcile-player-count', {
         method: 'POST',

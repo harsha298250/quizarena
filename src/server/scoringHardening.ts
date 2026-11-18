@@ -165,11 +165,13 @@ export function extractSecretAnswerForQuestion(
     ? fallbackQuestion.acceptedTextAnswers
     : [];
 
-  // If no answer information exists at all
+  // If no answer information exists at all (unless unscored type like poll or info_slide)
   if (
     !rawSecret &&
     !fallbackQuestion?.correctAnswers &&
-    !fallbackQuestion?.acceptedTextAnswers
+    !fallbackQuestion?.acceptedTextAnswers &&
+    questionType !== 'poll' &&
+    questionType !== 'info_slide'
   ) {
     return null;
   }

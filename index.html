@@ -26,6 +26,18 @@
           } else {
             document.documentElement.classList.remove('dark');
           }
+
+          var a11yRaw = localStorage.getItem('quizarena_accessibility_settings');
+          if (a11yRaw) {
+            var a11y = JSON.parse(a11yRaw);
+            if (a11y && a11y.textSize) {
+              document.documentElement.setAttribute('data-text-size', a11y.textSize);
+            }
+            if (a11y && a11y.dyslexiaFont) {
+              document.documentElement.setAttribute('data-dyslexia', 'true');
+              document.body && document.body.classList.add('dyslexia-font');
+            }
+          }
         } catch (e) {}
       })();
     </script>

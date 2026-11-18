@@ -7,7 +7,7 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: 'http://127.0.0.1:5199',
     trace: 'off',
   },
   projects: [
@@ -20,8 +20,11 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'node node_modules/vite/bin/vite.js preview --port 5173 --host 127.0.0.1',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: !process.env.CI,
+    command: 'node node_modules/vite/bin/vite.js preview --port 5199 --host 127.0.0.1',
+    url: 'http://127.0.0.1:5199',
+    reuseExistingServer: false,
+    timeout: 60000,
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
 });

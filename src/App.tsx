@@ -44,6 +44,8 @@ const ComponentFallback = () => (
   </div>
 );
 
+const HOST_ONLY_TABS = ['host_dashboard', 'builder', 'ai', 'competitions', 'analytics', 'outbox', 'certificates'];
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
@@ -181,6 +183,10 @@ export default function App() {
         }
       } else {
         setUserRole('student');
+        const urlTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null;
+        if (urlTab && HOST_ONLY_TABS.includes(urlTab)) {
+          setCurrentTab('arena');
+        }
       }
 
       // Safe session recovery on page reload/refresh once auth state is initialized
@@ -437,6 +443,13 @@ export default function App() {
     sound.playClick();
     try {
       await GameEngine.startGame(activeGame.id);
+      const local = localStorage.getItem(`quizarena_game_${activeGame.id}`);
+      if (local) {
+        try {
+          const parsed = JSON.parse(local);
+          setActiveGame(parsed);
+        } catch {}
+      }
     } catch (err: any) {
       alert(err.message || 'Failed to start game');
     }
@@ -471,8 +484,27 @@ export default function App() {
     <ErrorBoundary fallbackTitle="Application Interrupted — Auto Reconnecting...">
       <div key={currentTab} className="animate-fadeIn transition-all overflow-x-clip min-w-0">
         <React.Suspense fallback={<ComponentFallback />}>
+          {/* Protected Host Route Guard for Unauthenticated/Unverified Users */}
+          {!isHostEligible && HOST_ONLY_TABS.includes(currentTab) && (
+            <div className="paper-card p-8 max-w-md mx-auto text-center space-y-4 border-3 border-[var(--border)] my-8">
+              <div className="text-4xl">🔒</div>
+              <h2 className="font-['Bricolage_Grotesque'] text-2xl font-black text-[var(--text)]">
+                Instructor Sign-In Required
+              </h2>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Host tools, Quiz Studio, and learning analytics require an authenticated instructor account with a verified email address.
+              </p>
+              <button
+                onClick={() => handleTabChange('arena')}
+                className="paper-btn paper-btn-primary w-full py-2.5 font-black text-sm"
+              >
+                Return to Arena
+              </button>
+            </div>
+          )}
+
           {/* Tab 0A: Host Dashboard */}
-          {currentTab === 'host_dashboard' && (
+          {isHostEligible && currentTab === 'host_dashboard' && (
             <HostDashboard
               quizzes={quizzes}
               onNavigateTab={handleTabChange}
@@ -593,7 +625,7 @@ export default function App() {
         )}
 
         {/* Tab 2: Quiz Builder */}
-        {currentTab === 'builder' && (
+        {isHostEligible && currentTab === 'builder' && (
           <QuizBuilder
             quizzes={quizzes}
             onSaveQuiz={handleSaveQuiz}
@@ -604,7 +636,7 @@ export default function App() {
         )}
 
         {/* Tab 3: AI Quiz Generator */}
-        {currentTab === 'ai' && (
+        {isHostEligible && currentTab === 'ai' && (
           <AIQuizGenerator
             existingQuizzes={quizzes}
             onSaveToQuiz={handleSaveQuiz}
@@ -614,7 +646,7 @@ export default function App() {
         )}
 
         {/* Tab 4: Competition Tournaments */}
-        {currentTab === 'competitions' && (
+        {isHostEligible && currentTab === 'competitions' && (
           <CompetitionManager
             quizzes={quizzes}
             onLaunchRound={(q, compTitle) => {
@@ -625,7 +657,7 @@ export default function App() {
         )}
 
         {/* Tab 5: Analytics & CO Attainment */}
-        {currentTab === 'analytics' && (
+        {isHostEligible && currentTab === 'analytics' && (
           <AnalyticsDashboard
             quiz={activeGame ? (quizzes.find(q => q.id === activeGame.quizId) || quizzes[0]) : quizzes[0]}
             players={players}
@@ -635,13 +667,13 @@ export default function App() {
         )}
 
         {/* Tab 6: Email Outbox */}
-        {currentTab === 'outbox' && <EmailOutbox />}
+        {isHostEligible && currentTab === 'outbox' && <EmailOutbox />}
 
         {/* Tab 7: Solo Practice Spaced Repetition */}
         {currentTab === 'practice' && <SoloPractice quizzes={quizzes} />}
 
         {/* Tab 8: Verified Digital Certificates */}
-        {currentTab === 'certificates' && <CertificateGallery />}
+        {isHostEligible && currentTab === 'certificates' && <CertificateGallery />}
         </React.Suspense>
       </div>
 

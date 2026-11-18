@@ -244,8 +244,8 @@ export function computeGameAnalytics(
     };
   });
 
-  // 2. Hardest Questions Ranked by Lowest Accuracy Ascending
-  const hardestQuestions = [...questionStats].sort((a, b) => a.accuracy - b.accuracy);
+  // 2. Hardest Questions Ranked by Lowest Accuracy Ascending (Only questions with genuine attempts)
+  const hardestQuestions = [...questionStats].filter(q => q.totalAttempts > 0).sort((a, b) => a.accuracy - b.accuracy);
 
   // 3. Course Outcome (CO) Attainment
   const targetRatio = attainmentThresholdPercent / 100;

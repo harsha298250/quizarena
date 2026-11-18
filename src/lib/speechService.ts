@@ -22,20 +22,49 @@ export function buildQuestionSpeechScript(
     return '';
   }
 
-  // Strip HTML tags and markdown formatting for natural reading
-  const cleanQuestionText = question.text
+  // Strip HTML tags and markdown formatting for natural reading, avoiding double periods
+  const rawCleanText = question.text
     .replace(/<[^>]*>/g, '')
     .replace(/[*_#`~]/g, '')
     .trim();
+  const cleanQuestionText = rawCleanText.endsWith('.') ? rawCleanText.slice(0, -1) : rawCleanText;
+
+  // 1. Info Slide: speak slide prompt and content, no options
+  if (question.type === 'info_slide') {
+    let script = `Information Slide: ${cleanQuestionText}. `;
+    if (question.explanation) {
+      const cleanExplanation = question.explanation
+        .replace(/<[^>]*>/g, '')
+        .replace(/[*_#`~]/g, '')
+        .trim();
+      script += `${cleanExplanation}. `;
+    }
+    return script.trim();
+  }
 
   let script = `Question: ${cleanQuestionText}. `;
 
-  // Type-in answer questions do not speak options
+  // 2. Type Answer: speak prompt only, omit options and accepted answers
   if (question.type === 'type_answer') {
     return script.trim();
   }
 
-  // Speak visible options
+  // 3. Ordering: speak sequence instruction and each item to arrange
+  if (question.type === 'ordering') {
+    let orderScript = `Question: ${cleanQuestionText}. Items to arrange: `;
+    if (Array.isArray(question.options)) {
+      question.options.forEach((opt, idx) => {
+        const cleanOption = String(opt || '')
+          .replace(/<[^>]*>/g, '')
+          .replace(/[*_#`~]/g, '')
+          .trim();
+        orderScript += `Item ${idx + 1}: ${cleanOption}. `;
+      });
+    }
+    return orderScript.trim();
+  }
+
+  // 4. Visible options for multiple_choice, true_false, multi_select, poll
   if (Array.isArray(question.options) && question.options.length > 0) {
     const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
     question.options.forEach((opt, idx) => {

@@ -66,7 +66,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleLogout = async () => {
     sound.playClick();
-    await signOut(auth);
+    try {
+      sessionStorage.removeItem('quizarena_active_session');
+      sessionStorage.removeItem('quizarena_game_id');
+      localStorage.removeItem('quizarena_saved_tab');
+      await signOut(auth);
+    } finally {
+      setCurrentTab('arena');
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', 'arena');
+        window.history.replaceState({ tab: 'arena' }, '', url.toString());
+      }
+    }
   };
 
   const currentThemeMode: ThemeMode = theme || (isDarkMode ? 'dark' : 'light');

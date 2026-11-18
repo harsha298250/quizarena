@@ -103,14 +103,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     });
   }, [gamesList, dateFilter]);
 
+  // Auto-sync selectedGameId with filteredGames when filter or list updates
+  useEffect(() => {
+    if (selectedGameId && filteredGames.length > 0 && !filteredGames.some(g => g.id === selectedGameId)) {
+      setSelectedGameId(filteredGames[0].id);
+    } else if (!selectedGameId && filteredGames.length > 0) {
+      setSelectedGameId(filteredGames[0].id);
+    } else if (filteredGames.length === 0 && selectedGameId) {
+      setSelectedGameId('');
+      setAnalytics(null);
+    }
+  }, [filteredGames, selectedGameId]);
+
   // When selected game or attainment target changes, load and compute analytics
   useEffect(() => {
     if (!selectedGameId) {
-      if (filteredGames.length > 0) {
-        setSelectedGameId(filteredGames[0].id);
-      } else {
-        setAnalytics(null);
-      }
+      setAnalytics(null);
       return;
     }
 
@@ -396,7 +404,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 <div
                   key={co.coTag}
                   className={`paper-card p-4 border-2 ${
-                    co.isAttained ? 'bg-emerald-50 dark:bg-emerald-950/30 border-[var(--ok)]' : 'bg-amber-50 dark:bg-amber-950/30 border-amber-500'
+                    !co.hasSufficientData
+                      ? 'bg-[var(--surface-2)] border-[var(--border)] opacity-85'
+                      : co.isAttained
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 border-[var(--ok)]'
+                      : 'bg-amber-50 dark:bg-amber-950/30 border-amber-500'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -405,17 +417,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     </span>
                     <span
                       className={`sticker-badge text-xs ${
-                        co.isAttained ? 'sticker-badge-ok' : 'sticker-badge-sunshine'
+                        !co.hasSufficientData
+                          ? 'border border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)]'
+                          : co.isAttained
+                          ? 'sticker-badge-ok'
+                          : 'sticker-badge-sunshine'
                       }`}
                     >
-                      {co.isAttained ? '✓ Attained' : '⚠️ Gaps Detected'}
+                      {!co.hasSufficientData ? '○ No Data' : co.isAttained ? '✓ Attained' : '⚠️ Gaps Detected'}
                     </span>
                   </div>
                   <div className="font-mono-code text-2xl font-black text-[var(--text)]">
-                    {Math.round(co.accuracyRate * 100)}%
+                    {!co.hasSufficientData ? 'N/A' : `${Math.round(co.accuracyRate * 100)}%`}
                   </div>
                   <div className="text-xs text-[var(--text-muted)] mt-1">
-                    Threshold: {attainmentTarget}% • Total Assessments: {co.totalAttempts}
+                    {!co.hasSufficientData
+                      ? `Threshold: ${attainmentTarget}% • Zero student assessments recorded`
+                      : `Threshold: ${attainmentTarget}% • Total Assessments: ${co.totalAttempts}`}
                   </div>
                 </div>
               ))}

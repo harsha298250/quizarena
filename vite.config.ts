@@ -11,7 +11,14 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
+        includeAssets: [
+          'icon.svg',
+          'apple-touch-icon.png',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'fonts/OpenDyslexic-Regular.woff2',
+          'fonts/OpenDyslexic-Bold.woff2',
+        ],
         manifest: {
           id: '/',
           name: 'QuizArena - Real-Time Multiplayer Quiz & Competition Platform',

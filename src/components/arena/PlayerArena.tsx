@@ -33,6 +33,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
   const [committedPayload, setCommittedPayload] = useState<{ selectedIndices: number[]; textAnswer?: string } | null>(null);
   const [submissionResult, setSubmissionResult] = useState<{ isCorrect: boolean; pointsAwarded: number } | null>(null);
   const [hiddenOptions, setHiddenOptions] = useState<number[]>([]);
+  const [orderingItems, setOrderingItems] = useState<number[]>([]);
 
   // Time tracking & Local Countdown Ring
   const baseTime = game.settings?.perQuestionTimer
@@ -171,7 +172,10 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
         const parsed = JSON.parse(savedSub);
         setHasSubmitted(true);
         if (parsed.result) setSubmissionResult(parsed.result);
-        if (parsed.selectedIndices) setSelectedIndices(parsed.selectedIndices);
+        if (parsed.selectedIndices) {
+          setSelectedIndices(parsed.selectedIndices);
+          setOrderingItems(parsed.selectedIndices);
+        }
         if (parsed.textAnswer) setTextAnswer(parsed.textAnswer);
         restored = true;
       }
@@ -180,6 +184,11 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     if (!restored) {
       setSelectedIndices([]);
       setTextAnswer('');
+      if (currentQuestion?.type === 'ordering' && Array.isArray(currentQuestion.options)) {
+        setOrderingItems(currentQuestion.options.map((_, i) => i));
+      } else {
+        setOrderingItems([]);
+      }
       setHasSubmitted(false);
       setIsSubmitting(false);
       setSubmissionError(null);
@@ -194,7 +203,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
     } else {
       setHiddenOptions([]);
     }
-  }, [game.currentQuestionIndex, player.accommodations.fewerOptions]);
+  }, [game.currentQuestionIndex, player.accommodations.fewerOptions, currentQuestion]);
 
   if (isTerminated) {
     return (
@@ -265,6 +274,66 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
         sessionStorage.setItem(
           `quizarena_submitted_${game.id}_${game.currentQuestionIndex}`,
           JSON.stringify({ result, selectedIndices: [optIdx] })
+        );
+      } catch {}
+      if (result.isCorrect) sound.playCorrect();
+      else sound.playWrong();
+    } catch (err: any) {
+      console.warn('Answer submission failed, retry available:', err);
+      setIsSubmitting(false);
+      setSubmissionError(err?.message || 'Network failure while submitting answer. Tap Retry.');
+    }
+  };
+
+  const handleMoveOrderingItem = (fromIdx: number, toIdx: number) => {
+    if (
+      toIdx < 0 ||
+      toIdx >= orderingItems.length ||
+      hasSubmitted ||
+      isSubmitting ||
+      isQuestionLocked ||
+      game.status !== 'question_active'
+    ) return;
+    sound.playClick();
+    const next = [...orderingItems];
+    const item = next[fromIdx];
+    next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, item);
+    setOrderingItems(next);
+  };
+
+  const handleConfirmOrdering = async () => {
+    if (isSubmitting || hasSubmitted || isQuestionLocked || game.status !== 'question_active' || playerTimeLeft <= 0) return;
+    sound.playClick();
+    const rawTimeMs = Date.now() - questionStartTime;
+    stopSpeech();
+    setIsSubmitting(true);
+    setSubmissionError(null);
+    setCommittedPayload({ selectedIndices: [...orderingItems] });
+    setSelectedIndices([...orderingItems]);
+
+    try {
+      const result = await GameEngine.submitAnswer(
+        game.id,
+        player,
+        game.currentQuestionIndex,
+        orderingItems,
+        undefined,
+        currentQuestion,
+        game.settings,
+        rawTimeMs
+      );
+
+      setHasSubmitted(true);
+      setIsSubmitting(false);
+      setSubmissionResult(result);
+      try {
+        sessionStorage.setItem(
+          `quizarena_submitted_${game.id}_${game.currentQuestionIndex}`,
+          JSON.stringify({
+            result,
+            selectedIndices: [...orderingItems],
+          })
         );
       } catch {}
       if (result.isCorrect) sound.playCorrect();
@@ -579,8 +648,148 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
         </div>
       )}
 
+      {/* Information Slide presentation */}
+      {currentQuestion.type === 'info_slide' && (
+        <div className="paper-card p-6 border-3 space-y-4 bg-[var(--surface)] text-center shadow-[4px_4px_0px_var(--shadow)] animate-fadeIn">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs font-black uppercase tracking-wider">
+            📖 Information Slide
+          </div>
+          <h2 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--text)]">
+            {currentQuestion.text}
+          </h2>
+          {currentQuestion.explanation && (
+            <p className="text-sm font-semibold text-[var(--text-muted)] leading-relaxed max-w-lg mx-auto">
+              {currentQuestion.explanation}
+            </p>
+          )}
+          <div className="text-xs font-mono font-bold text-[var(--text-muted)] pt-2">
+            No submission required. Please follow along with your host.
+          </div>
+        </div>
+      )}
+
+      {/* Ordering Question Interaction Screen */}
+      {currentQuestion.type === 'ordering' && game.status === 'question_active' && (
+        <div className="paper-card p-5 border-3 space-y-4 bg-[var(--surface)] shadow-[4px_4px_0px_var(--shadow)] animate-fadeIn">
+          <div className="flex items-center justify-between">
+            <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-black uppercase tracking-wider">
+              🔄 Sequence Ordering
+            </span>
+            <span className="text-[11px] font-mono text-[var(--text-muted)] font-bold">
+              Use ▲ / ▼ buttons to arrange items
+            </span>
+          </div>
+          <h2 className="font-['Bricolage_Grotesque'] font-black text-xl text-[var(--text)]">
+            {currentQuestion.text}
+          </h2>
+
+          <div className="space-y-2 pt-2">
+            {orderingItems.map((optIdx, displayRank) => (
+              <div
+                key={optIdx}
+                className="flex items-center justify-between p-3 rounded-xl border-2 border-[var(--border)] bg-[var(--surface-2)] shadow-[2px_2px_0px_var(--shadow)]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-7 h-7 rounded-lg bg-[var(--accent)] text-[var(--text-on-accent)] font-mono-code font-black text-xs flex items-center justify-center">
+                    {displayRank + 1}
+                  </span>
+                  <span className="font-bold text-sm text-[var(--text)]">
+                    {currentQuestion.options[optIdx]}
+                  </span>
+                </div>
+                {!hasSubmitted && !isQuestionLocked && game.status === 'question_active' && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={displayRank === 0}
+                      onClick={() => handleMoveOrderingItem(displayRank, displayRank - 1)}
+                      className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs font-black disabled:opacity-30 hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)] transition-all"
+                      aria-label="Move item up"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      disabled={displayRank === orderingItems.length - 1}
+                      onClick={() => handleMoveOrderingItem(displayRank, displayRank + 1)}
+                      className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-xs font-black disabled:opacity-30 hover:bg-[var(--accent)] hover:text-[var(--text-on-accent)] transition-all"
+                      aria-label="Move item down"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {!hasSubmitted && !isQuestionLocked && (
+            <button
+              onClick={handleConfirmOrdering}
+              disabled={isSubmitting}
+              className="paper-btn paper-btn-ok w-full py-3 text-base font-black shadow-[4px_4px_0px_var(--shadow)] mt-2"
+            >
+              {isSubmitting ? 'Locking in Sequence...' : 'Lock In Sequence!'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Ordering Question Reveal Screen */}
+      {(game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type === 'ordering' && (
+        <div className="paper-card p-5 border-3 space-y-4 bg-[var(--surface)] shadow-[4px_4px_0px_var(--shadow)]">
+          <div className="flex items-center justify-between">
+            <h2 className="font-['Bricolage_Grotesque'] font-black text-lg text-[var(--text)]">
+              {currentQuestion.text}
+            </h2>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-black ${
+              submissionResult?.isCorrect
+                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                : 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300'
+            }`}>
+              {submissionResult?.isCorrect ? '✓ Correct Sequence' : '✕ Incorrect Sequence'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase text-[var(--text-muted)]">Your Submitted Order:</div>
+              {(selectedIndices.length > 0 ? selectedIndices : orderingItems).map((optIdx, rank) => {
+                const targetIdx = currentQuestion.correctAnswers?.[rank];
+                const isStepCorrect = targetIdx !== undefined && targetIdx === optIdx;
+                return (
+                  <div
+                    key={rank}
+                    className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-between ${
+                      isStepCorrect
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300'
+                        : 'border-rose-500 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-300'
+                    }`}
+                  >
+                    <span>{rank + 1}. {currentQuestion.options[optIdx]}</span>
+                    <span>{isStepCorrect ? '✓' : '✕'}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase text-emerald-600 dark:text-emerald-400">Authoritative Correct Order:</div>
+              {(currentQuestion.correctAnswers || []).map((optIdx, rank) => (
+                <div
+                  key={rank}
+                  className="p-2.5 rounded-lg border border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-xs font-bold text-emerald-900 dark:text-emerald-200"
+                >
+                  {rank + 1}. {currentQuestion.options[optIdx]}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Anti-Scraping Canvas (or Accessible Mode Fallback) - Kept visible during reveal and active */}
-      {(game.status === 'question_active' || game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type !== 'type_answer' ? (
+      {(game.status === 'question_active' || game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type !== 'type_answer' && currentQuestion.type !== 'ordering' && currentQuestion.type !== 'info_slide' ? (
         <div className="space-y-3">
           <WatermarkedQuestionCanvas
             questionText={currentQuestion.text}
@@ -604,7 +813,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
             onSelectOption={handleSubmitOption}
           />
         </div>
-      ) : (game.status !== 'question_active' && currentQuestion.type !== 'type_answer') ? (
+      ) : (game.status !== 'question_active' && currentQuestion.type !== 'type_answer' && currentQuestion.type !== 'ordering' && currentQuestion.type !== 'info_slide') ? (
         <div className="paper-card p-5 border-3 text-center space-y-2">
           <h1 className="font-['Bricolage_Grotesque'] font-black text-lg sm:text-xl text-[var(--text)]">
             {currentQuestion.text}
@@ -702,8 +911,8 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
         </div>
       )}
 
-      {/* Reveal Outcome State with Instant Animations */}
-      {(game.status === 'reveal' || game.status === 'leaderboard') && (
+      {/* Reveal Outcome State for Scored Questions */}
+      {(game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type !== 'poll' && currentQuestion.type !== 'info_slide' && (
         <div
           className={`paper-card p-6 text-center border-3 space-y-3 shadow-[5px_5px_0px_var(--shadow)] ${
             submissionResult?.isCorrect
@@ -731,6 +940,19 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
               {currentQuestion.explanation}
             </p>
           )}
+        </div>
+      )}
+
+      {/* Reveal Outcome State for Poll */}
+      {(game.status === 'reveal' || game.status === 'leaderboard') && currentQuestion.type === 'poll' && (
+        <div className="paper-card p-6 text-center border-3 space-y-3 shadow-[5px_5px_0px_var(--shadow)] bg-blue-50 dark:bg-blue-950/40 border-blue-500 animate-pop-in">
+          <div className="text-4xl">📊</div>
+          <h3 className="font-['Bricolage_Grotesque'] font-black text-2xl text-[var(--text)]">
+            Poll Response Recorded!
+          </h3>
+          <p className="text-xs font-semibold text-[var(--text-muted)]">
+            Thank you for participating! Polls are unscored group surveys.
+          </p>
         </div>
       )}
 

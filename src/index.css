@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* Bundled OpenDyslexic Webfonts (SIL Open Font License v1.1) */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/OpenDyslexic-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/fonts/OpenDyslexic-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
@@ -385,11 +402,26 @@ textarea::placeholder {
   background-size: 24px 24px;
 }
 
-/* Dyslexia Friendly Mode */
-.dyslexia-font {
-  font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif !important;
+/* Dyslexia Friendly Mode (OpenDyslexic with accessible fallbacks) */
+.dyslexia-font,
+[data-dyslexia="true"],
+[data-dyslexia="true"] * {
+  font-family: 'OpenDyslexic', 'Lexend', 'Comic Sans MS', sans-serif !important;
   letter-spacing: 0.05em;
   line-height: 1.6;
+}
+
+/* Larger Text Size (WCAG 2.2 AA Relative Scaling) */
+html[data-text-size="normal"] {
+  font-size: 100%;
+}
+
+html[data-text-size="large"] {
+  font-size: 115%;
+}
+
+html[data-text-size="xlarge"] {
+  font-size: 130%;
 }
 
 /* Focus styles */
