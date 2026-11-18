@@ -5,6 +5,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
+import { extractSecretAnswerForQuestion } from './scoringHardening.ts';
 
 export interface GameProgressionOptions {
   adminDb: Firestore;
@@ -62,7 +63,11 @@ export async function progressActiveGames(adminDb: Firestore): Promise<void> {
               const secretsSnap = await tx.get(secretsDocRef);
               if (secretsSnap.exists) {
                 const secrets = secretsSnap.data() || {};
-                const qSecret = secrets[currentQuestionIndex];
+                const qSecret = extractSecretAnswerForQuestion(
+                  secrets,
+                  currentQuestionIndex,
+                  freshData.questions?.[currentQuestionIndex]
+                );
                 if (qSecret) {
                   correctAnswers = Array.isArray(qSecret.correctAnswers) ? qSecret.correctAnswers : [];
                   acceptedTextAnswers = Array.isArray(qSecret.acceptedTextAnswers) ? qSecret.acceptedTextAnswers : [];

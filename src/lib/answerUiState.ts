@@ -22,6 +22,7 @@ export interface OptionStateInput {
   isSubmitting: boolean;
   isLocked: boolean;
   isExpired: boolean;
+  isServerConfirmedCorrect?: boolean;
 }
 
 /**
@@ -39,10 +40,13 @@ export function getAnswerOptionState(input: OptionStateInput): AnswerOptionVisua
     isSubmitting,
     isLocked,
     isExpired,
+    isServerConfirmedCorrect,
   } = input;
 
   const isSelected = selectedIndices.includes(optionIndex);
-  const isCorrect = correctAnswers.includes(optionIndex);
+  const isCorrect =
+    correctAnswers.includes(optionIndex) ||
+    (isSelected && isServerConfirmedCorrect === true);
 
   // When answer is revealed to participants
   if (isRevealed) {

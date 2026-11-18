@@ -568,6 +568,7 @@ export const PlayerArena: React.FC<PlayerArenaProps> = React.memo(({ game, playe
             isRevealed={game.status === 'reveal' || game.status === 'leaderboard'}
             correctAnswers={currentQuestion.correctAnswers || []}
             hiddenOptions={hiddenOptions}
+            submissionResult={submissionResult}
             isAccessibleMode={Boolean(player.accessibleApproved)}
             dyslexiaFont={Boolean(player.accommodations?.dyslexiaFont)}
             largeText={Boolean(player.accommodations?.largeText)}

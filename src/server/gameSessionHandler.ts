@@ -11,6 +11,7 @@ import { validateQuizForHosting } from '../lib/quizValidation.ts';
 import type { GameSession, Player, Quiz, GameSettings } from '../types/quiz.ts';
 import { assertAccountActive } from './accountDeletionEngine.ts';
 import { clearAnswerKeyCache } from './answerSubmissionHandler.ts';
+import { extractSecretAnswerForQuestion } from './scoringHardening.ts';
 import {
   checkGameSessionRateLimit,
   checkGameJoinIpRateLimit,
@@ -1158,7 +1159,11 @@ export async function handleRevealAnswer(
       const secretsSnap = await adminDb.doc(`games/${gameId}/secrets/answerKey`).get();
       if (secretsSnap.exists) {
         const secretsData = secretsSnap.data() || {};
-        const qSecret = secretsData[currentQuestionIndex];
+        const qSecret = extractSecretAnswerForQuestion(
+          secretsData,
+          currentQuestionIndex,
+          data.questions?.[currentQuestionIndex]
+        );
         if (qSecret) {
           correctAnswers = Array.isArray(qSecret.correctAnswers) ? qSecret.correctAnswers : [];
           acceptedTextAnswers = Array.isArray(qSecret.acceptedTextAnswers) ? qSecret.acceptedTextAnswers : [];

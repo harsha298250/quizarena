@@ -100,7 +100,7 @@ export function extractSecretAnswerForQuestion(
   if (!secretData && !fallbackQuestion) return null;
 
   let rawSecret: any = null;
-  const rawAnswers = secretData?.answers;
+  const rawAnswers = secretData?.answers !== undefined ? secretData.answers : secretData;
 
   if (Array.isArray(rawAnswers)) {
     rawSecret = rawAnswers.find(
